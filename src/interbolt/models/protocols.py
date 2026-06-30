@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Awaitable
 from typing import Protocol, runtime_checkable
 
-from interlock.models.core import Decision, Event, Finding
+from interbolt.models.core import Decision, Event, Finding
 
 
 @runtime_checkable

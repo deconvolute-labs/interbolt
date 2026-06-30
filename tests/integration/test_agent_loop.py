@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from interlock import (
+from interbolt import (
     Action,
     ApprovalDenied,
     InMemoryReporter,
@@ -15,14 +15,14 @@ from interlock import (
     configure,
     taint,
 )
-from interlock.constants import ENV_MODE, EVENT_SCHEMA_VERSION
+from interbolt.constants import ENV_MODE, EVENT_SCHEMA_VERSION
 
 if TYPE_CHECKING:
     from unittest.mock import Mock
 
     from pytest_mock import MockerFixture
 
-    from interlock import Runtime
+    from interbolt import Runtime
 
 POLICY_PATH = Path(__file__).parent.parent / "policies" / "agent_loop.yaml"
 

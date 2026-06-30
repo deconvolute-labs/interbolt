@@ -5,7 +5,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from interlock.errors import InterlockConfigError
+from interbolt.errors import InterboltConfigError
 
 
 def validate_qualified_name_part(value: str, *, part: str) -> None:
@@ -19,10 +19,10 @@ def validate_qualified_name_part(value: str, *, part: str) -> None:
         part: Which part this is, for the error message ("namespace" or "tool").
 
     Raises:
-        InterlockConfigError: If `value` contains a dot.
+        InterboltConfigError: If `value` contains a dot.
     """
     if "." in value:
-        raise InterlockConfigError(f"{part} {value!r} may not contain a dot")
+        raise InterboltConfigError(f"{part} {value!r} may not contain a dot")
 
 
 class Mode(StrEnum):

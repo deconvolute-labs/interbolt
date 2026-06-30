@@ -1,6 +1,6 @@
-# yaml-language-server: $schema=src/interlock/policy/schema.json
+# yaml-language-server: $schema=src/interbolt/policy/schema.json
 #
-# Starter interlock policy. Copy this file, then adjust sources and sinks for
+# Starter interbolt policy. Copy this file, then adjust sources and sinks for
 # your agent. See dev/spec.md §7 for the full policy reference.
 
 version: "1.0"

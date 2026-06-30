@@ -7,14 +7,14 @@ from typing import Any
 
 from celpy.evaluation import CELEvalError
 
-from interlock.constants import (
+from interbolt.constants import (
     AUDIT_MIN_MATCH_LENGTH,
     EVENT_SCHEMA_VERSION,
     RECURSION_DEPTH,
     TRIFECTA_FROM_UNTRUSTED,
 )
-from interlock.errors import PolicyEvaluationError
-from interlock.models.core import (
+from interbolt.errors import PolicyEvaluationError
+from interbolt.models.core import (
     Action,
     Decision,
     Event,
@@ -23,11 +23,11 @@ from interlock.models.core import (
     Mode,
     TrustLevel,
 )
-from interlock.models.protocols import Reporter
-from interlock.policy import Policy
-from interlock.policy.engine import build_context, evaluate_sink, resolve_label_trust
-from interlock.taint import Tainted, TaintedBytes, collect_labels, unwrap
-from interlock.utils import get_logger
+from interbolt.models.protocols import Reporter
+from interbolt.policy import Policy
+from interbolt.policy.engine import build_context, evaluate_sink, resolve_label_trust
+from interbolt.taint import Tainted, TaintedBytes, collect_labels, unwrap
+from interbolt.utils import get_logger
 
 _logger = get_logger("enforcement")
 _CONTAINER_TYPES = (list, tuple, set, frozenset)

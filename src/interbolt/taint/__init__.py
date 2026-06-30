@@ -4,8 +4,8 @@ import uuid
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from interlock.constants import RECURSION_DEPTH
-from interlock.models.core import Label
+from interbolt.constants import RECURSION_DEPTH
+from interbolt.models.core import Label
 
 _CONTAINER_TYPES = (list, tuple, set, frozenset)
 

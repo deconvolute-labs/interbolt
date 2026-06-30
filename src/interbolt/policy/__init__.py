@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from interlock.models.core import TrustLevel
-from interlock.policy.engine import CompiledSink, compile_policy
-from interlock.policy.schema import (
+from interbolt.models.core import TrustLevel
+from interbolt.policy.engine import CompiledSink, compile_policy
+from interbolt.policy.schema import (
     PolicyDocument,
     load_policy_document,
     validate_policy,

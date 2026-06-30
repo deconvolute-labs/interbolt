@@ -6,19 +6,19 @@ from collections.abc import Callable
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, TypeVar, overload
 
-from interlock.constants import DEFAULT_NAMESPACE
-from interlock.errors import ApprovalDenied, InterlockUsageError, PolicyViolation
-from interlock.models.core import Action, Decision, validate_qualified_name_part
+from interbolt.constants import DEFAULT_NAMESPACE
+from interbolt.errors import ApprovalDenied, InterboltUsageError, PolicyViolation
+from interbolt.models.core import Action, Decision, validate_qualified_name_part
 
 if TYPE_CHECKING:
-    from interlock.runtime import Runtime
+    from interbolt.runtime import Runtime
 
 _F = TypeVar("_F", bound=Callable[..., Any])
 
 current_agent_id: ContextVar[str | None] = ContextVar(
-    "interlock_agent_id", default=None
+    "interbolt_agent_id", default=None
 )
-current_run_id: ContextVar[str | None] = ContextVar("interlock_run_id", default=None)
+current_run_id: ContextVar[str | None] = ContextVar("interbolt_run_id", default=None)
 
 
 def _qualify_tool_name(tool: str) -> str:
@@ -101,7 +101,7 @@ def _enforce_decision_sync(rt: Runtime, decision: Decision) -> None:
         raise PolicyViolation(_violation_message(decision), decision=decision)
     result = rt.approval_resolver(decision)
     if inspect.isawaitable(result):
-        raise InterlockUsageError(
+        raise InterboltUsageError(
             "a sync call site cannot use an ApprovalResolver that returns an awaitable"
         )
     if not result:

@@ -9,8 +9,8 @@ import celpy
 from celpy import celtypes
 from celpy.adapter import json_to_cel
 
-from interlock.models.core import Action, Label, TrustLevel
-from interlock.policy.schema import PolicyDocument
+from interbolt.models.core import Action, Label, TrustLevel
+from interbolt.policy.schema import PolicyDocument
 
 _ANY_MACRO_PATTERN = re.compile(r"\.any\(")
 _ENV = celpy.Environment()

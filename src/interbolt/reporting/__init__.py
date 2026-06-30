@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from interlock.models.core import Decision, Event, Finding
-from interlock.utils import get_logger
+from interbolt.models.core import Decision, Event, Finding
+from interbolt.utils import get_logger
 
 _logger = get_logger("reporting")
 

@@ -4,13 +4,13 @@ import argparse
 
 from rich.console import Console
 
-from interlock import Policy
+from interbolt import Policy
 
 _console = Console()
 
 
 def main(argv: list[str] | None = None) -> int:
-    """The `interlock` console script entrypoint.
+    """The `interbolt` console script entrypoint.
 
     Args:
         argv: Command-line arguments, or `None` to use `sys.argv[1:]`.
@@ -18,7 +18,7 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         The process exit code: 0 on success, 1 on failure.
     """
-    parser = argparse.ArgumentParser(prog="interlock")
+    parser = argparse.ArgumentParser(prog="interbolt")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     validate_parser = subparsers.add_parser(

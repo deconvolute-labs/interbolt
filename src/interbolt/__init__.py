@@ -1,6 +1,6 @@
 """Provenance-gated tool calls for AI agents.
 
-Mark untrusted data where it enters an agent. interlock records its provenance,
+Mark untrusted data where it enters an agent. interbolt records its provenance,
 carries that provenance through your code, and evaluates a YAML+CEL policy at
 the tool-call boundary to allow, block, or require approval. Decisions are
 deterministic and local: no model in the loop, no network calls.
@@ -10,20 +10,20 @@ from __future__ import annotations
 
 __version__ = "0.1.0"
 
-from interlock.errors import (
+from interbolt.errors import (
     ApprovalDenied,
-    InterlockConfigError,
-    InterlockError,
-    InterlockUsageError,
+    InterboltConfigError,
+    InterboltError,
+    InterboltUsageError,
     PolicyEvaluationError,
     PolicyViolation,
 )
-from interlock.models.core import Action, Decision, Label, Mode, TrustLevel
-from interlock.models.protocols import ApprovalResolver, Reporter
-from interlock.policy import Policy
-from interlock.reporting import InMemoryReporter, LoggingReporter, NullReporter
-from interlock.runtime import Runtime, check, configure, guard
-from interlock.taint import LabeledValue, Tainted, TaintedBytes, taint
+from interbolt.models.core import Action, Decision, Label, Mode, TrustLevel
+from interbolt.models.protocols import ApprovalResolver, Reporter
+from interbolt.policy import Policy
+from interbolt.reporting import InMemoryReporter, LoggingReporter, NullReporter
+from interbolt.runtime import Runtime, check, configure, guard
+from interbolt.taint import LabeledValue, Tainted, TaintedBytes, taint
 
 __all__ = [
     "taint",
@@ -42,12 +42,12 @@ __all__ = [
     "NullReporter",
     "InMemoryReporter",
     "LoggingReporter",
-    "InterlockError",
+    "InterboltError",
     "PolicyViolation",
     "PolicyEvaluationError",
     "ApprovalDenied",
-    "InterlockConfigError",
-    "InterlockUsageError",
+    "InterboltConfigError",
+    "InterboltUsageError",
     "Tainted",
     "LabeledValue",
     "TaintedBytes",

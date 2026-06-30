@@ -7,7 +7,7 @@ from unittest.mock import Mock
 import pytest
 from pytest_mock import MockerFixture
 
-from interlock import InMemoryReporter, Policy, Runtime, configure
+from interbolt import InMemoryReporter, Policy, Runtime, configure
 
 POLICIES_DIR = Path(__file__).parent / "policies"
 

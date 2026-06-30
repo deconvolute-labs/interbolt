@@ -3,14 +3,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from interlock.models.core import Decision
+    from interbolt.models.core import Decision
 
 
-class InterlockError(Exception):
-    """Base class for every exception interlock raises as part of a policy decision."""
+class InterboltError(Exception):
+    """Base class for every exception interbolt raises as part of a policy decision."""
 
 
-class PolicyViolation(InterlockError):
+class PolicyViolation(InterboltError):
     """Raised when a guarded call is blocked by policy.
 
     Attributes:
@@ -22,7 +22,7 @@ class PolicyViolation(InterlockError):
         self.decision = decision
 
 
-class PolicyEvaluationError(InterlockError):
+class PolicyEvaluationError(InterboltError):
     """Raised when policy evaluation itself fails.
 
     Covers a malformed policy file at load time, and a CEL evaluation error
@@ -39,7 +39,7 @@ class PolicyEvaluationError(InterlockError):
         self.decision = decision
 
 
-class ApprovalDenied(InterlockError):
+class ApprovalDenied(InterboltError):
     """Raised when a `require_approval` decision is denied by the approval resolver.
 
     Attributes:
@@ -51,20 +51,20 @@ class ApprovalDenied(InterlockError):
         self.decision = decision
 
 
-class InterlockConfigError(InterlockError, ValueError):
+class InterboltConfigError(InterboltError, ValueError):
     """Raised for an invalid configuration value.
 
     Examples: an unrecognized `mode`, an out-of-range
-    `INTERLOCK_RECURSION_DEPTH`, a tool or namespace name containing a dot.
-    Subclasses `ValueError` as well as `InterlockError`, so callers can catch it
-    either as interlock's own type or by its builtin semantics.
+    `INTERBOLT_RECURSION_DEPTH`, a tool or namespace name containing a dot.
+    Subclasses `ValueError` as well as `InterboltError`, so callers can catch it
+    either as interbolt's own type or by its builtin semantics.
     """
 
 
-class InterlockUsageError(InterlockError, RuntimeError):
+class InterboltUsageError(InterboltError, RuntimeError):
     """Raised when the public API is used out of sequence.
 
     Example: calling `check()`/`guard` before `configure()` has run.
-    Subclasses `RuntimeError` as well as `InterlockError`, so callers can catch
-    it either as interlock's own type or by its builtin semantics.
+    Subclasses `RuntimeError` as well as `InterboltError`, so callers can catch
+    it either as interbolt's own type or by its builtin semantics.
     """

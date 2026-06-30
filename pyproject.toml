@@ -1,6 +1,6 @@
 [project]
-name = "interlock"
-version = "0.1.0"
+name = "interbolt"
+dynamic = ["version"]
 description = "Provenance-gated tool calls for AI agents."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -38,7 +38,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://deconvolutelabs.com"
-Issues = "https://github.com/deconvolute-labs/interlock/issues"
+Issues = "https://github.com/deconvolute-labs/interbolt/issues"
 
 [dependency-groups]
 dev = [
@@ -50,20 +50,21 @@ dev = [
   "mypy",
   "pre-commit",
   "types-pyyaml",
+  "git-cliff>=2.13.1",
 ]
 
 [project.scripts]
-interlock = "interlock.cli:main"
+interbolt = "interbolt.cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.version]
-path = "src/interlock/__init__.py"
+path = "src/interbolt/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/interlock"]
+packages = ["src/interbolt"]
 
 [tool.ruff]
 line-length = 88
@@ -95,5 +96,5 @@ disallow_untyped_defs = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-ra -q --cov=interlock --cov-report=xml"
+addopts = "-ra -q --cov=interbolt --cov-report=xml"
 asyncio_mode = "auto"

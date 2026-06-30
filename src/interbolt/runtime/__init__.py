@@ -6,21 +6,21 @@ from collections.abc import AsyncGenerator, Callable, Mapping
 from contextlib import asynccontextmanager
 from typing import Any
 
-from interlock.constants import DEFAULT_AGENT_ID, ENV_AUDIT, ENV_MODE
-from interlock.enforcement import AuditRegistry
-from interlock.enforcement import check as _enforcement_check
-from interlock.errors import InterlockConfigError, InterlockUsageError
-from interlock.models.core import Decision, Finding, Mode
-from interlock.models.protocols import ApprovalResolver, Reporter, auto_deny
-from interlock.policy import Policy
-from interlock.reporting import NullReporter
-from interlock.runtime.guard import (
+from interbolt.constants import DEFAULT_AGENT_ID, ENV_AUDIT, ENV_MODE
+from interbolt.enforcement import AuditRegistry
+from interbolt.enforcement import check as _enforcement_check
+from interbolt.errors import InterboltConfigError, InterboltUsageError
+from interbolt.models.core import Decision, Finding, Mode
+from interbolt.models.protocols import ApprovalResolver, Reporter, auto_deny
+from interbolt.policy import Policy
+from interbolt.reporting import NullReporter
+from interbolt.runtime.guard import (
     AgentHandle,
     _build_wrapper,
     current_agent_id,
     current_run_id,
 )
-from interlock.utils import get_logger
+from interbolt.utils import get_logger
 
 _logger = get_logger("runtime")
 
@@ -126,7 +126,7 @@ def _parse_mode(value: Mode | str, *, source: str) -> Mode:
     try:
         return Mode(value)
     except ValueError as exc:
-        raise InterlockConfigError(f"{source}={value!r} is not a valid mode") from exc
+        raise InterboltConfigError(f"{source}={value!r} is not a valid mode") from exc
 
 
 def configure(
@@ -141,11 +141,11 @@ def configure(
 
     No import-time side effects: only calling `configure()` compiles policy
     and applies environment overrides. The effective mode is resolved from
-    three sources, highest precedence first: the `INTERLOCK_MODE` environment
+    three sources, highest precedence first: the `INTERBOLT_MODE` environment
     variable, the policy file's `defaults.fail_mode`, and the `mode=`
-    argument (the in-code default, lowest precedence). A `INTERLOCK_MODE`
+    argument (the in-code default, lowest precedence). A `INTERBOLT_MODE`
     override that actually changes the effective mode logs a warning, so a
-    non-enforcing mode cannot silently ship. `INTERLOCK_AUDIT` overrides
+    non-enforcing mode cannot silently ship. `INTERBOLT_AUDIT` overrides
     `audit`.
 
     Args:
@@ -161,7 +161,7 @@ def configure(
         The newly configured `Runtime`, also installed as process-current.
 
     Raises:
-        InterlockConfigError: If the effective mode (after the precedence
+        InterboltConfigError: If the effective mode (after the precedence
             chain above) is not one of the valid modes.
     """
     global _current_runtime
@@ -198,8 +198,8 @@ def configure(
 
 def _current() -> Runtime:
     if _current_runtime is None:
-        raise InterlockUsageError(
-            "interlock.configure() must be called before using the bare guard/check API"
+        raise InterboltUsageError(
+            "interbolt.configure() must be called before using the bare guard/check API"
         )
     return _current_runtime
 

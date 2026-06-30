@@ -5,9 +5,9 @@ import re
 import yaml
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
-from interlock.constants import TRIFECTA_COMPUTABLE_LEGS
-from interlock.errors import InterlockConfigError, PolicyEvaluationError
-from interlock.models.core import Action, Mode, TrustLevel, validate_qualified_name_part
+from interbolt.constants import TRIFECTA_COMPUTABLE_LEGS
+from interbolt.errors import InterboltConfigError, PolicyEvaluationError
+from interbolt.models.core import Action, Mode, TrustLevel, validate_qualified_name_part
 
 _TRIFECTA_LEG_PATTERN = re.compile(r"trifecta\.contains\(\s*[\"']([^\"']+)[\"']\s*\)")
 
@@ -44,7 +44,7 @@ class SinkRule(BaseModel):
 def _split_sink_key(key: str) -> tuple[str, str]:
     namespace, separator, tool = key.rpartition(".")
     if not separator:
-        raise InterlockConfigError(
+        raise InterboltConfigError(
             f"sink key {key!r} must be a dotted 'namespace.tool' name"
         )
     validate_qualified_name_part(namespace, part="namespace")
@@ -121,7 +121,7 @@ def validate_policy(path: str) -> list[str]:
         A list of human-readable problem descriptions. Empty if the policy is
         valid. Never raises.
     """
-    from interlock.policy.engine import compile_cel_expression
+    from interbolt.policy.engine import compile_cel_expression
 
     problems: list[str] = []
     try:

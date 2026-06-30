@@ -18,7 +18,7 @@ jobs:
     if: github.ref == 'refs/heads/main'  # Only runs on main branch
     environment:
       name: pypi
-      url: https://pypi.org/p/interlock
+      url: https://pypi.org/p/interbolt
     
     steps:
       - uses: actions/checkout@v6
@@ -54,10 +54,9 @@ jobs:
 
       - name: Verify __init__.py matches
         run: |
-          # Extract version from file
-          FILE_VERSION=$(grep '__version__' src/interlock/__init__.py | cut -d'"' -f2)
+          FILE_VERSION=$(grep -E '^__version__\s*=' src/interbolt/__init__.py | head -n1 | cut -d'"' -f2)
           if [ "$FILE_VERSION" != "${{ inputs.version }}" ]; then
-            echo "ERROR: src/interlock/__init__.py says $FILE_VERSION but you requested ${{ inputs.version }}"
+            echo "ERROR: src/interbolt/__init__.py says $FILE_VERSION but you requested ${{ inputs.version }}"
             exit 1
           fi
 
@@ -85,9 +84,6 @@ jobs:
           uv run mypy .
           uv run pytest
       
-      - name: Run MCP Contract Regression Tests
-        run: uv run pytest tests/regression/ -v
-
       - name: Build Package
         run: uv build
 
