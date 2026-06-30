@@ -1,0 +1,99 @@
+[project]
+name = "interlock"
+version = "0.1.0"
+description = "Provenance-gated tool calls for AI agents."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+authors = [
+  { name = "David Kirchhoff", email = "david@deconvoluteai.com" },
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Information Technology",
+  "Intended Audience :: System Administrators",
+
+  "Topic :: Security",
+  "Topic :: Security :: Cryptography",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Internet",
+  "Topic :: Security",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Software Development :: Quality Assurance",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3 :: Only",
+]
+
+dependencies = [
+  "pydantic",
+  "cel-python",
+  "pyyaml",
+  "platformdirs",
+  "rich",
+]
+
+[project.urls]
+Homepage = "https://deconvolutelabs.com"
+Issues = "https://github.com/deconvolute-labs/interlock/issues"
+
+[dependency-groups]
+dev = [
+  "pytest",
+  "pytest-asyncio",
+  "pytest-mock",
+  "pytest-cov",
+  "ruff",
+  "mypy",
+  "pre-commit",
+  "types-pyyaml",
+]
+
+[project.scripts]
+interlock = "interlock.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/interlock/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/interlock"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "S", "UP"] # pycodestyle, pyflakes, isort, bugbear
+ignore = [
+  "S101", # Ignore "assert" warnings (we use them in pytest)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests often use "magic values" or mock data that look like secrets
+"tests/**/*" = ["S105", "S106", "S101"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true  # Force you to write types for every function
+ignore_missing_imports = true # Prevents errors if a 3rd party lib has no types
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra -q --cov=interlock --cov-report=xml"
+asyncio_mode = "auto"

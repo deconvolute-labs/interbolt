@@ -1,0 +1,38 @@
+# Test fixture policy for tests/integration/test_agent_loop.py.
+# Mirrors the shape of the repo-root policy.example.yaml, kept as its own
+# copy so integration tests aren't coupled to that file if it changes.
+
+version: "1.0"
+
+defaults:
+  source_trust: untrusted
+  sink_action: require_approval
+  fail_mode: enforce
+
+sources:
+  - name: web_search
+    trust: untrusted
+  - name: internal_kb
+    trust: trusted
+
+sinks:
+  default.send_email:
+    - name: block_untrusted_exfil
+      when: taint.any(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
+      action: block
+    - name: default
+      action: require_approval
+
+  default.fs_write:
+    - name: approve_untrusted_to_disk
+      when: taint.any(t, t.trust == "untrusted")
+      action: require_approval
+    - name: default
+      action: allow
+
+  default.run_shell:
+    - name: block_any_untrusted
+      when: max_trust == "untrusted"
+      action: block
+    - name: default
+      action: allow

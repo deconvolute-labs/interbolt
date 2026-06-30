@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=src/interlock/policy/schema.json
+#
+# Starter interlock policy. Copy this file, then adjust sources and sinks for
+# your agent. See dev/spec.md §7 for the full policy reference.
+
+version: "1.0"
+
+defaults:
+  # Any source not listed below is untrusted.
+  source_trust: untrusted
+  # A sink with no matching rule falls through to this action.
+  sink_action: require_approval
+  fail_mode: enforce
+
+# INGRESS: assign trust to named sources. `taint(value, source=...)` records
+# only the source name; trust is resolved here, at evaluation time.
+sources:
+  - name: web_search
+    trust: untrusted
+  - name: internal_kb
+    trust: trusted
+  - name: user_input
+    trust: trusted
+
+# EGRESS: gate sinks. Keys are dotted qualified names "namespace.tool".
+# Within a sink, rules are ordered; first match wins. A trailing rule with
+# no `when` is the catch-all.
+sinks:
+  default.send_email:
+    - name: block_untrusted_exfil
+      # taint.any(...) is rewritten to CEL's `exists` macro at compile time;
+      # write it exactly like this, it works unchanged.
+      when: taint.any(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
+      action: block
+    - name: default
+      action: require_approval
+
+  default.fs_write:
+    - name: approve_untrusted_to_disk
+      when: taint.any(t, t.trust == "untrusted")
+      action: require_approval
+    - name: default
+      action: allow
+
+  default.run_shell:
+    - name: block_any_untrusted
+      # `sources` and `max_trust` are top-level convenience values, siblings
+      # of `taint`, not `taint.sources`/`taint.max_trust`: CEL can't make one
+      # context variable both a list (for the `.any`/`.all` macros above)
+      # and a map (for dotted field access) at once.
+      when: max_trust == "untrusted"
+      action: block
+    - name: default
+      action: allow

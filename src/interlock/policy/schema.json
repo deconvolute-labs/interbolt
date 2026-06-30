@@ -1,0 +1,131 @@
+{
+  "$defs": {
+    "Action": {
+      "description": "The three possible policy decisions.",
+      "enum": [
+        "allow",
+        "block",
+        "require_approval"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "Defaults": {
+      "description": "Default-deny posture for sources and sinks not otherwise declared.",
+      "properties": {
+        "source_trust": {
+          "$ref": "#/$defs/TrustLevel",
+          "default": "untrusted"
+        },
+        "sink_action": {
+          "$ref": "#/$defs/Action",
+          "default": "require_approval"
+        },
+        "fail_mode": {
+          "default": "enforce",
+          "enum": [
+            "enforce",
+            "monitor",
+            "dry_run"
+          ],
+          "title": "Fail Mode",
+          "type": "string"
+        }
+      },
+      "title": "Defaults",
+      "type": "object"
+    },
+    "SinkRule": {
+      "description": "One ordered rule within a sink's rule list. First match wins.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "When"
+        },
+        "action": {
+          "$ref": "#/$defs/Action"
+        }
+      },
+      "required": [
+        "name",
+        "action"
+      ],
+      "title": "SinkRule",
+      "type": "object"
+    },
+    "SourceDeclaration": {
+      "description": "A declared ingress source and the trust level it resolves to.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "trust": {
+          "$ref": "#/$defs/TrustLevel"
+        }
+      },
+      "required": [
+        "name",
+        "trust"
+      ],
+      "title": "SourceDeclaration",
+      "type": "object"
+    },
+    "TrustLevel": {
+      "description": "The result of resolving a source name against a policy's sources table.",
+      "enum": [
+        "trusted",
+        "untrusted"
+      ],
+      "title": "TrustLevel",
+      "type": "string"
+    }
+  },
+  "description": "The validated shape of a policy YAML file.",
+  "properties": {
+    "version": {
+      "title": "Version",
+      "type": "string"
+    },
+    "defaults": {
+      "$ref": "#/$defs/Defaults"
+    },
+    "sources": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/SourceDeclaration"
+      },
+      "title": "Sources",
+      "type": "array"
+    },
+    "sinks": {
+      "additionalProperties": {
+        "items": {
+          "$ref": "#/$defs/SinkRule"
+        },
+        "type": "array"
+      },
+      "title": "Sinks",
+      "type": "object"
+    }
+  },
+  "required": [
+    "version",
+    "defaults",
+    "sinks"
+  ],
+  "title": "PolicyDocument",
+  "type": "object"
+}
