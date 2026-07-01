@@ -5,6 +5,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from interbolt.constants import RECURSION_DEPTH
+from interbolt.errors import InterboltUsageError
 from interbolt.models.core import Label
 
 _CONTAINER_TYPES = (list, tuple, set, frozenset)
@@ -24,6 +25,8 @@ def _merge_labels(*labels: Label) -> Label:
     Used both to retag a single-label transformation result (one label in,
     fresh id out) and to merge two differently-sourced operands (lineage union).
     """
+    if not labels:
+        raise InterboltUsageError("_merge_labels requires at least one label")
     seen: dict[str, None] = {}
     for label in labels:
         for name in label.lineage:

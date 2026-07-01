@@ -64,9 +64,8 @@ jobs:
       - name: Type Check (Mypy)
         run: uv run mypy .
 
-    # TODO: Add in when adding unit tests
-    #   - name: Run Unit Tests
-    #     run: uv run pytest tests/unit/ --cov=interbolt --cov-report=xml
+      - name: Run Unit Tests
+        run: uv run pytest tests/unit/ --cov=interbolt --cov-report=xml
       
       - name: Run Integration Tests
         run: uv run pytest tests/integration/ -v --no-cov

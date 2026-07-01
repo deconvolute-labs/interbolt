@@ -166,8 +166,9 @@ def configure(
     """
     global _current_runtime
 
-    _parse_mode(mode, source="mode")  # validates the lowest-precedence source
-    resolved_mode = policy.document.defaults.fail_mode
+    resolved_mode = _parse_mode(mode, source="mode")
+    if policy.document.defaults.fail_mode is not None:
+        resolved_mode = policy.document.defaults.fail_mode
 
     env_mode = os.environ.get(ENV_MODE)
     if env_mode is not None:

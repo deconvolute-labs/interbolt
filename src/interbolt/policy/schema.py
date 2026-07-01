@@ -28,7 +28,7 @@ class Defaults(BaseModel):
 
     source_trust: TrustLevel = TrustLevel.UNTRUSTED
     sink_action: Action = Action.REQUIRE_APPROVAL
-    fail_mode: Mode = Mode.ENFORCE
+    fail_mode: Mode | None = None
 
 
 class SinkRule(BaseModel):

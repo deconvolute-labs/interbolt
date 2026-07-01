@@ -1,13 +1,28 @@
 from __future__ import annotations
 
+import uuid
+from collections.abc import Callable, Generator
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from unittest.mock import Mock
 
 import pytest
 from pytest_mock import MockerFixture
 
+import interbolt.runtime as _rt_module
 from interbolt import InMemoryReporter, Policy, Runtime, configure
+from interbolt.models.core import Action, Decision, Label, Mode, TrustLevel
+from interbolt.policy import Policy as _Policy
+from interbolt.policy.engine import compile_policy
+from interbolt.policy.schema import (
+    Defaults,
+    PolicyDocument,
+    SinkRule,
+    SourceDeclaration,
+)
+
+if TYPE_CHECKING:
+    pass
 
 POLICIES_DIR = Path(__file__).parent / "policies"
 
@@ -31,3 +46,86 @@ def runtime(in_memory_reporter: InMemoryReporter, fake_resolver: Mock) -> Runtim
         approval_resolver=fake_resolver,
         mode="enforce",
     )
+
+
+# ---------------------------------------------------------------------------
+# Unit-test helpers — pure construction, no file I/O
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def make_label() -> Callable[..., Label]:
+    """Return a factory that builds a fresh Label with a UUID value_id."""
+
+    def _factory(source: str = "src") -> Label:
+        return Label(
+            source=source,
+            value_id=str(uuid.uuid4()),
+            lineage=(source,),
+        )
+
+    return _factory
+
+
+@pytest.fixture
+def make_decision() -> Callable[..., Decision]:
+    """Return a factory that builds a minimal frozen Decision."""
+
+    def _factory(
+        action: Action = Action.ALLOW,
+        matched_rule: str | None = None,
+        tool: str = "default.test_tool",
+        contributing_labels: tuple[Label, ...] = (),
+        trifecta: frozenset[str] = frozenset(),
+        mode: Mode = Mode.ENFORCE,
+        agent_id: str = "test-agent",
+        run_id: str = "test-run",
+        session_id: str | None = None,
+    ) -> Decision:
+        return Decision(
+            action=action,
+            matched_rule=matched_rule,
+            tool=tool,
+            contributing_labels=contributing_labels,
+            trifecta=trifecta,
+            mode=mode,
+            decision_id=str(uuid.uuid4()),
+            agent_id=agent_id,
+            run_id=run_id,
+            session_id=session_id,
+        )
+
+    return _factory
+
+
+@pytest.fixture
+def make_policy() -> Callable[..., _Policy]:
+    """Return a factory that builds a Policy without any file I/O."""
+
+    def _factory(
+        fail_mode: Mode | None = None,
+        sink_action: Action = Action.ALLOW,
+        sources: tuple[SourceDeclaration, ...] = (),
+        sinks: dict[str, tuple[SinkRule, ...]] | None = None,
+    ) -> _Policy:
+        document = PolicyDocument(
+            version="1.0",
+            defaults=Defaults(
+                source_trust=TrustLevel.UNTRUSTED,
+                sink_action=sink_action,
+                fail_mode=fail_mode,
+            ),
+            sources=sources,
+            sinks=sinks or {},
+        )
+        return _Policy(document=document, compiled_sinks=compile_policy(document))
+
+    return _factory
+
+
+@pytest.fixture
+def reset_runtime() -> Generator[None, None, None]:
+    """Set _current_runtime to None before and after the test."""
+    _rt_module._current_runtime = None
+    yield
+    _rt_module._current_runtime = None
