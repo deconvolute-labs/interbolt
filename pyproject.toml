@@ -65,6 +65,9 @@ path = "src/interbolt/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/interbolt"]
+artifacts = [
+  "src/interbolt/policy.example.yaml",
+]
 
 [tool.ruff]
 line-length = 88

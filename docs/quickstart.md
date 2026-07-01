@@ -8,9 +8,15 @@ pip install interbolt
 
 ## Write a policy
 
-Copy the starter [`policy.example.yaml`](../policy.example.yaml) shipped with
-the repo, or write your own. A policy declares the trust level of every
-ingress source, and the rules each guarded sink evaluates:
+Generate the starter policy with `interbolt init`, or write your own:
+
+```bash
+interbolt init                   # writes policy.example.yaml to the current directory
+interbolt init my-policy.yaml    # or choose a path
+```
+
+A policy declares the trust level of every ingress source, and the rules each
+guarded sink evaluates:
 
 ```yaml
 version: "1.0"
@@ -51,6 +57,11 @@ process-current runtime. It has no import-time side effects, so decorating a
 module with `@guard` never requires `configure()` to have run first; only
 calling the guarded function does. See [Identity](concepts/identity.md) for
 the full binding model.
+
+If you omit `policy`, interbolt loads the built-in default: no sources
+declared, every guarded call falls through to `require_approval`. A warning is
+logged naming the built-in default and pointing to `interbolt init`. This is
+useful for trying the library before writing a real policy.
 
 ## Mark untrusted data at ingress
 

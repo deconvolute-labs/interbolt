@@ -3,6 +3,7 @@ from __future__ import annotations
 from interbolt.models.core import TrustLevel
 from interbolt.policy.engine import CompiledSink, compile_policy
 from interbolt.policy.schema import (
+    Defaults,
     PolicyDocument,
     load_policy_document,
     validate_policy,
@@ -59,3 +60,24 @@ class Policy:
             Never raises.
         """
         return validate_policy(path)
+
+
+def default_policy() -> Policy:
+    """Return the built-in default policy for programmatic use and testing.
+
+    The default policy declares no sources and no sinks, with
+    ``defaults.source_trust: untrusted`` and
+    ``defaults.sink_action: require_approval``. Every guarded call falls
+    through to ``require_approval`` under this policy. This is the posture
+    ``configure(policy=None)`` uses when no policy is supplied.
+
+    Returns:
+        A compiled ``Policy`` representing the built-in default posture.
+    """
+    document = PolicyDocument(
+        version="1.0",
+        defaults=Defaults(),
+        sources=(),
+        sinks={},
+    )
+    return Policy(document=document, compiled_sinks=compile_policy(document))

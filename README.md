@@ -38,7 +38,7 @@ except PolicyViolation as e:
     print(e.decision.matched_rule)   # "block_untrusted_exfil"
 ```
 
-A starter `policy.example.yaml` ships with the repo. Check policies in CI with `interbolt validate policy.yaml`.
+Generate a starter policy with `interbolt init`, then check it in CI with `interbolt validate policy.yaml`. If you call `configure()` without a policy, interbolt uses a built-in default-deny posture (no sources, no sinks, every call requires approval) and logs a warning pointing to `interbolt init`.
 
 ## What propagates, and what does not
 
@@ -59,6 +59,8 @@ This is a deliberate, honest limit of an in-process string-subclass carrier, sta
 `configure(audit=True)` turns on the laundering audit, an in-process instrument orthogonal to the mode. It watches a real run and reports where untrusted content reached a sink without a label, which is how you catch a forgotten re-`taint`. It catches mechanical laundering (the bytes survive into the argument); it cannot catch a model summarizing or paraphrasing the untrusted text first. Findings come out through the reporter, so you assert on them in a test with `InMemoryReporter`.
 
 `interbolt validate policy.yaml` is static analysis only: it checks the schema, compiles every CEL expression, and rejects ambiguous dotted names, dead rules, and references to trifecta legs this version cannot compute. It never runs your agent, so it fits CI and pre-commit.
+
+`interbolt init` writes an editable starter policy to the current directory (or a path you supply). It refuses to overwrite an existing file.
 
 ## MCP
 

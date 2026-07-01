@@ -13,6 +13,7 @@ from interbolt.errors import InterboltConfigError, InterboltUsageError
 from interbolt.models.core import Decision, Finding, Mode
 from interbolt.models.protocols import ApprovalResolver, Reporter, auto_deny
 from interbolt.policy import Policy
+from interbolt.policy import default_policy as _default_policy
 from interbolt.reporting import NullReporter
 from interbolt.runtime.guard import (
     AgentHandle,
@@ -131,7 +132,7 @@ def _parse_mode(value: Mode | str, *, source: str) -> Mode:
 
 def configure(
     *,
-    policy: Policy,
+    policy: Policy | None = None,
     reporter: Reporter | None = None,
     approval_resolver: ApprovalResolver = auto_deny,
     mode: Mode | str = Mode.ENFORCE,
@@ -149,7 +150,10 @@ def configure(
     `audit`.
 
     Args:
-        policy: The compiled policy to enforce.
+        policy: The compiled policy to enforce. When ``None``, the built-in
+            default policy is used: no sources, no sinks, every guarded call
+            falls through to ``require_approval``. A warning is logged when
+            this happens, pointing to ``interbolt init``.
         reporter: Where decisions and findings are emitted. Defaults to
             `NullReporter()`.
         approval_resolver: Resolves `require_approval` decisions. Defaults to
@@ -165,6 +169,14 @@ def configure(
             chain above) is not one of the valid modes.
     """
     global _current_runtime
+
+    if policy is None:
+        policy = _default_policy()
+        _logger.warning(
+            "configure() called without a policy; using the built-in default "
+            "(no sources declared, every guarded call requires approval). "
+            "Run `interbolt init` to generate a starter policy file."
+        )
 
     resolved_mode = _parse_mode(mode, source="mode")
     if policy.document.defaults.fail_mode is not None:
