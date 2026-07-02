@@ -261,7 +261,6 @@ name = "interbolt"
 source = { editable = "." }
 dependencies = [
     { name = "cel-python" },
-    { name = "platformdirs" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "rich" },
@@ -283,7 +282,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cel-python" },
-    { name = "platformdirs" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "rich" },

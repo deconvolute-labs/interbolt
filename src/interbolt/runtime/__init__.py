@@ -51,12 +51,10 @@ class Runtime:
         """Return a durable per-agent handle, a secondary pattern to bare `guard`.
 
         Prefer `agent_context` and the bare `guard`/`check` for most cases.
-        Reach for this handle when a function needs a fixed `agent_id`
-        captured once at decoration time rather than read from the ambient
-        `agent_context`, and in particular when guarded calls are offloaded
-        to a thread pool: `agent_context`'s `contextvars.ContextVar` does not
-        cross that boundary, but this handle's `agent_id` is a plain string
-        carried explicitly and is immune to that limit.
+        Use this handle when a function needs a fixed `agent_id` captured
+        once at decoration time, or when guarded calls run on a thread pool:
+        `agent_id` here is a plain string carried explicitly, so it works
+        across threads where `agent_context`'s `ContextVar` would not.
 
         Args:
             agent_id: The durable, integrator-supplied agent identity.
@@ -70,21 +68,19 @@ class Runtime:
     async def agent_context(self, agent_id: str) -> AsyncGenerator[None]:
         """Bind the current agent and mint a run_id for the duration of the block.
 
-        This is the primary way to inject agent identity: it pairs with the
-        bare `guard`/`check`, which read `agent_id` from the
-        `contextvars.ContextVar` this sets rather than from a durable handle.
-        Guarded calls made inside this block share one `run_id`. Calls made
-        outside any `agent_context` fall back to `constants.DEFAULT_AGENT_ID`
-        and get a fresh `run_id` each. Any `taint()` call made inside this
-        block is also attributed to this run for run-level gating
-        (`run.tainted`, `dev/spec.md` §15.8); that attribution is cleared,
-        alongside the audit registry, when the block exits.
+        The primary way to inject agent identity: `guard`/`check` read
+        `agent_id` from the `ContextVar` this sets. Guarded calls inside
+        this block share one `run_id`; calls outside any `agent_context`
+        fall back to `constants.DEFAULT_AGENT_ID` with a fresh `run_id`
+        each. Any `taint()` call inside this block is attributed to this
+        run for run-level gating (`run.tainted`, spec §15.8); that
+        attribution clears, along with the audit registry, when the block
+        exits.
 
-        A `ContextVar` does not cross into a thread pool. If guarded calls
-        are offloaded to threads, use the durable `agent(...)` handle
-        instead, which carries `agent_id` explicitly. Note that `taint()`
-        calls made inside such an offloaded thread are, for the same reason,
-        invisible to this run's `run.tainted` gating.
+        Offloading guarded calls to a thread pool? Use `agent(...)` instead
+        (see its docstring): a `ContextVar` doesn't cross that boundary,
+        and for the same reason, `taint()` calls made in an offloaded
+        thread are invisible to this run's `run.tainted` gating.
 
         Args:
             agent_id: The agent identity to bind for this run.
@@ -162,17 +158,17 @@ def configure(
 ) -> Runtime:
     """Set up the process-wide runtime and install it as the process-current runtime.
 
-    No import-time side effects: only calling `configure()` compiles policy
-    and applies environment overrides. The effective mode is resolved from
-    three sources, highest precedence first: the `INTERBOLT_MODE` environment
-    variable, the policy file's `defaults.fail_mode`, and the `mode=`
-    argument (the in-code default, lowest precedence). A `INTERBOLT_MODE`
-    override that actually changes the effective mode logs a warning, so a
-    non-enforcing mode cannot silently ship. `INTERBOLT_AUDIT` overrides
-    `audit`. Every call also logs one WARNING-level summary line (effective
-    mode, policy source, source/sink counts, and the caller's file:line),
-    independent of any configured `Reporter`, so the library is not silent
-    by default even without a `LoggingReporter`.
+    Calling `configure()` is what compiles policy and applies environment
+    overrides; nothing happens at import time. The effective mode is
+    resolved from three sources, highest precedence first: the
+    `INTERBOLT_MODE` environment variable, the policy file's
+    `defaults.fail_mode`, and the `mode=` argument (the in-code default,
+    lowest precedence). If `INTERBOLT_MODE` changes the effective mode,
+    `configure()` logs a warning so the change is visible. `INTERBOLT_AUDIT`
+    overrides `audit`. Every call also logs one WARNING-level summary line
+    (effective mode, policy source, source/sink counts, and the caller's
+    file:line), independent of any configured `Reporter`, so this is
+    visible even without a `LoggingReporter`.
 
     Args:
         policy: The compiled policy to enforce. When ``None``, the built-in
@@ -242,19 +238,18 @@ def guard[F: Callable[..., Any]](
 ) -> Any:  # noqa: ANN401
     """Guard a function with the ambient agent identity. The primary pattern.
 
-    This is the recommended way to guard a tool call: decorate the function
-    with a bare `@guard` where it is defined, with no agent reference at
-    decoration time, and bind the acting agent's identity for the duration
-    of a run with `Runtime.agent_context` at the call site. Agent identity
-    is read from the `agent_context` contextvar, falling back to
+    The recommended way to guard a tool call: decorate the function with a
+    bare `@guard` where it is defined, with no agent reference at decoration
+    time, and bind the acting agent's identity for the duration of a run
+    with `Runtime.agent_context` at the call site. Agent identity is read
+    from the `agent_context` contextvar, falling back to
     `constants.DEFAULT_AGENT_ID` when no `agent_context` is active.
 
-    Resolves the current runtime lazily, at call time, so decorating a
-    module never requires `configure()` to have run.
+    Resolves the current runtime lazily, at call time, so a module using
+    `@guard` can be imported before `configure()` has run.
 
-    For guarded calls offloaded to a thread pool, where a
-    `contextvars.ContextVar` does not cross the thread boundary, use the
-    durable `Runtime.agent` handle instead.
+    Offloaded to a thread pool? Use `Runtime.agent` instead (see its
+    docstring).
 
     Args:
         func: The function to guard, when used as a bare `@guard`.
@@ -287,12 +282,11 @@ def check(
 ) -> Decision:
     """Evaluate policy for one call, against the current runtime.
 
-    The explicit, framework-agnostic counterpart to `guard`: it never reads
-    the `agent_context` contextvar, so `agent_id` is always a required
-    argument here. Use this directly for a custom dispatch loop, an MCP
-    router, or an existing tool registry; use `guard` when the ambient
-    agent identity from `Runtime.agent_context` should be picked up
-    automatically instead.
+    The explicit, framework-agnostic counterpart to `guard`: `agent_id` is
+    always a required argument here, rather than read from the
+    `agent_context` contextvar. Use this directly for a custom dispatch
+    loop, an MCP router, or an existing tool registry; use `guard` to pick
+    up the ambient agent identity from `Runtime.agent_context` automatically.
 
     Args:
         tool: The dotted qualified tool name.

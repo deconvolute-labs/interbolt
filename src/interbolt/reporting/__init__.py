@@ -24,11 +24,7 @@ class NullReporter:
     """The default reporter: a no-op. Keeps the library fully local by default."""
 
     def export(self, event: Event | Finding) -> None:
-        """Discard the record.
-
-        Args:
-            event: The record to discard.
-        """
+        """Discard the record."""
         return None
 
 
@@ -41,11 +37,7 @@ class InMemoryReporter:
         self.findings: list[Finding] = []
 
     def export(self, event: Event | Finding) -> None:
-        """Capture the record.
-
-        Args:
-            event: The record to capture.
-        """
+        """Capture the record."""
         if isinstance(event, Event):
             self.events.append(event)
             self.decisions.append(event.decision)
@@ -63,11 +55,7 @@ class LoggingReporter:
     """Emits every record via the library logger, at DEBUG."""
 
     def export(self, event: Event | Finding) -> None:
-        """Log the record.
-
-        Args:
-            event: The record to log.
-        """
+        """Log the record."""
         _logger.debug("export: %r", event)
 
 
@@ -81,8 +69,8 @@ class JsonlReporter:
     the concrete type without guessing from field shape.
 
     Logs one WARNING-level line after the first successful write, naming the
-    destination path, so the library is not silent by default about where
-    its output landed even without a `LoggingReporter` configured.
+    destination path, so where the output landed is visible even without a
+    `LoggingReporter` configured.
 
     Attributes:
         path: The destination file.
@@ -92,9 +80,8 @@ class JsonlReporter:
         """Prepare the destination file for appending.
 
         Args:
-            path: The destination JSONL file. Appended to, never truncated;
-                created (along with parent directories) on first write if it
-                does not already exist.
+            path: The destination JSONL file, appended to; created (with
+                parent directories) on first write if it doesn't exist.
 
         Raises:
             InterboltConfigError: If `path` is an existing directory, or its
@@ -112,11 +99,7 @@ class JsonlReporter:
         self._announced: bool = False
 
     def export(self, event: Event | Finding) -> None:
-        """Append one JSON line for this record.
-
-        Args:
-            event: The record to persist.
-        """
+        """Append one JSON line for this record."""
         record_type = (
             RECORD_TYPE_EVENT if isinstance(event, Event) else RECORD_TYPE_FINDING
         )
@@ -148,19 +131,11 @@ class CompositeReporter:
     """
 
     def __init__(self, reporters: Sequence[Reporter]) -> None:
-        """Wrap a fixed sequence of reporters.
-
-        Args:
-            reporters: The reporters to fan out to, in call order.
-        """
+        """Wrap a fixed sequence of reporters."""
         self.reporters = tuple(reporters)
 
     def export(self, event: Event | Finding) -> None:
-        """Export the record to every wrapped reporter, in order.
-
-        Args:
-            event: The record to export.
-        """
+        """Export the record to every wrapped reporter, in order."""
         for reporter in self.reporters:
             try:
                 reporter.export(event)

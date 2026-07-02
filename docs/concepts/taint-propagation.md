@@ -5,8 +5,8 @@ relying on taint propagating through any transformation you write.
 
 ## The trust model: a provenance set, not a lattice
 
-A label does not record a trusted/untrusted bit. It records *where the data
-came from*. Trust is resolved late, at the sink, by looking each contributing
+A label records *where the data came from*, not a trusted/untrusted bit.
+Trust is resolved late, at the sink, by looking each contributing
 source up in the policy's `sources` table (see [Policies](policies.md)).
 "More restrictive wins" falls out of this for free: if any source
 contributing to a value is untrusted, the value resolves untrusted at the
@@ -16,7 +16,8 @@ sink, regardless of how many trusted sources also contributed.
 
 - `source`: the originating source name, or the first contributor (in
   insertion order) on a value formed by merging two differently-sourced
-  values. Informational; trust resolution never uses `source` alone.
+  values. Informational; trust resolution uses `lineage` (below), not this
+  field alone.
 - `value_id`: a unique id minted when the label was created or last
   transformed.
 - `lineage`: the de-duplicated set of every source name that contributed to
@@ -63,7 +64,7 @@ fact determines the entire contract below.
   preserves taint, because `__format__` is overridden. This case is
   salvageable but narrow; see below.
 
-## Does NOT propagate (laundering points; re-`taint` required)
+## Laundering points (re-`taint` required)
 
 - **f-strings with any literal text**, e.g. `f"Summary: {x}"`. These compile
   to a `BUILD_STRING` opcode that produces an exact `str` regardless of its
@@ -72,8 +73,8 @@ fact determines the entire contract below.
   **plain** `str`. `__format__` runs on the argument, but `str.format`
   assembles an exact `str`.
 - `" ".join(chunks)` where the **separator** (the receiver) is a plain
-  `str`. The join builds an exact `str`. Joining on a `Tainted` separator
-  would propagate, but that is not how `join` is normally written.
+  `str`. The join builds an exact `str`; joining on a `Tainted` separator
+  would propagate instead.
 - `plain_template % (tainted, ...)`: a plain template with a tuple right
   operand. The operation is `str.__mod__` on the plain template; the right
   operand is a `tuple`, not a `Tainted`, so `Tainted.__rmod__` never fires.
@@ -88,8 +89,8 @@ fact determines the entire contract below.
 Serialization (JSON encode/decode, pickling), storage round-trips (writing to
 and reading from a database or file), and crossing the process boundary all
 reset the label. Data that leaves the process and returns is fresh untrusted
-ingress and must be re-`taint`ed at re-entry; interbolt does not reconnect
-re-entered data to a prior label.
+ingress, unconnected to any prior label, and must be re-`taint`ed at
+re-entry.
 
 A model-mediated agent-to-agent handoff is the same kind of boundary: the
 next agent receives the prior agent's output as plain, unlabeled text, even
@@ -106,11 +107,11 @@ parts), but coarse-and-safe is the right default for a containment layer.
 ## The honest summary
 
 Taint survives **direct passing** of a tainted value to a tool argument, and
-**operator-style combination**. It does **not** survive the common
-string-assembly constructs (f-strings with text, `str.format`, `join`). For
-those, the mitigation is an explicit re-`taint` call, the documented escape
-hatch. The [laundering audit](../guides/auditing.md) exists to find the cases
-where a developer forgot to.
+**operator-style combination**. Common string-assembly constructs (f-strings
+with text, `str.format`, `join`) produce a fresh, unlabeled string; the
+mitigation is an explicit re-`taint` call. The
+[laundering audit](../guides/auditing.md) finds the cases where a developer
+forgot to.
 
 The audit catches **mechanical** laundering, where the untrusted bytes
 survive into the sink argument. It cannot catch **semantic** laundering,
@@ -121,18 +122,17 @@ be fixed later.
 
 ## Non-string values
 
-There is no numeric or boolean taint carrier (`TaintedInt` and similar), in
-this version or planned for a later one. `bool` and `NoneType` cannot be
-subclassed in CPython, and numeric coercion (`int(x)`, comparisons feeding
-branches, arithmetic) discards subclass identity immediately, so a numeric
-carrier would silently lose its label on nearly everything except direct
-passing, a worse version of the string problem with less obvious failure.
+Non-string scalars (numbers, `bool`, `None`) are wrapped in a `LabeledValue`
+rather than a dedicated carrier like `TaintedInt`. `bool` and `NoneType`
+can't be subclassed in CPython, and numeric coercion (`int(x)`, comparisons
+feeding branches, arithmetic) discards subclass identity immediately, so a
+numeric carrier would lose its label on nearly everything except direct
+passing.
 
-Instead, `taint(value, source=...)` wraps a non-string scalar in a
-`LabeledValue`, which exposes `.value` (the original value) and `.label`. It
-does not propagate through transformations, the same limit non-string values
-have always had, but a `LabeledValue` passed **directly** to a sink argument
-is seen by `check()` and the policy.
+`taint(value, source=...)` wraps a non-string scalar in a `LabeledValue`,
+exposing `.value` and `.label` for direct passing to a sink argument, where
+`check()` and the policy see it. Transforming `.value` first produces a
+plain, unlabeled result.
 
 ## Container recursion
 

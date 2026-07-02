@@ -1,9 +1,9 @@
 # Deferred features
 
-What this version deliberately does not do, with the seam already in place
-for each so adding it later is additive rather than a rewrite. Full design
-rationale for each item lives in `dev/spec.md` §15; this page is the
-user-facing summary.
+What's out of scope for this version, with the seam already in place for
+each so adding it later is additive, not a rewrite. Full design rationale
+for each item lives in `dev/spec.md` §15; this page is the user-facing
+summary.
 
 ## Async approval semantics
 
@@ -27,9 +27,9 @@ destinations, would make all three legs computable.
 
 ## Cross-boundary provenance
 
-A label does not survive a storage round-trip or a process boundary; data
-that re-enters the process is treated as fresh untrusted ingress and must
-be re-`taint`ed (see
+A label doesn't survive a storage round-trip or a process boundary; data
+re-entering the process is fresh untrusted ingress and must be
+re-`taint`ed (see
 [Taint propagation: boundaries](../concepts/taint-propagation.md#boundaries-that-always-reset-to-untrusted-ingress)).
 Persisting a label alongside data so it survives such a round-trip is
 deferred.
@@ -72,10 +72,10 @@ specific version.
 
 Value-level taint is precise but launderable by a model paraphrasing
 untrusted text before it reaches a sink (see
-[Taint propagation](../concepts/taint-propagation.md#does-not-propagate-laundering-points-re-taint-required)
-and [Auditing](../guides/auditing.md#what-it-does-not-catch)). A
-complementary, coarser instrument gates on run-scoped capability facts
-instead of a specific value's bytes.
+[Taint propagation](../concepts/taint-propagation.md#laundering-points-re-taint-required)
+and [Auditing](../guides/auditing.md#what-it-catches)). A complementary,
+coarser instrument gates on run-scoped capability facts instead of a
+specific value's bytes.
 
 **The `from_untrusted`-at-run-scope slice of this now ships**, as the
 `run.tainted` CEL variable (see
@@ -94,10 +94,9 @@ depends on the trifecta capabilities declaration above to make
 
 A policy-source abstraction `configure()` would resolve: a local file
 today, a remote control plane when an API key is present, with the remote
-policy authoritative over local sources whenever it is in play. Not
-implemented in this version; `Policy.from_file(path)` is the only supported
-policy source, and the library makes no network calls under any default
-configuration.
+policy authoritative over local sources whenever it is in play. This
+version supports only `Policy.from_file(path)` as a policy source; the
+library makes no network calls under any default configuration.
 
 ## Agent-boundary provenance
 

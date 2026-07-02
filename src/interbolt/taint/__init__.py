@@ -18,11 +18,10 @@ _run_ingress_sources: dict[str, set[str]] = {}
 def _record_ingress(source: str) -> None:
     """Record that `source` tainted data during the active run, if any.
 
-    Deliberately does not resolve trust: `taint()` never learns whether
-    `source` is untrusted (that only happens at the sink, from the policy's
-    `sources` table). This only records the bare name, keyed by the ambient
-    `current_run_id`, for `enforcement.check()` to resolve later against
-    run-level gating (`run.tainted`, see `dev/spec.md` §15.8).
+    Records the bare source name, keyed by the ambient `current_run_id`, for
+    `enforcement.check()` to resolve later against run-level gating
+    (`run.tainted`, spec §15.8). Trust itself is resolved at the sink, from
+    the policy's `sources` table.
     """
     run_id = current_run_id.get()
     if run_id is None:
@@ -86,11 +85,11 @@ def _wrap_bytes(value: bytes, *labels: Label) -> TaintedBytes:
 class Tainted(str):
     """A `str` that carries a provenance `Label` through a defined operation subset.
 
-    See the propagation contract: operator-style combination (`+`, `%`, `*`,
-    slicing, string methods called on a `Tainted` receiver) propagates the
-    label. f-strings with surrounding literal text, `str.format`/`format_map`
-    on a plain template, and `join` on a plain separator do not; re-`taint`
-    the result by hand in those cases.
+    Operator-style combination (`+`, `%`, `*`, slicing, string methods called
+    on a `Tainted` receiver) propagates the label. F-strings with literal
+    text, `str.format`/`format_map` on a plain template, and `join` on a
+    plain separator produce a fresh, unlabeled string; re-`taint` the
+    result in those cases.
     """
 
     __slots__ = ("label",)
@@ -208,8 +207,8 @@ class Tainted(str):
 class TaintedBytes(bytes):
     """The `bytes` counterpart to `Tainted`, with the same propagation subset.
 
-    Unlike `Tainted`, this cannot use `__slots__`: CPython does not support
-    adding nonempty `__slots__` to a `bytes` subclass.
+    Stores `label` as a plain attribute rather than via `__slots__`, since
+    CPython bytes subclasses can't add nonempty slots.
     """
 
     label: Label
@@ -257,11 +256,9 @@ class TaintedBytes(bytes):
 class LabeledValue:
     """A non-string, non-bytes value labeled at ingress.
 
-    Numbers, `bool`, and `None` cannot be subclassed, so they cannot carry a
-    label transparently the way `Tainted`/`TaintedBytes` do. This wrapper
-    preserves the label for direct passing to a sink argument; the label does
-    not survive transforming `.value` first, since that was never achievable
-    for these types regardless of taint.
+    Preserves the label on a number, `bool`, or `None` (types that can't be
+    subclassed the way `str`/`bytes` are) for direct use as a sink argument.
+    Transforming `.value` first produces a plain, unlabeled result.
     """
 
     __slots__ = ("value", "label")
@@ -296,8 +293,8 @@ def taint(value: Any, *, source: str) -> Any:  # noqa: ANN401 -- accepts any ing
     `constants.RECURSION_DEPTH` (the same constant `check()`/`guard` read, so
     ingress labeling and sink collection are bounded identically).
 
-    Trust is not resolved here. The label only records `source`; trust is
-    resolved later, at the sink, from the policy's `sources` table.
+    The label only records `source`. Trust is resolved later, at the sink,
+    from the policy's `sources` table.
 
     Args:
         value: The value to mark.
@@ -371,13 +368,12 @@ def _collect(value: Any, *, depth: int, found: list[Label]) -> None:  # noqa: AN
 def unwrap(value: Any) -> Any:  # noqa: ANN401 -- accepts and returns any shape
     """Strip taint carriers down to plain values, recursively.
 
-    `Tainted`/`TaintedBytes` are already plain `str`/`bytes` for any caller
-    that doesn't need the label, so they pass through unchanged. `LabeledValue`
-    unwraps to its `.value`. Containers are rebuilt with unwrapped elements.
+    `Tainted`/`TaintedBytes` pass through unchanged, since they're already
+    plain `str`/`bytes`. `LabeledValue` unwraps to its `.value`. Containers
+    are rebuilt with unwrapped elements.
 
-    This is the boundary helper other layers (notably `enforcement`) use to
-    hand plain values to code that has no business knowing about taint
-    carriers, such as the CEL context builder in `policy.engine`.
+    Used by `enforcement` to hand plain values to code that doesn't know
+    about taint carriers, such as the CEL context builder in `policy.engine`.
 
     Args:
         value: The value to strip.

@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from interbolt.constants import RUN_COMPUTABLE_FIELDS, TRIFECTA_COMPUTABLE_LEGS
 from interbolt.errors import InterboltConfigError, PolicyEvaluationError
-from interbolt.models.core import Action, Mode, TrustLevel, validate_qualified_name_part
+from interbolt.models.core import Action, Mode, TrustLevel, split_qualified_name
 
 _TRIFECTA_LEG_PATTERN = re.compile(r"trifecta\.contains\(\s*[\"']([^\"']+)[\"']\s*\)")
 _RUN_FIELD_PATTERN = re.compile(r"\brun\.(\w+)")
@@ -43,14 +43,12 @@ class SinkRule(BaseModel):
 
 
 def _split_sink_key(key: str) -> tuple[str, str]:
-    namespace, separator, tool = key.rpartition(".")
-    if not separator:
+    parsed = split_qualified_name(key)
+    if parsed is None:
         raise InterboltConfigError(
             f"sink key {key!r} must be a dotted 'namespace.tool' name"
         )
-    validate_qualified_name_part(namespace, part="namespace")
-    validate_qualified_name_part(tool, part="tool")
-    return namespace, tool
+    return parsed
 
 
 class PolicyDocument(BaseModel):
@@ -102,27 +100,16 @@ def load_policy_document(path: str) -> PolicyDocument:
 def validate_policy(path: str) -> list[str]:
     """Statically analyze a policy file: schema, CEL compilation, dead rules.
 
-    Never executes an agent and never observes live taint; this is the
-    dynamic counterpart's opposite number (`dry_run` + the audit flag, which
-    are in-process instruments). Does not attempt to resolve whether every
-    source name referenced inside a `when` expression is declared, since that
-    would require walking the CEL AST for string-literal comparisons against
-    `t.source`; out of scope for v1's static check.
-
-    Rejects any `when` expression referencing a trifecta leg outside the
-    v1-computable set (`{"from_untrusted"}`), since
-    `trifecta.contains("reaches_external")` silently evaluates to `false` at
-    runtime rather than failing: a rule built on it never fires, with no
-    signal unless caught here. Also rejects any `run.<field>` reference
-    outside the computable set (`{"tainted"}`), catching a typo before the
-    first live evaluation rather than at it.
+    Performs schema and CEL checks only, so it is safe to run in CI without
+    executing the agent. See docs/concepts/policies.md for the full set of
+    checks and their limits.
 
     Args:
         path: Filesystem path to the policy YAML file.
 
     Returns:
-        A list of human-readable problem descriptions. Empty if the policy is
-        valid. Never raises.
+        A list of human-readable problem descriptions, empty if the policy
+        is valid. Every error is captured here instead of raised.
     """
     from interbolt.policy.engine import compile_cel_expression
 

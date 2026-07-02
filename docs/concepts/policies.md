@@ -47,9 +47,9 @@ malformed or schema-invalid file raises `PolicyEvaluationError` from
 
 ## Actions
 
-Exactly three: `allow`, `block`, `require_approval`. There is no `sanitize`
-or `rewrite` action: that would invite an unverifiable "we cleaned the
-input" claim that an adaptive attacker can defeat.
+Exactly three: `allow`, `block`, `require_approval`, no `sanitize`/`rewrite`,
+since that would invite an unverifiable "we cleaned the input" claim an
+adaptive attacker can defeat.
 
 ## The CEL evaluation context
 
@@ -122,8 +122,8 @@ over an optional argument, for example `has(args.to) && args.to.endsWith(...)`.
 ## Modes and `fail_mode`
 
 `mode` governs what happens on an evaluation error, and whether a real
-`block` is enforced. It does not change a correctly-computed `block` or
-`require_approval` decision except under `dry_run`.
+`block` is enforced. A correctly-computed `block`/`require_approval`
+decision always holds, except under `dry_run`.
 
 - `enforce` (default): fail-closed. An evaluation error is treated as a
   block and raises `PolicyEvaluationError`.
@@ -138,9 +138,9 @@ Mode has three sources, highest precedence first: the `INTERBOLT_MODE`
 environment variable, the policy file's `defaults.fail_mode`, and the
 `mode=` argument to `configure()` (the in-code default, lowest precedence).
 Each source is parsed strictly; an unrecognized value raises
-`InterboltConfigError`. An `INTERBOLT_MODE` override that actually changes
-the effective mode logs a warning, so a non-enforcing mode cannot silently
-ship to production. This is the one-line CI escape hatch:
+`InterboltConfigError`. If `INTERBOLT_MODE` changes the effective mode, it
+logs a warning so a non-enforcing mode shipping to production is visible.
+This is the one-line CI escape hatch:
 
 ```bash
 INTERBOLT_MODE=monitor pytest
@@ -158,14 +158,12 @@ two legs are not computed:
 - `reads_private` requires a capabilities declaration that does not exist
   yet (see [Deferred features](../design/deferred.md)).
 
-This makes `trifecta.size` **under-count**, which is fail-open, not
-conservative. `trifecta.size >= 3` never trips. **Do not rely on
-`trifecta.size >= 3`, or on the two-leg
+This makes `trifecta.size` **under-count**, which is fail-open, not conservative.
+`trifecta.size >= 3` never trips, and the two-leg pattern
 `trifecta.contains("from_untrusted") && trifecta.contains("reaches_external")`
-pattern, as a backstop.** The second leg of that pattern is always false, so
-the whole expression is always false and a rule built on it never fires,
-silently. Write rules directly against `taint`/`args` instead, as in the
-worked example at the top of this page.
+is always false, since its second leg always is: **a rule built on either
+fails open, silently.** Write rules directly against `taint`/`args` instead,
+as in the worked example at the top of this page.
 
 `interbolt validate` rejects any policy referencing a trifecta leg name
 outside the v1-computable set `{from_untrusted}`, converting this silent
@@ -199,20 +197,19 @@ call does not evade it.
 
 **Read this before relying on it:**
 
-- **It only sees `taint()` calls made while an `agent_context` is active.**
-  A `taint()` call with no active `agent_context` cannot be attributed to
-  any run; `run.tainted` will never reflect it, and `taint()` logs a DEBUG
-  message when this happens. The same applies to a `taint()` call made
-  inside a thread-pool-offloaded worker (see
-  [Identity: thread offload limit](identity.md#thread-offload-limit)).
-- **It is coarse and monotonic.** Once set, `run.tainted` stays true for the
-  rest of the run; a run that legitimately mixes an untrusted read with an
-  unrelated, safe external write is gated the same as a genuine attack.
-  Write policy carve-outs (by `agent_id`, tool, or argument shape) rather
-  than relying on `run.tainted` alone as a backstop.
-- **It does not replace value-level taint.** `taint`/`args`-based rules stay
-  precise where the value survives; `run.tainted` is the backstop for where
-  it does not. See [Taint propagation](taint-propagation.md) for the full
+- **Only sees `taint()` calls made while an `agent_context` is active.** A
+  `taint()` call with no active `agent_context`, or one made inside a
+  thread-pool-offloaded worker, can't be attributed to a run: `run.tainted`
+  won't reflect it, and `taint()` logs a DEBUG message when this happens
+  (see [Identity: thread offload limit](identity.md#thread-offload-limit)).
+- **Coarse and monotonic.** Once set, `run.tainted` stays true for the rest
+  of the run, gating a run that legitimately mixes an untrusted read with an
+  unrelated, safe write the same as a genuine attack. Write policy
+  carve-outs (by `agent_id`, tool, or argument shape) for that case, rather
+  than treating `run.tainted` alone as a backstop.
+- **A backstop, not a replacement for value-level taint.** `taint`/`args`-based
+  rules stay precise where the value survives; `run.tainted` covers where it
+  doesn't. See [Taint propagation](taint-propagation.md) for the full
   propagation contract.
 
 `interbolt validate` rejects any `run.<field>` reference outside the single
@@ -221,12 +218,12 @@ computable field, `tainted`.
 ## Static validation
 
 `Policy.validate(path)` (and `interbolt validate policy.yaml` on the command
-line) performs static analysis only: it never executes an agent and never
-observes live taint. It checks the file against the policy schema, compiles
+line) performs schema and CEL checks only, without executing an agent or
+observing live taint. It checks the file against the policy schema, compiles
 every CEL expression, flags dead rules (more than one unconditional
 catch-all within a sink, or any rule placed after one), and rejects
-references to trifecta legs outside the v1-computable set. It does not
-verify that every source name compared against `t.source` inside a `when`
-expression is declared in `sources`; an undeclared source is still handled
-safely at evaluation time regardless, since it resolves untrusted by
-default-deny. See [CI](../guides/ci.md) for wiring it into a pipeline.
+references to trifecta legs outside the v1-computable set. It doesn't verify
+that every source name compared against `t.source` in a `when` expression is
+declared in `sources`; an undeclared source resolves untrusted under
+default-deny regardless, so this is safe to skip. See [CI](../guides/ci.md)
+for wiring it into a pipeline.

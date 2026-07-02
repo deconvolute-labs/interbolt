@@ -13,14 +13,13 @@ class Reporter(Protocol):
 
 ## Emission is fire-and-forget
 
-A reporter failure must never affect, delay, or block a decision. The
-engine wraps every call to `export` and logs a warning on failure rather
-than propagating the exception. This is a property of the engine's call
-site; the **non-blocking** part of the contract is owned by the reporter
-itself. The shipped reporters below are non-blocking by construction.
-A custom reporter that performs blocking I/O inside `export` blocks the
-decision that triggered it, and that is the reporter author's
-responsibility, not a guarantee the engine provides.
+The engine guarantees a reporter failure never affects, delays, or blocks a
+decision: every call to `export` is wrapped, and a failure is logged as a
+warning instead of propagating. That guarantee doesn't cover blocking I/O
+inside `export` itself: the shipped reporters below are non-blocking by
+construction, but a custom reporter that performs blocking I/O blocks the
+decision that triggered it. Keeping `export` non-blocking is the reporter
+author's job.
 
 ## Shipped implementations
 
@@ -50,7 +49,7 @@ findings (see [Auditing](../guides/auditing.md)).
 ### `LoggingReporter`
 
 Emits every record via the library logger (`interbolt`), at `DEBUG`. The
-library logger does not configure the root logger and does not emit at
+library logger stays isolated from the root logger and emits nothing at
 import; attach a handler to `"interbolt"` (or call
 `interbolt.utils.get_logger()`) to see output.
 
@@ -90,7 +89,7 @@ from interbolt import describe_event, describe_finding
 
 Turn an `Event`/`Finding` into a one-line, rich-markup-tagged human
 summary (`describe_event` includes the tool, action, matched rule, mode,
-and — the direct answer to "why was this blocked" — `untrusted_sources`,
+and `untrusted_sources`, the direct answer to "why was this blocked",
 alongside the full contributing `sources` and `lineage`). This is the
 building block `interbolt inspect` uses internally, and the recommended
 starting point for a custom console reporter (next section) rather than
@@ -99,8 +98,8 @@ reinventing the action-to-color mapping per integrator.
 ## Writing a custom reporter
 
 Any object with a matching `export(self, event: Event | Finding) -> None`
-method satisfies the protocol; no base class is required
-(`Reporter` is `@runtime_checkable`). For a reporter that does real I/O
+method satisfies the protocol structurally; no base class or registration
+is required. For a reporter that does real I/O
 (writing to a file, shipping to a collector), own your own non-blocking
 behavior: buffer locally and drain on a background thread or task rather
 than performing I/O inline inside `export`.
@@ -158,7 +157,7 @@ means filtering the library's `DEBUG` noise back out to get just the
 decisions you want. `Reporter` already gives clean, structured access to
 exactly the records you care about.
 
-Want more than console output at the same time — a durable audit trail
+Want more than console output at the same time, a durable audit trail
 alongside the live view? Wrap both in a `CompositeReporter`:
 
 ```python

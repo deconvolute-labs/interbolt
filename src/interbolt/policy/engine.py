@@ -19,10 +19,10 @@ _ENV = celpy.Environment()
 def _rewrite_any_to_exists(source: str) -> str:
     """Rewrite the policy DSL's `.any(` to CEL's real `exists` macro.
 
-    CEL's macro set is exactly `{map, filter, all, exists, exists_one, reduce,
-    min}`; there is no `any`. `exists` ("at least one element satisfies the
-    predicate") is semantically identical to Python's `any`, so this is a safe
-    textual rewrite, done once at compile time, never per evaluation.
+    CEL has no `any` macro; its set is `{map, filter, all, exists,
+    exists_one, reduce, min}`. `exists` ("at least one element satisfies the
+    predicate") means the same thing, so this textual rewrite is safe and
+    runs once, at compile time.
     """
     return _ANY_MACRO_PATTERN.sub(".exists(", source)
 
@@ -101,8 +101,8 @@ def resolve_label_trust(
 ) -> TrustLevel:
     """Resolve a label's trust from every name in its lineage, untrusted-wins.
 
-    Trust is never stored on a `Label`; this is the one place it is computed,
-    at the sink, from the policy's `sources` table.
+    Computed here, at the sink, from the policy's `sources` table; see
+    `Label` for why trust isn't stored on the label itself.
     """
     for name in label.lineage:
         if resolve_source_trust(name, sources_table) is TrustLevel.UNTRUSTED:
@@ -133,17 +133,15 @@ def build_context(
 ) -> dict[str, Any]:
     """Build the CEL evaluation context for one `check()` call.
 
-    `args` must already be stripped of taint carriers (plain `str`/`bytes`/
-    containers) by the caller; this function has no knowledge of `Tainted`,
-    `TaintedBytes`, or `LabeledValue` (`policy/` never imports `taint/`).
+    `args` must already be plain values with taint carriers stripped;
+    `policy/` has no dependency on `taint/`, so this function only handles
+    `str`/`bytes`/containers.
 
-    `taint` stays a plain CEL list so `taint.any(...)`/`taint.all(...)` keep
-    working as macros over it. The two aggregate convenience values move to
-    top-level siblings, `sources` and `max_trust`, rather than `taint.sources`/
-    `taint.max_trust`: CEL cannot make one context variable both a list (for
-    the macros) and a map (for dotted field access) at once. `run` is a map
-    for the same reason: `run.tainted` only ever needs dotted access, never
-    quantification, so there is no list-vs-map conflict to resolve.
+    `taint` stays a plain CEL list so `taint.any(...)`/`taint.all(...)` work
+    as macros. `sources` and `max_trust` are top-level siblings, not
+    `taint.sources`/`taint.max_trust`, because CEL can't make one variable
+    both a list and a map. `run` is a map since `run.tainted` only needs
+    dotted access.
 
     Args:
         tool: The dotted qualified tool name.

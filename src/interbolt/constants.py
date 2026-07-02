@@ -10,7 +10,6 @@ DEFAULT_AGENT_ID: str = "default"
 ENV_MODE: str = "INTERBOLT_MODE"
 ENV_AUDIT: str = "INTERBOLT_AUDIT"
 ENV_RECURSION_DEPTH: str = "INTERBOLT_RECURSION_DEPTH"
-ENV_CACHE_DIR: str = "INTERBOLT_CACHE_DIR"
 
 DEFAULT_RECURSION_DEPTH: int = 4
 RECURSION_DEPTH_MAX: int = 10
@@ -30,8 +29,8 @@ def _resolve_recursion_depth() -> int:
     """Resolve the container-recursion depth once, at import time.
 
     Reads `INTERBOLT_RECURSION_DEPTH`, falling back to `DEFAULT_RECURSION_DEPTH`.
-    Both `taint()` and `check()`/`guard` read the resulting constant, so
-    ingress labeling and sink collection are bounded identically (§6.6).
+    `taint()` and `check()`/`guard` both use the result to bound how deep
+    they recurse into containers (spec §6.6).
 
     Raises:
         InterboltConfigError: If the env var is set but is not an integer in

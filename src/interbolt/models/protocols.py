@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable
-from typing import Protocol, runtime_checkable
+from typing import Protocol
 
 from interbolt.models.core import Decision, Event, Finding
 
 
-@runtime_checkable
 class Reporter(Protocol):
-    """The reporting seam. `enforcement` emits through this, never a concrete type."""
+    """The interface `enforcement` emits decision events and audit findings through."""
 
     def export(self, event: Event | Finding) -> None:
         """Emit a decision event or audit finding.
@@ -16,19 +15,17 @@ class Reporter(Protocol):
         Args:
             event: The record to emit.
 
-        A reporter's `export` must never block or delay a decision; that is the
-        reporter author's responsibility, not a guarantee the engine provides.
+        Implementations must return immediately; blocking here delays the
+        decision that triggered it.
         """
         ...
 
 
-@runtime_checkable
 class ApprovalResolver(Protocol):
     """Resolves a `require_approval` decision to allow or deny.
 
-    Invoked synchronously at a sync call site and asynchronously (awaited) at an
-    async call site; a sync call site cannot use a resolver that only returns an
-    awaitable.
+    Called synchronously at a sync call site and awaited at an async call
+    site. A sync call site needs a resolver that returns a plain `bool`.
     """
 
     def __call__(self, decision: Decision) -> bool | Awaitable[bool]:

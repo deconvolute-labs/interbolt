@@ -15,7 +15,7 @@ spec governs; this file is the short enforcement checklist.
 
 - The layered dependency direction must never be violated. See `dev/spec.md` §3. Imports point inward along the flow; nothing reaches outward.
 - `models/` contains pure Pydantic models and Protocols only. It imports only stdlib, Pydantic, and the leaf modules (`errors`, `constants`). Nothing else.
-- `errors.py`, `constants.py`, and everything in `utils/` import only Python stdlib (plus `platformdirs` in `utils`). No other internal imports. These are the leaves.
+- `errors.py`, `constants.py`, and everything in `utils/` import only Python stdlib. The one exception: `constants.py` may import `errors.py`, also a leaf, for `InterboltConfigError`. These are the leaves.
 - `taint/` and `policy/` import only `models/` and the leaves. They never import each other, `enforcement/`, `reporting/`, `runtime/`, `integrations/`, or `cli/`.
 - `enforcement/` imports `taint/`, `policy/`, and `models/`. It never imports `reporting/` (it emits through the `Reporter` protocol from `models/`), `runtime/`, `integrations/`, or `cli/`.
 - `reporting/` imports only `models/` and the leaves. It never imports `enforcement/` or `runtime/`.

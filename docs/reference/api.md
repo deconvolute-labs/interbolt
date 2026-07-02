@@ -25,8 +25,8 @@ Marks `value` with a `Label` recording `source`. For `str` returns a
 `Tainted`; for `bytes` returns a `TaintedBytes`; for a builtin container
 (`list`, `tuple`, `set`, `frozenset`, `dict`) recurses and labels string
 leaves to the bounded recursion depth; for any other scalar returns a
-`LabeledValue`. Trust is **not** resolved here; the label only records the
-source name. Needs no configured runtime. See
+`LabeledValue`. The label only records the source name; trust is resolved
+later, at the sink. Needs no configured runtime. See
 [Taint propagation](../concepts/taint-propagation.md).
 
 ## `guard`
@@ -63,14 +63,14 @@ def check(
 The framework-agnostic decision core; `guard` is sugar over this. Collects
 labels from `args` (recursing into containers), evaluates the policy,
 returns a `Decision`, and emits the corresponding `Event` through the
-configured reporter. Does not read the `agent_context` contextvar for
-either `agent_id` or `run_id`; both are explicit. Requires `configure()` to
-have run; raises `InterboltUsageError` otherwise. Use this directly for
-custom dispatch loops or existing tool registries, instead of `guard`.
+configured reporter. Both `agent_id` and `run_id` are explicit here, not
+read from the `agent_context` contextvar. Requires `configure()` to have
+run; raises `InterboltUsageError` otherwise. Use this directly for custom
+dispatch loops or existing tool registries, instead of `guard`.
 
-There is no separate `simulate` function: policy testing is `check()`
-invoked with synthetic args and taint, asserted against the returned
-`Decision`. See [Testing](../guides/testing.md).
+Policy testing is just `check()` invoked with synthetic args and taint,
+asserted against the returned `Decision`; there's no separate `simulate`
+function. See [Testing](../guides/testing.md).
 
 ## `configure`
 
@@ -86,8 +86,8 @@ def configure(
 ```
 
 Builds a `Runtime`, installs it as the process-current runtime, and returns
-it. Has no import-time side effects: importing a module decorated with
-`@guard` does not require `configure()` to have run. `reporter` defaults to
+it. Has no import-time side effects: a module decorated with `@guard` can
+be imported before `configure()` has run. `reporter` defaults to
 a fresh `NullReporter()`. `approval_resolver` defaults to `auto_deny`
 (denies every approval request). The effective `mode` is resolved from
 three sources, highest precedence first: the `INTERBOLT_MODE` environment
@@ -121,11 +121,12 @@ Policy.validate(path: str) -> list[str]
 
 `from_file` loads, validates, and compiles a policy YAML file in one call;
 raises `PolicyEvaluationError` if the file is missing, malformed, or fails
-schema or CEL compilation. `validate` performs static analysis only (never
-executes an agent, never raises) and returns a list of human-readable
-problem descriptions, empty if the policy is valid. `policy.sources_table`
-exposes the declared source-to-trust mapping. See
-[Policies](../concepts/policies.md) and [CI](../guides/ci.md).
+schema or CEL compilation. `validate` performs schema and CEL checks only,
+without executing an agent, and returns a list of human-readable problem
+descriptions, empty if the policy is valid, capturing every error there
+instead of raising. `policy.sources_table` exposes the declared
+source-to-trust mapping. See [Policies](../concepts/policies.md) and
+[CI](../guides/ci.md).
 
 ## `Decision`
 
@@ -175,8 +176,8 @@ See [Taint propagation](../concepts/taint-propagation.md#the-trust-model-a-prove
 `Tainted` (a `str` subclass) and `TaintedBytes` (a `bytes` subclass) carry a
 `.label: Label` and propagate it through the operation subset described in
 [Taint propagation](../concepts/taint-propagation.md). `LabeledValue` wraps
-a non-string scalar, exposing `.value` and `.label`; it does not propagate
-through transformations of `.value`.
+a non-string scalar, exposing `.value` and `.label`; transforming `.value`
+first produces a plain, unlabeled result.
 
 ## `Reporter`, `ApprovalResolver`
 
@@ -184,8 +185,9 @@ Protocols in `interbolt.models.protocols`. See
 [Reporters](reporters.md) for `Reporter` and its three implementations.
 `ApprovalResolver` is `Callable[[Decision], bool | Awaitable[bool]]`: invoked
 synchronously at a sync call site, awaited at an async call site. A sync
-call site cannot use a resolver that returns an awaitable (raises
-`InterboltUsageError`). The default, `auto_deny`, denies every request.
+call site needs a resolver that returns a plain `bool`; one that returns an
+awaitable raises `InterboltUsageError`. The default, `auto_deny`, denies
+every request.
 
 ## Errors
 
@@ -200,11 +202,11 @@ InterboltError                                          (base)
     └── InterboltUsageError(InterboltError, RuntimeError)   # API used out of sequence
 ```
 
-`except InterboltError` catches every exception the library raises, with no
-exceptions. Because the misuse classes multiply-inherit the matching
-builtin, `except ValueError` and `except RuntimeError` also catch them by
-their builtin semantics. `taint()` never raises a usage error: it needs no
-configured runtime and works before `configure()` has run.
+`except InterboltError` catches every exception the library raises. Because
+the misuse classes multiply-inherit the matching builtin, `except
+ValueError` and `except RuntimeError` also catch them by their builtin
+semantics. `taint()` needs no configured runtime and works before
+`configure()` has run, so it never raises a usage error.
 
 ## `__version__`
 
