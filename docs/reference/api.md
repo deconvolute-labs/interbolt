@@ -136,6 +136,7 @@ class Decision(BaseModel, frozen=True):
     tool: str                            # qualified name
     contributing_labels: tuple[Label, ...]
     trifecta: frozenset[str]             # v1: at most {"from_untrusted"}
+    untrusted_sources: frozenset[str]    # which contributing source names resolved untrusted
     run_tainted: bool                    # run-level gating; see policies.md
     mode: Mode
     decision_id: str

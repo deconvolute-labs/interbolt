@@ -14,19 +14,14 @@ from rich.tree import Tree
 from interbolt import (
     RECORD_TYPE_EVENT,
     RECORD_TYPE_FINDING,
-    Action,
     Event,
     Finding,
     Policy,
+    describe_event,
+    describe_finding,
 )
 
 _console = Console()
-
-_ACTION_COLOR = {
-    Action.ALLOW: "green",
-    Action.BLOCK: "red",
-    Action.REQUIRE_APPROVAL: "yellow",
-}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -137,44 +132,6 @@ def _load_records(path: Path) -> list[Event | Finding]:
     return records
 
 
-def _describe_event(event: Event) -> str:
-    """Build the display label for one `Event` leaf node.
-
-    Args:
-        event: The event to describe.
-
-    Returns:
-        A rich-markup string summarizing the decision.
-    """
-    color = _ACTION_COLOR.get(event.decision.action, "white")
-    rule = event.matched_rule or "default"
-    trust = "untrusted" if "from_untrusted" in event.trifecta else "trusted"
-    sources = ", ".join(sorted(event.sources)) or "-"
-    lineage = ", ".join(event.lineage) or "-"
-    run_tainted = "[red bold]True[/red bold]" if event.run_tainted else "False"
-    return (
-        f"{event.decision.tool}  "
-        f"[{color}]{event.decision.action.value}[/{color}]  "
-        f"rule={rule}  mode={event.mode.value}  trust={trust}  "
-        f"run_tainted={run_tainted}  sources={{{sources}}}  lineage=({lineage})"
-    )
-
-
-def _describe_finding(finding: Finding) -> str:
-    """Build the display label for one `Finding` leaf node.
-
-    Args:
-        finding: The finding to describe.
-
-    Returns:
-        A rich-markup string summarizing the laundering-audit hit.
-    """
-    return (
-        f"[yellow]finding[/yellow]  source={finding.source}  "
-        f"tool={finding.tool}  argument={finding.argument}"
-    )
-
-
 def _build_tree(records: Sequence[Event | Finding]) -> Tree:
     """Render records as a console tree grouped by run, then by agent.
 
@@ -200,9 +157,9 @@ def _build_tree(records: Sequence[Event | Finding]) -> Tree:
             agent_node = run_node.add(f"agent {agent_id}")
             for record in sorted(agent_records, key=lambda r: r.timestamp):
                 if isinstance(record, Event):
-                    agent_node.add(_describe_event(record))
+                    agent_node.add(describe_event(record))
                 else:
-                    agent_node.add(_describe_finding(record))
+                    agent_node.add(describe_finding(record))
     return root
 
 

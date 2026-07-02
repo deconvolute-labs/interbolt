@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import inspect
 import os
 import uuid
 from collections.abc import AsyncGenerator, Callable, Mapping
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Any
 
 from interbolt.constants import DEFAULT_AGENT_ID, ENV_AUDIT, ENV_MODE
@@ -219,24 +217,6 @@ def configure(
     env_audit = os.environ.get(ENV_AUDIT)
     if env_audit is not None:
         audit = env_audit.strip().lower() in {"1", "true", "yes", "on"}
-
-    frame = inspect.currentframe()
-    caller = frame.f_back if frame is not None else None
-    caller_location = (
-        f"{Path(caller.f_code.co_filename).name}:{caller.f_lineno}"
-        if caller is not None
-        else "unknown"
-    )
-
-    policy_source = policy.source or "built-in default (run `interbolt init`)"
-    _logger.warning(
-        "interbolt active: mode=%s policy=%s sources=%d sinks=%d (configured at %s)",
-        resolved_mode,
-        policy_source,
-        len(policy.document.sources),
-        len(policy.document.sinks),
-        caller_location,
-    )
 
     runtime = Runtime(
         policy=policy,
