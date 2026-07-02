@@ -5,11 +5,12 @@ import re
 import yaml
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
-from interbolt.constants import TRIFECTA_COMPUTABLE_LEGS
+from interbolt.constants import RUN_COMPUTABLE_FIELDS, TRIFECTA_COMPUTABLE_LEGS
 from interbolt.errors import InterboltConfigError, PolicyEvaluationError
 from interbolt.models.core import Action, Mode, TrustLevel, validate_qualified_name_part
 
 _TRIFECTA_LEG_PATTERN = re.compile(r"trifecta\.contains\(\s*[\"']([^\"']+)[\"']\s*\)")
+_RUN_FIELD_PATTERN = re.compile(r"\brun\.(\w+)")
 
 
 class SourceDeclaration(BaseModel):
@@ -112,7 +113,9 @@ def validate_policy(path: str) -> list[str]:
     v1-computable set (`{"from_untrusted"}`), since
     `trifecta.contains("reaches_external")` silently evaluates to `false` at
     runtime rather than failing: a rule built on it never fires, with no
-    signal unless caught here.
+    signal unless caught here. Also rejects any `run.<field>` reference
+    outside the computable set (`{"tainted"}`), catching a typo before the
+    first live evaluation rather than at it.
 
     Args:
         path: Filesystem path to the policy YAML file.
@@ -167,6 +170,13 @@ def validate_policy(path: str) -> list[str]:
                         f"trifecta leg {leg!r}, which is not computed in v1 "
                         f"(trifecta.contains({leg!r}) always evaluates false); "
                         f"computable legs are {sorted(TRIFECTA_COMPUTABLE_LEGS)}"
+                    )
+            for field in _RUN_FIELD_PATTERN.findall(rule.when):
+                if field not in RUN_COMPUTABLE_FIELDS:
+                    problems.append(
+                        f"sink {sink_key!r}: rule {rule.name!r} references "
+                        f"run.{field!r}, which does not exist; the only "
+                        f"computable field is {sorted(RUN_COMPUTABLE_FIELDS)}"
                     )
 
     return problems

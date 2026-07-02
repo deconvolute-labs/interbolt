@@ -20,6 +20,7 @@ def _make_decision() -> Decision:
         tool="default.test",
         contributing_labels=(),
         trifecta=frozenset(),
+        run_tainted=False,
         mode=Mode.ENFORCE,
         decision_id=str(uuid.uuid4()),
         agent_id="agent",

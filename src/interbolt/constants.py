@@ -14,11 +14,13 @@ ENV_CACHE_DIR: str = "INTERBOLT_CACHE_DIR"
 
 DEFAULT_RECURSION_DEPTH: int = 4
 RECURSION_DEPTH_MAX: int = 10
-EVENT_SCHEMA_VERSION: int = 1
+EVENT_SCHEMA_VERSION: int = 2
 AUDIT_MIN_MATCH_LENGTH: int = 12
 
 TRIFECTA_FROM_UNTRUSTED: str = "from_untrusted"
 TRIFECTA_COMPUTABLE_LEGS: frozenset[str] = frozenset({TRIFECTA_FROM_UNTRUSTED})
+
+RUN_COMPUTABLE_FIELDS: frozenset[str] = frozenset({"tainted"})
 
 
 def _resolve_recursion_depth() -> int:

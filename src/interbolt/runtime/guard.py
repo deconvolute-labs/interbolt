@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, TypeVar, overload
 from interbolt.constants import DEFAULT_NAMESPACE
 from interbolt.errors import ApprovalDenied, InterboltUsageError, PolicyViolation
 from interbolt.models.core import Action, Decision, validate_qualified_name_part
+from interbolt.utils import current_run_id as current_run_id
 
 if TYPE_CHECKING:
     from interbolt.runtime import Runtime
@@ -18,7 +19,6 @@ _F = TypeVar("_F", bound=Callable[..., Any])
 current_agent_id: ContextVar[str | None] = ContextVar(
     "interbolt_agent_id", default=None
 )
-current_run_id: ContextVar[str | None] = ContextVar("interbolt_run_id", default=None)
 
 
 def _qualify_tool_name(tool: str) -> str:

@@ -74,12 +74,21 @@ Value-level taint is precise but launderable by a model paraphrasing
 untrusted text before it reaches a sink (see
 [Taint propagation](../concepts/taint-propagation.md#does-not-propagate-laundering-points-re-taint-required)
 and [Auditing](../guides/auditing.md#what-it-does-not-catch)). A
-complementary, coarser instrument would gate on run-scoped capability facts
-instead of a specific value's bytes: "has this run ingested data from an
-untrusted source, and is it now calling a sink that reaches an external
-destination." Because the decision is over run-scoped facts rather than the
-bytes of an argument, paraphrase and summarization would not evade it. This
-depends on the trifecta capabilities declaration above and is deferred.
+complementary, coarser instrument gates on run-scoped capability facts
+instead of a specific value's bytes.
+
+**The `from_untrusted`-at-run-scope slice of this now ships**, as the
+`run.tainted` CEL variable (see
+[Policies](../concepts/policies.md#the-cel-evaluation-context)): true if the
+active run has ingested untrusted data via `taint()` at any point, regardless
+of whether the current call's own arguments carry a label. Because the
+decision is over run-scoped facts rather than the bytes of an argument,
+paraphrase and summarization do not evade it.
+
+**Still deferred:** the two-leg form, "has this run ingested untrusted data
+AND is it now calling a sink that reaches an external destination," which
+depends on the trifecta capabilities declaration above to make
+`reaches_external` computable at run scope.
 
 ## Remote policy source
 
@@ -96,6 +105,10 @@ Automatic re-taint at an agent's output boundary (rather than the manual
 `taint(agent_a_output, source="agent_a")` pattern documented in
 [Identity](../concepts/identity.md#multi-agent-and-handoffs)), an
 agent-level provenance graph showing which agents touched data and in what
-order, and run-level gating as the enforcement consumer of both. None of
-the three pieces ship automatically in this version; manual re-taint at the
-handoff is the only piece available today.
+order, and run-level gating as the enforcement consumer of both. The
+contaminate-on-generation propagation half and the agent-level provenance
+graph remain deferred; the run-level gating half now has its `run.tainted`
+slice shipped (see "Run-level capability gating" above), though it consumes
+`taint()` calls directly rather than an automatic per-agent handoff label.
+Manual re-taint at the handoff is still the only way to get agent-scoped
+value-level provenance across a handoff.

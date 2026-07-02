@@ -21,6 +21,7 @@ from interbolt.runtime.guard import (
     current_agent_id,
     current_run_id,
 )
+from interbolt.taint import clear_run_ingress
 from interbolt.utils import get_logger
 
 _logger = get_logger("runtime")
@@ -74,11 +75,16 @@ class Runtime:
         `contextvars.ContextVar` this sets rather than from a durable handle.
         Guarded calls made inside this block share one `run_id`. Calls made
         outside any `agent_context` fall back to `constants.DEFAULT_AGENT_ID`
-        and get a fresh `run_id` each.
+        and get a fresh `run_id` each. Any `taint()` call made inside this
+        block is also attributed to this run for run-level gating
+        (`run.tainted`, `dev/spec.md` §15.8); that attribution is cleared,
+        alongside the audit registry, when the block exits.
 
         A `ContextVar` does not cross into a thread pool. If guarded calls
         are offloaded to threads, use the durable `agent(...)` handle
-        instead, which carries `agent_id` explicitly.
+        instead, which carries `agent_id` explicitly. Note that `taint()`
+        calls made inside such an offloaded thread are, for the same reason,
+        invisible to this run's `run.tainted` gating.
 
         Args:
             agent_id: The agent identity to bind for this run.
@@ -91,6 +97,7 @@ class Runtime:
         finally:
             current_agent_id.reset(agent_token)
             current_run_id.reset(run_token)
+            clear_run_ingress(run_id)
             if self._audit_registry is not None:
                 self._audit_registry.clear_run(run_id)
 

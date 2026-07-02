@@ -78,6 +78,10 @@ A `when:` expression can reference:
 - `trifecta`: the lethal-trifecta legs satisfied by this call. See
   [the v1 trifecta limit](#the-v1-trifecta-limit-read-this) below; this is
   load-bearing.
+- `run`: a CEL map with one field, `run.tainted` (boolean): true if the
+  active run has ingested untrusted data via `taint()` at any point,
+  regardless of whether *this call's own* arguments carry a label. See
+  [Run-level gating](#run-level-gating-run-tainted) below.
 
 `sources` and `max_trust` are top-level context variables, siblings of
 `taint`, not `taint.sources`/`taint.max_trust`. CEL's `exists`/`all` macros
@@ -166,6 +170,53 @@ worked example at the top of this page.
 `interbolt validate` rejects any policy referencing a trifecta leg name
 outside the v1-computable set `{from_untrusted}`, converting this silent
 fail-open into a loud failure at validation time. See [CI](../guides/ci.md).
+
+## Run-level gating (`run.tainted`)
+
+Value-level taint dies the instant an LLM reads tainted context and emits a
+fresh tool call: the model's output is deserialized into plain strings with
+no label at all, so a rule written against `taint`/`args` has nothing left
+to inspect. `run.tainted` is a coarser, laundering-resistant signal for
+exactly this case: it is set the moment `taint()` is called with an
+untrusted-resolving source anywhere inside the active `agent_context`, and
+it stays true for the rest of that run, independent of any single call's own
+arguments.
+
+```yaml
+sinks:
+  default.send_email:
+    - name: block_run_tainted_exfil
+      when: run.tainted && args.to.endsWith("@external.com")
+      action: block
+```
+
+This fires even when `args.to`/`args.body` were generated fresh by the model
+and carry no `Tainted` label whatsoever, as long as *something* untrusted
+entered the run earlier (a poisoned calendar invite, a web search result).
+Because the decision is over a run-scoped fact rather than the bytes of the
+argument, paraphrasing or summarizing the untrusted content before the tool
+call does not evade it.
+
+**Read this before relying on it:**
+
+- **It only sees `taint()` calls made while an `agent_context` is active.**
+  A `taint()` call with no active `agent_context` cannot be attributed to
+  any run; `run.tainted` will never reflect it, and `taint()` logs a DEBUG
+  message when this happens. The same applies to a `taint()` call made
+  inside a thread-pool-offloaded worker (see
+  [Identity: thread offload limit](identity.md#thread-offload-limit)).
+- **It is coarse and monotonic.** Once set, `run.tainted` stays true for the
+  rest of the run; a run that legitimately mixes an untrusted read with an
+  unrelated, safe external write is gated the same as a genuine attack.
+  Write policy carve-outs (by `agent_id`, tool, or argument shape) rather
+  than relying on `run.tainted` alone as a backstop.
+- **It does not replace value-level taint.** `taint`/`args`-based rules stay
+  precise where the value survives; `run.tainted` is the backstop for where
+  it does not. See [Taint propagation](taint-propagation.md) for the full
+  propagation contract.
+
+`interbolt validate` rejects any `run.<field>` reference outside the single
+computable field, `tainted`.
 
 ## Static validation
 

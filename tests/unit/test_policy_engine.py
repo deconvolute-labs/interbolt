@@ -143,6 +143,7 @@ class TestBuildContext:
             labels=(),
             trifecta=frozenset(),
             sources_table={},
+            run_tainted=False,
         )
         for key in ("tool", "args", "taint", "sources", "max_trust", "trifecta"):
             assert key in ctx
@@ -155,6 +156,7 @@ class TestBuildContext:
             labels=labels,
             trifecta=frozenset(),
             sources_table={"web": TrustLevel.UNTRUSTED},
+            run_tainted=False,
         )
         assert str(ctx["max_trust"]) == "untrusted"
 
@@ -166,6 +168,7 @@ class TestBuildContext:
             labels=labels,
             trifecta=frozenset(),
             sources_table={"kb": TrustLevel.TRUSTED},
+            run_tainted=False,
         )
         assert str(ctx["max_trust"]) == "trusted"
 
@@ -176,6 +179,7 @@ class TestBuildContext:
             labels=(),
             trifecta=frozenset(),
             sources_table={},
+            run_tainted=False,
         )
         assert str(ctx["max_trust"]) == "trusted"
 
@@ -188,6 +192,7 @@ class TestBuildContext:
             labels=(lbl1, lbl2),
             trifecta=frozenset(),
             sources_table={},
+            run_tainted=False,
         )
         sources = [str(s) for s in ctx["sources"]]
         assert sources.count("shared") == 1
@@ -212,7 +217,12 @@ class TestEvaluateSink:
 
     def _empty_context(self) -> dict[str, object]:
         return build_context(
-            tool="t", args={}, labels=(), trifecta=frozenset(), sources_table={}
+            tool="t",
+            args={},
+            labels=(),
+            trifecta=frozenset(),
+            sources_table={},
+            run_tainted=False,
         )
 
     def test_catch_all_fires_immediately(self) -> None:

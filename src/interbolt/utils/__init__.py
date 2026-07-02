@@ -2,12 +2,22 @@ from __future__ import annotations
 
 import logging
 import os
+from contextvars import ContextVar
 from pathlib import Path
 
 import platformdirs
 
 logger = logging.getLogger("interbolt")
 logger.addHandler(logging.NullHandler())
+
+current_run_id: ContextVar[str | None] = ContextVar("interbolt_run_id", default=None)
+"""The active run's identity, bound by `Runtime.agent_context` for its duration.
+
+A leaf-level primitive (stdlib `contextvars` only) so both `taint/` and
+`runtime/` can read/set it without either importing the other: `taint()`
+reads it to attribute run-scoped ingress (§15.8 run-level gating); `runtime/`
+sets it in `agent_context` and reads it in the guard wrappers.
+"""
 
 # TODO: Add this format for the logger
 LOG_FORMAT: str = "[%(levelname)s] %(asctime)s %(message)s"
