@@ -20,6 +20,7 @@ def _make_decision() -> Decision:
         tool="default.test",
         contributing_labels=(),
         trifecta=frozenset(),
+        untrusted_sources=frozenset(),
         run_tainted=False,
         mode=Mode.ENFORCE,
         decision_id=str(uuid.uuid4()),

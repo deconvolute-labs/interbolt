@@ -2,14 +2,22 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Sequence
 from pathlib import Path
 
 from interbolt.constants import RECORD_TYPE_EVENT, RECORD_TYPE_FINDING
 from interbolt.errors import InterboltConfigError
-from interbolt.models.core import Decision, Event, Finding
+from interbolt.models.core import Action, Decision, Event, Finding
+from interbolt.models.protocols import Reporter
 from interbolt.utils import get_logger
 
 _logger = get_logger("reporting")
+
+_ACTION_COLOR = {
+    Action.ALLOW: "green",
+    Action.BLOCK: "red",
+    Action.REQUIRE_APPROVAL: "yellow",
+}
 
 
 class NullReporter:
@@ -126,3 +134,80 @@ class JsonlReporter:
                 self.path,
                 self.path,
             )
+
+
+class CompositeReporter:
+    """Fans a record out to multiple reporters, isolating each one's failures.
+
+    One broken sub-reporter never prevents the record from reaching the
+    others, mirroring the fire-and-forget contract `enforcement` already
+    applies to a single reporter.
+
+    Attributes:
+        reporters: The reporters to fan out to, in call order.
+    """
+
+    def __init__(self, reporters: Sequence[Reporter]) -> None:
+        """Wrap a fixed sequence of reporters.
+
+        Args:
+            reporters: The reporters to fan out to, in call order.
+        """
+        self.reporters = tuple(reporters)
+
+    def export(self, event: Event | Finding) -> None:
+        """Export the record to every wrapped reporter, in order.
+
+        Args:
+            event: The record to export.
+        """
+        for reporter in self.reporters:
+            try:
+                reporter.export(event)
+            except Exception:  # noqa: BLE001 -- one reporter's failure must not block another
+                _logger.warning(
+                    "reporter %r failed to export %r", reporter, type(event).__name__
+                )
+
+
+def describe_event(event: Event) -> str:
+    """Build a one-line, rich-markup-tagged human summary of an `Event`.
+
+    The building block for a custom console/CLI reporter: pass the result
+    to a `rich.console.Console.print` (or strip the `[tag]...[/tag]` markup
+    for a plain-text sink). Used by `interbolt inspect` internally.
+
+    Args:
+        event: The event to describe.
+
+    Returns:
+        A rich-markup string summarizing the decision.
+    """
+    color = _ACTION_COLOR.get(event.decision.action, "white")
+    rule = event.matched_rule or "default"
+    untrusted = ", ".join(sorted(event.untrusted_sources)) or "-"
+    sources = ", ".join(sorted(event.sources)) or "-"
+    lineage = ", ".join(event.lineage) or "-"
+    run_tainted = "[red bold]True[/red bold]" if event.run_tainted else "False"
+    return (
+        f"{event.decision.tool}  "
+        f"[{color}]{event.decision.action.value}[/{color}]  "
+        f"rule={rule}  mode={event.mode.value}  "
+        f"untrusted_sources={{{untrusted}}}  "
+        f"run_tainted={run_tainted}  sources={{{sources}}}  lineage=({lineage})"
+    )
+
+
+def describe_finding(finding: Finding) -> str:
+    """Build a one-line, rich-markup-tagged human summary of a `Finding`.
+
+    Args:
+        finding: The finding to describe.
+
+    Returns:
+        A rich-markup string summarizing the laundering-audit hit.
+    """
+    return (
+        f"[yellow]finding[/yellow]  source={finding.source}  "
+        f"tool={finding.tool}  argument={finding.argument}"
+    )

@@ -67,13 +67,17 @@ This is a deliberate, honest limit of an in-process string-subclass carrier, sta
 
 `interbolt init` writes an editable starter policy to the current directory (or a path you supply). It refuses to overwrite an existing file.
 
+## Reporting
+
+`Reporter` is the seam for decision output: blocked, approval required, allowed, and why (`Decision.untrusted_sources` names the specific source that drove a block). `NullReporter` (default), `InMemoryReporter`, `LoggingReporter`, `JsonlReporter`, and `CompositeReporter` (fan-out to more than one) ship out of the box; `describe_event`/`describe_finding` format a record for a human. See [reporters](docs/reference/reporters.md) for the full reference, including a recipe for a quiet-by-default console reporter for your own CLI.
+
 ## MCP
 
 `interbolt[mcp]` provides `wrap_session`, which adapts an MCP client session: the namespace becomes the server name, tool outputs are tainted as untrusted by default, and calls route through the policy. No core dependency, no rewrite of your tool logic.
 
 ## Documentation
 
-See [`docs/`](docs/index.md) for [policies](docs/concepts/policies.md), the [propagation contract](docs/concepts/taint-propagation.md), [identity and namespacing](docs/concepts/identity.md), [testing](docs/guides/testing.md), [auditing](docs/guides/auditing.md), and the [API reference](docs/reference/api.md).
+See [`docs/`](docs/index.md) for [policies](docs/concepts/policies.md), the [propagation contract](docs/concepts/taint-propagation.md), [identity and namespacing](docs/concepts/identity.md), [testing](docs/guides/testing.md), [auditing](docs/guides/auditing.md), [reporters](docs/reference/reporters.md), and the [API reference](docs/reference/api.md).
 
 ## License
 

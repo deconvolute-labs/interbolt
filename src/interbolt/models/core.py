@@ -83,6 +83,12 @@ class Decision(BaseModel):
         trifecta: The lethal-trifecta legs satisfied by this call. In v1 this
             only ever contains `"from_untrusted"` or is empty; the
             `reaches_external` and `reads_private` legs are not computed.
+        untrusted_sources: The subset of contributing labels' lineage names
+            that resolved untrusted against the policy's sources table at
+            decision time. The direct answer to "which source caused this,"
+            computed once here rather than left for the reporter to
+            re-derive by cross-referencing labels against a sources table
+            it may not have.
         run_tainted: Whether the active run has ingested untrusted data via
             `taint()` at any point before this call, regardless of whether
             this call's own arguments carry a label (run-level gating,
@@ -102,6 +108,7 @@ class Decision(BaseModel):
     tool: str
     contributing_labels: tuple[Label, ...]
     trifecta: frozenset[str]
+    untrusted_sources: frozenset[str]
     run_tainted: bool
     mode: Mode
     decision_id: str
@@ -148,6 +155,7 @@ class Event(BaseModel):
     lineage: tuple[str, ...]
     matched_rule: str | None
     trifecta: frozenset[str]
+    untrusted_sources: frozenset[str]
     run_tainted: bool
     mode: Mode
     outcome: str

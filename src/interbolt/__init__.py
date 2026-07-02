@@ -31,10 +31,13 @@ from interbolt.models.core import (
 from interbolt.models.protocols import ApprovalResolver, Reporter
 from interbolt.policy import Policy, default_policy
 from interbolt.reporting import (
+    CompositeReporter,
     InMemoryReporter,
     JsonlReporter,
     LoggingReporter,
     NullReporter,
+    describe_event,
+    describe_finding,
 )
 from interbolt.runtime import Runtime, check, configure, guard
 from interbolt.taint import LabeledValue, Tainted, TaintedBytes, taint
@@ -60,6 +63,9 @@ __all__ = [
     "InMemoryReporter",
     "LoggingReporter",
     "JsonlReporter",
+    "CompositeReporter",
+    "describe_event",
+    "describe_finding",
     "RECORD_TYPE_EVENT",
     "RECORD_TYPE_FINDING",
     "InterboltError",
