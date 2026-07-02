@@ -127,6 +127,15 @@ def check(
 
     final_action = Action.ALLOW if mode == Mode.DRY_RUN else raw_action
 
+    if outcome != Action.ALLOW.value:
+        _logger.warning(
+            "check(): tool=%s outcome=%s matched_rule=%s mode=%s",
+            tool,
+            outcome,
+            matched_rule,
+            mode,
+        )
+
     decision = Decision(
         action=final_action,
         matched_rule=matched_rule,
