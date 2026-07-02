@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict
 
 from interbolt.errors import InterboltConfigError
 
@@ -11,8 +11,8 @@ from interbolt.errors import InterboltConfigError
 def validate_qualified_name_part(value: str, *, part: str) -> None:
     """Reject a namespace or tool name that contains a dot.
 
-    The dotted `namespace.tool` form is the policy-key surface, so neither half
-    may itself contain a dot or the two forms become ambiguous to parse back apart.
+    A dot in either half would make the dotted `namespace.tool` surface
+    ambiguous to parse back apart.
 
     Args:
         value: The candidate namespace or tool name.
@@ -25,11 +25,31 @@ def validate_qualified_name_part(value: str, *, part: str) -> None:
         raise InterboltConfigError(f"{part} {value!r} may not contain a dot")
 
 
+def split_qualified_name(value: str) -> tuple[str, str] | None:
+    """Split a dotted `namespace.tool` name into its validated halves.
+
+    Args:
+        value: The candidate qualified name.
+
+    Returns:
+        The `(namespace, tool)` pair, or `None` if `value` has no dot.
+
+    Raises:
+        InterboltConfigError: If the namespace or tool half itself contains a dot.
+    """
+    namespace, separator, tool = value.rpartition(".")
+    if not separator:
+        return None
+    validate_qualified_name_part(namespace, part="namespace")
+    validate_qualified_name_part(tool, part="tool")
+    return namespace, tool
+
+
 class Mode(StrEnum):
     """The enforcement mode: governs behavior on evaluation error.
 
-    Does not change a correct `block`/`require_approval` decision, except
-    under `DRY_RUN` where every decision is downgraded to allow.
+    A correct `block`/`require_approval` decision always holds, except under
+    `DRY_RUN`, which downgrades every decision to allow.
     """
 
     ENFORCE = "enforce"
@@ -45,7 +65,8 @@ class TrustLevel(StrEnum):
 
 
 class Label(BaseModel):
-    """Provenance attached to a value: where it came from, never a resolved trust bit.
+    """Provenance attached to a value: where it came from. Trust is resolved
+    later, at the sink, not stored here.
 
     Attributes:
         source: The originating source name. For a merged value, the first
@@ -85,15 +106,13 @@ class Decision(BaseModel):
             `reaches_external` and `reads_private` legs are not computed.
         untrusted_sources: The subset of contributing labels' lineage names
             that resolved untrusted against the policy's sources table at
-            decision time. The direct answer to "which source caused this,"
-            computed once here rather than left for the reporter to
-            re-derive by cross-referencing labels against a sources table
-            it may not have.
+            decision time. Answers "which source caused this" directly, so
+            the reporter doesn't need its own sources table to re-derive it.
         run_tainted: Whether the active run has ingested untrusted data via
             `taint()` at any point before this call, regardless of whether
-            this call's own arguments carry a label (run-level gating,
-            `dev/spec.md` §15.8). Survives a model-mediated handoff that
-            launders value-level taint away.
+            this call's own arguments carry a label (run-level gating, spec
+            §15.8). Catches a model-mediated handoff that launders
+            value-level taint away.
         mode: The enforcement mode in effect when this decision was made.
         decision_id: A unique id for this decision, for the audit trail.
         agent_id: The durable, integrator-supplied agent identity.
@@ -115,30 +134,6 @@ class Decision(BaseModel):
     agent_id: str
     run_id: str
     session_id: str | None
-
-
-class QualifiedName(BaseModel):
-    """A structured `(namespace, tool)` pair; `namespace.tool` is the surface form."""
-
-    model_config = ConfigDict(frozen=True)
-
-    namespace: str
-    tool: str
-
-    @field_validator("namespace")
-    @classmethod
-    def _validate_namespace(cls, value: str) -> str:
-        validate_qualified_name_part(value, part="namespace")
-        return value
-
-    @field_validator("tool")
-    @classmethod
-    def _validate_tool(cls, value: str) -> str:
-        validate_qualified_name_part(value, part="tool")
-        return value
-
-    def __str__(self) -> str:
-        return f"{self.namespace}.{self.tool}"
 
 
 class Event(BaseModel):

@@ -37,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     validate_parser = subparsers.add_parser(
-        "validate", help="Static policy analysis only. Never executes an agent."
+        "validate", help="Static schema and CEL checks only."
     )
     validate_parser.add_argument("policy_path")
 
@@ -109,8 +109,8 @@ def _load_records(path: Path) -> list[Event | Finding]:
     Returns:
         Every successfully parsed `Event`/`Finding`, in file order. A line
         that fails to parse as JSON, carries an unrecognized or missing
-        `record_type`, or fails model validation is skipped with a warning
-        printed to the console; it does not abort the read.
+        `record_type`, or fails model validation is skipped, with a warning
+        printed to the console, and reading continues.
     """
     records: list[Event | Finding] = []
     with path.open("r", encoding="utf-8") as fh:

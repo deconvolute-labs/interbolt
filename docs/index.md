@@ -14,8 +14,8 @@ together, or jump straight to the [quickstart](quickstart.md).
 
 ## Concepts
 
-- [Taint propagation](concepts/taint-propagation.md): what `taint()` marks, what
-  survives a transformation, and what does not.
+- [Taint propagation](concepts/taint-propagation.md): what `taint()` marks
+  and what survives a transformation.
 - [Policies](concepts/policies.md): the YAML+CEL policy format, evaluation
   semantics, and the CEL context available to a `when` expression.
 - [Identity](concepts/identity.md): the `agent_id` / `run_id` / `session_id`
@@ -42,8 +42,8 @@ together, or jump straight to the [quickstart](quickstart.md).
 
 ## Design
 
-- [Deferred features](design/deferred.md): what v1 deliberately does not do,
-  and the seams left for each.
+- [Deferred features](design/deferred.md): what's out of scope for v1, and
+  the seams left to add each later.
 
 ## Design lineage
 

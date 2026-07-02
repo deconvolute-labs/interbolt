@@ -56,8 +56,7 @@ class InterboltConfigError(InterboltError, ValueError):
 
     Examples: an unrecognized `mode`, an out-of-range
     `INTERBOLT_RECURSION_DEPTH`, a tool or namespace name containing a dot.
-    Subclasses `ValueError` as well as `InterboltError`, so callers can catch it
-    either as interbolt's own type or by its builtin semantics.
+    Also subclasses `ValueError`, so callers can catch either type.
     """
 
 
@@ -65,6 +64,5 @@ class InterboltUsageError(InterboltError, RuntimeError):
     """Raised when the public API is used out of sequence.
 
     Example: calling `check()`/`guard` before `configure()` has run.
-    Subclasses `RuntimeError` as well as `InterboltError`, so callers can catch
-    it either as interbolt's own type or by its builtin semantics.
+    Also subclasses `RuntimeError`, so callers can catch either type.
     """

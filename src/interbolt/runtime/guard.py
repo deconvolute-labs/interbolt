@@ -8,7 +8,12 @@ from typing import TYPE_CHECKING, Any, TypeVar, overload
 
 from interbolt.constants import DEFAULT_NAMESPACE
 from interbolt.errors import ApprovalDenied, InterboltUsageError, PolicyViolation
-from interbolt.models.core import Action, Decision, validate_qualified_name_part
+from interbolt.models.core import (
+    Action,
+    Decision,
+    split_qualified_name,
+    validate_qualified_name_part,
+)
 from interbolt.utils import current_run_id as current_run_id
 
 if TYPE_CHECKING:
@@ -24,15 +29,10 @@ current_agent_id: ContextVar[str | None] = ContextVar(
 def _qualify_tool_name(tool: str) -> str:
     """Resolve a bare or explicitly-qualified tool name to its dotted form.
 
-    A name with no dot gets `constants.DEFAULT_NAMESPACE` prepended. A name
-    with one dot is treated as already-qualified `namespace.tool`, per §8.2:
-    "@agent.guard(tool='fs.write')  # explicit qualified or bare tool name".
-    Neither half may itself contain a dot.
+    A bare name (no dot) gets `constants.DEFAULT_NAMESPACE` prepended. A
+    dotted name is treated as already-qualified `namespace.tool`.
     """
-    if "." in tool:
-        namespace, _, bare_tool = tool.rpartition(".")
-        validate_qualified_name_part(namespace, part="namespace")
-        validate_qualified_name_part(bare_tool, part="tool")
+    if split_qualified_name(tool) is not None:
         return tool
     validate_qualified_name_part(tool, part="tool")
     return f"{DEFAULT_NAMESPACE}.{tool}"

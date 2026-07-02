@@ -59,10 +59,10 @@ resolve the current runtime **lazily, at call time**, not at decoration
 time. `runtime.agent("id")` captures the `agent_id` string eagerly (safe at
 import) but also resolves the runtime lazily through the same mechanism.
 
-This means decorating a module with `@handle.guard` never requires
-`configure()` to have run; only the first *call* needs a configured runtime.
-Calling a guarded function before any `configure()` call raises
-`InterboltUsageError`. Re-`configure()` (the standard test recipe; see
+A module decorated with `@handle.guard` can be imported before `configure()`
+has run; only the first *call* needs a configured runtime. Calling a guarded
+function before any `configure()` call raises `InterboltUsageError`.
+Re-`configure()` (the standard test recipe; see
 [Testing](../guides/testing.md)) rebinds the process-current runtime
 cleanly, with no stale capture, because every lazily-resolving decorator
 picks up whichever runtime is current on its next call.
@@ -72,38 +72,38 @@ has run: it takes no `agent_id`, and reads container-recursion depth from
 the shared `interbolt.constants.RECURSION_DEPTH` module constant. It does
 conditionally read one ambient `ContextVar`, the same one `agent_context`
 binds, to attribute ingress to the active run for run-level gating (see
-[Policies: run-level gating](policies.md#run-level-gating-run-tainted)); if
-none is active (guaranteed before `configure()` can possibly have run,
-since `agent_context` is a `Runtime` method), the read is a no-op plus a
-DEBUG log, so there is no functional change to `taint()`'s core behavior.
+[Policies: run-level gating](policies.md#run-level-gating-run-tainted)). If
+none is active (always true before `configure()` runs, since
+`agent_context` is a `Runtime` method), the read is a no-op plus a DEBUG
+log, with no change to `taint()`'s core behavior.
 
 ## Thread offload limit
 
-`agent_context` is built on `contextvars.ContextVar` and does not cross into
-a thread pool. If you dispatch guarded tool calls to a thread pool, the
-context-bound agent and run identity are lost inside those threads, and bare
-`@guard` calls there fall back to `DEFAULT_AGENT_ID` with a fresh `run_id`
-each. The eager `runtime.agent("id")` handle is immune to this, since it
-carries `agent_id` explicitly rather than reading it from the contextvar,
-and is the recommended form when tool calls are offloaded to threads. Note
-that this handle only carries `agent_id`, not `run_id`: a `taint()` call
-made inside an offloaded thread still finds no active run (even though one
-is logically active on the calling task), so that ingress is silently
+`agent_context` is built on `contextvars.ContextVar`, which stays on the
+calling task's context and doesn't reach a thread pool. Guarded tool calls
+dispatched to a thread pool lose the context-bound agent and run identity
+inside those threads; bare `@guard` calls there fall back to
+`DEFAULT_AGENT_ID` with a fresh `run_id` each. The eager `runtime.agent("id")`
+handle carries `agent_id` explicitly instead of reading the contextvar, so
+it works across threads and is the recommended form for offloaded tool
+calls. It carries only `agent_id`, though, not `run_id`: a `taint()` call
+inside an offloaded thread still finds no active run, so that ingress stays
 invisible to `run.tainted` for the run it should have contributed to (see
 [Policies: run-level gating](policies.md#run-level-gating-run-tainted)).
 
 ## `check()` and the contextvar
 
 The framework-agnostic `check()` function (and `Runtime.check()`) takes
-`agent_id` as a required keyword argument and `run_id` as an optional one;
-it never reads the `agent_context` contextvar for either. `guard` is sugar
-over `check()` that does read the contextvar. A custom dispatch loop that
+`agent_id` as a required keyword argument and `run_id` as an optional one,
+always explicitly rather than from the `agent_context` contextvar. `guard`
+is sugar over `check()` that reads the contextvar instead. A custom dispatch
+loop that
 calls `check()` directly inside an active `agent_context` should thread the
 bound `run_id` through explicitly, or correlation will fragment one run into
 many separate `run_id`s.
 
 The same fragmentation risk applies to `run.tainted`. `taint()`'s run-ingress
-recording only ever reads the ambient `agent_context` contextvar, never an
+recording always reads the ambient `agent_context` contextvar, not an
 explicitly-threaded `run_id`. A dispatch loop that enters `agent_context`
 but then calls `check()` with some *other* explicit `run_id` (rather than
 the one `agent_context` minted) will see `run.tainted` permanently `false`:
@@ -118,7 +118,7 @@ value bare `guard` already reads automatically.
 Identity and attribution span agents today, through the mechanism above: a
 shared `run_id`, per-agent `agent_id` stamps, and a spanning `session_id`.
 
-What does **not** span agents automatically is value-level taint: a
+Value-level taint is the exception: it doesn't span agents automatically. A
 model-generated handoff between agents launders the label the same way any
 model generation does (see
 [Taint propagation](taint-propagation.md#boundaries-that-always-reset-to-untrusted-ingress)).

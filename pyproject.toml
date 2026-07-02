@@ -32,7 +32,6 @@ dependencies = [
   "pydantic",
   "cel-python",
   "pyyaml",
-  "platformdirs",
   "rich",
 ]
 

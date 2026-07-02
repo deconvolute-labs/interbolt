@@ -38,13 +38,13 @@ security-relevant collision.
 The qualified name (`payments.send_payment`, `default.send_email`) is what
 the policy keys on, what is logged, and what a dashboard would display.
 Because namespace and tool are validated independently and the dot is
-reserved as the sole separator, two tools in different namespaces can never
-collide on their qualified name. Within a namespace, the integrator owns
+reserved as the sole separator, two tools in different namespaces always
+have distinct qualified names. Within a namespace, the integrator owns
 uniqueness.
 
 ## Default namespace, not "local"
 
 A plain Python function decorated with no explicit namespace resolves to
-namespace `"default"`, not `"local"`: the library has no way to verify that
-a given tool function is actually local to the process, so it does not
-imply that with the namespace name.
+namespace `"default"`, not `"local"`, since the library can't verify a
+given tool function is actually local to the process and shouldn't imply
+that in the name.

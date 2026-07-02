@@ -66,7 +66,7 @@ class Policy:
 
         Returns:
             A list of human-readable problem descriptions; empty if valid.
-            Never raises.
+            Every error is captured here instead of raised.
         """
         return validate_policy(path)
 

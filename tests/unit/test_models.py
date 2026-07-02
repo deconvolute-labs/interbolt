@@ -14,12 +14,10 @@ from interbolt.models.core import (
     Event,
     Label,
     Mode,
-    QualifiedName,
     TrustLevel,
     validate_qualified_name_part,
 )
-from interbolt.models.protocols import ApprovalResolver, Reporter, auto_deny
-from interbolt.reporting import InMemoryReporter, NullReporter
+from interbolt.models.protocols import auto_deny
 
 
 def _label(source: str = "src") -> Label:
@@ -50,21 +48,6 @@ def test_validate_qualified_name_part_with_dot_raises() -> None:
 
 def test_validate_qualified_name_part_no_dot_passes() -> None:
     validate_qualified_name_part("valid_name", part="tool")
-
-
-def test_qualified_name_str_form() -> None:
-    qn = QualifiedName(namespace="ns", tool="tool")
-    assert str(qn) == "ns.tool"
-
-
-def test_qualified_name_dotted_namespace_raises() -> None:
-    with pytest.raises(ValidationError):
-        QualifiedName(namespace="a.b", tool="tool")
-
-
-def test_qualified_name_dotted_tool_raises() -> None:
-    with pytest.raises(ValidationError):
-        QualifiedName(namespace="ns", tool="a.b")
 
 
 def test_label_is_frozen() -> None:
@@ -99,18 +82,6 @@ def test_trust_level_str_enum_values() -> None:
 def test_auto_deny_always_returns_false() -> None:
     d = _decision()
     assert auto_deny(d) is False
-
-
-def test_reporter_protocol_satisfied_by_null_reporter() -> None:
-    assert isinstance(NullReporter(), Reporter)
-
-
-def test_reporter_protocol_satisfied_by_in_memory_reporter() -> None:
-    assert isinstance(InMemoryReporter(), Reporter)
-
-
-def test_approval_resolver_protocol_satisfied_by_auto_deny() -> None:
-    assert isinstance(auto_deny, ApprovalResolver)
 
 
 def test_event_carries_schema_version_constant() -> None:

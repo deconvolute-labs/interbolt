@@ -58,16 +58,15 @@ def check(
 ) -> Decision:
     """Evaluate policy for one guarded call. The single decision entrypoint.
 
-    Pure with respect to the decision itself; the only side effects are the
+    Pure with respect to the decision itself; side effects are limited to
     fire-and-forget reporter emission and, when an audit registry is given,
-    the laundering scan. `guard` is sugar over this function and never
-    duplicates this sequence.
+    the laundering scan. `guard` is sugar over this function, reusing this
+    exact sequence.
 
-    Note: this function never raises `PolicyViolation` or `ApprovalDenied`
-    for a normally-computed `block`/`require_approval` decision; it returns
-    the `Decision` and leaves enforcing it (raising, invoking the approval
-    resolver) to the caller, exactly as `guard` does. It only raises
-    directly for a genuine policy *evaluation* failure under `enforce` mode.
+    Returns the `Decision` for a `block`/`require_approval` outcome and
+    leaves enforcing it (raising, invoking the approval resolver) to the
+    caller, exactly as `guard` does. Raises directly only for a genuine
+    policy *evaluation* failure under `enforce` mode.
 
     Args:
         tool: The dotted qualified tool name.
@@ -209,10 +208,10 @@ def _compute_trifecta(
 ) -> frozenset[str]:
     """Compute the lethal-trifecta legs satisfied by this call.
 
-    v1 computes `from_untrusted` only. The `reaches_external` and
-    `reads_private` legs are not computed in v1 (the latter requires the
-    deferred capabilities declaration); `trifecta.contains("reaches_external")`
-    always evaluates false. Do not rely on a v1 trifecta size as a backstop.
+    v1 computes only the `from_untrusted` leg (`reaches_external` and
+    `reads_private` need the deferred capabilities declaration, spec §15.2).
+    `trifecta.contains("reaches_external")` always evaluates false, so a
+    rule relying on trifecta size as a backstop fails open.
     """
     if any(
         resolve_label_trust(label, sources_table) is TrustLevel.UNTRUSTED
@@ -227,10 +226,9 @@ def _compute_untrusted_sources(
 ) -> frozenset[str]:
     """Resolve which of this call's contributing labels' source names are untrusted.
 
-    Answers "why was this blocked, which source" without the reporter having
-    to re-derive trust against a sources table it may not have: reuses the
-    same per-name resolution `_compute_trifecta` already performs, but keeps
-    the names instead of collapsing them to a boolean.
+    Answers "which source caused this" so the reporter doesn't need its own
+    sources table to re-derive it. Reuses the same per-name resolution as
+    `_compute_trifecta`, keeping the names instead of collapsing to a boolean.
     """
     return frozenset(
         name
@@ -244,11 +242,10 @@ def _compute_run_tainted(run_id: str, sources_table: Mapping[str, TrustLevel]) -
     """Resolve whether the active run has ingested untrusted data via `taint()`.
 
     Reads the run's recorded ingress source names (`taint.run_ingress_sources`,
-    populated at `taint()` call time, independent of this call's own
-    arguments) and resolves each against the policy's `sources` table, the
-    same way `resolve_label_trust` resolves a label's lineage. This is what
-    lets `run.tainted` survive a model-mediated handoff that launders
-    value-level taint away (`dev/spec.md` §8.3, §15.8).
+    independent of this call's own arguments) and resolves each the same way
+    `resolve_label_trust` resolves a label's lineage. This lets `run.tainted`
+    catch a model-mediated handoff that launders value-level taint away
+    (spec §8.3, §15.8).
     """
     return any(
         resolve_source_trust(name, sources_table) is TrustLevel.UNTRUSTED
@@ -264,8 +261,8 @@ def _walk_strings(
     """Yield every string leaf in `value`: `(content, label)`.
 
     `label` is `None` for a plain `str` (a potential laundering point) and
-    set for a `Tainted`/`TaintedBytes` leaf (already labeled, not a
-    laundering point). Recurses into builtin containers to `depth`.
+    set for an already-labeled `Tainted`/`TaintedBytes` leaf. Recurses into
+    builtin containers to `depth`.
     """
     if isinstance(value, (Tainted, TaintedBytes)):
         content = (
@@ -290,10 +287,8 @@ def _walk_strings(
 class AuditRegistry:
     """The laundering audit's per-run registry of untrusted-resolving content.
 
-    Advisory only: findings never change a decision. Off the latency budget;
-    only ever invoked when audit is enabled. Catches mechanical laundering
-    (the bytes survive into a sink argument unlabeled); cannot catch semantic
-    laundering (a model paraphrasing the untrusted text first).
+    Advisory only. Catches mechanical laundering, not model paraphrase; see
+    docs/concepts/taint-propagation.md.
     """
 
     def __init__(self, *, min_match_length: int = AUDIT_MIN_MATCH_LENGTH) -> None:

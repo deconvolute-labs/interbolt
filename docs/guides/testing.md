@@ -15,7 +15,7 @@ policy behavior itself needs no bespoke harness.
   `unittest.mock.Mock`/`AsyncMock` (or `pytest-mock`'s `mocker` fixture),
   with no monkeypatching of internals required.
 - Policy testing is `check()` (or `runtime.check()`) called with synthetic
-  args and taint, asserted against the returned `Decision`. There is no
+  args and taint, asserted against the returned `Decision`; there's no
   separate `simulate` function.
 - `InMemoryReporter` is the assertion surface for "what decisions were
   made" and "what audit findings were found."
@@ -89,9 +89,9 @@ def test_approval_denied_then_granted(mocker):
     write_file(path="/data/out.txt", content="...")  # now allowed
 ```
 
-For an `async def` guarded function, use an `AsyncMock` resolver instead; a
-sync call site cannot use a resolver that returns an awaitable, and a guard
-wrapping a coroutine function awaits the resolver automatically.
+For an `async def` guarded function, use an `AsyncMock` resolver instead:
+a guard wrapping a coroutine function awaits the resolver automatically,
+and a sync call site needs a resolver that returns a plain `bool`.
 
 ## Recommended fixtures
 

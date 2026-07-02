@@ -53,10 +53,10 @@ runtime = configure(policy=Policy.from_file("policy.yaml"))
 ```
 
 `configure()` compiles the policy and installs the result as the
-process-current runtime. It has no import-time side effects, so decorating a
-module with `@guard` never requires `configure()` to have run first; only
-calling the guarded function does. See [Identity](concepts/identity.md) for
-the full binding model.
+process-current runtime. It has no import-time side effects: a module
+decorated with `@guard` can be imported before `configure()` runs; only
+calling the guarded function requires it. See [Identity](concepts/identity.md)
+for the full binding model.
 
 If you omit `policy`, interbolt loads the built-in default: no sources
 declared, every guarded call falls through to `require_approval`. A warning is
@@ -77,13 +77,13 @@ summary: Tainted = taint(web_search("..."), source="web_search")
 `taint()` returns a `Tainted`, a `str` subclass, so it is accepted anywhere a
 plain `str` is expected with no change to a tool's signature. See
 [Taint propagation](concepts/taint-propagation.md) for what survives a
-transformation and what does not.
+transformation.
 
 ## Guard a tool call
 
-Define tools with a bare `@guard`, no agent reference — this is the
-primary pattern. Tools can live in their own module, decorated where
-they're defined:
+Define tools with a bare `@guard`, no agent reference: this is the primary
+pattern. Tools can live in their own module, decorated where they're
+defined:
 
 ```python
 # tools.py
@@ -123,17 +123,16 @@ function runs:
 `agent_context` binds `agent_id` in a `contextvars.ContextVar` for the
 duration of the `async with` block, and mints one `run_id` shared by every
 guarded call inside it. Because `ContextVar` state is isolated per `asyncio`
-task, two agents running concurrently — each in its own `agent_context`
-block — never see each other's identity, with no locking required. A
+task, two agents running concurrently, each in its own `agent_context`
+block, keep separate identities automatically, with no locking required. A
 guarded call made outside any `agent_context` falls back to `"default"`
 (`constants.DEFAULT_AGENT_ID`).
 
 ### Durable per-agent handles
 
 For a function that always belongs to one fixed agent, or for guarded calls
-**offloaded to a thread pool** — where a `ContextVar` does not cross the
-thread boundary and `agent_context` cannot reach the call — bind the agent
-at decoration time instead, with `runtime.agent(...)`:
+**offloaded to a thread pool** (where `agent_context` can't reach the call),
+bind the agent at decoration time instead, with `runtime.agent(...)`:
 
 ```python
 agent = runtime.agent("support-agent")
