@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import pytest
 
 import interbolt.runtime as _rt_module
-from interbolt.constants import ENV_AUDIT, ENV_MODE
+from interbolt.constants import DEFAULT_AGENT_ID, ENV_AUDIT, ENV_MODE
 from interbolt.errors import InterboltConfigError, InterboltUsageError
 from interbolt.models.core import Mode
 from interbolt.policy import Policy
@@ -144,6 +145,20 @@ class TestRuntime:
         handle = rt.agent("my-agent")
         assert isinstance(handle, AgentHandle)
 
+    def test_agent_handle_via_runtime_agent_uses_its_agent_id(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        reporter = InMemoryReporter()
+        rt = configure(policy=make_policy(), reporter=reporter)
+        handle = rt.agent("x")
+
+        @handle.guard
+        def send_email(to: str) -> None:
+            return None
+
+        send_email(to="a@example.com")
+        assert reporter.decisions[0].agent_id == "x"
+
     def test_check_delegates_to_enforcement_check(
         self, make_policy: Callable[..., Policy], reset_runtime: None
     ) -> None:
@@ -214,6 +229,35 @@ class TestRuntime:
         assert registry is not None
         assert run_id not in registry._by_run
 
+    async def test_agent_context_isolates_concurrent_agents(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        from interbolt.runtime import guard
+
+        reporter = InMemoryReporter()
+        rt = configure(policy=make_policy(), reporter=reporter)
+
+        @guard
+        async def my_tool(x: str) -> str:
+            return x
+
+        async def run_as(agent_id: str, delay: float) -> None:
+            async with rt.agent_context(agent_id):
+                await asyncio.sleep(delay)
+                await my_tool(agent_id)
+
+        await asyncio.gather(
+            run_as("agent-a", 0.02),
+            run_as("agent-b", 0.0),
+        )
+
+        assert len(reporter.decisions) == 2
+        by_agent = {d.agent_id: d for d in reporter.decisions}
+        assert set(by_agent) == {"agent-a", "agent-b"}
+        # Each agent_context block mints its own run_id; no bleed means
+        # the two decisions never share one.
+        assert by_agent["agent-a"].run_id != by_agent["agent-b"].run_id
+
 
 class TestModuleLevelGuard:
     def test_guard_as_bare_decorator_succeeds_without_configure(
@@ -255,6 +299,42 @@ class TestModuleLevelGuard:
 
         result = my_func("hello")
         assert result == "hello"
+
+    async def test_guard_picks_up_agent_context_identity(
+        self,
+        make_policy: Callable[..., Policy],
+        reset_runtime: None,
+    ) -> None:
+        from interbolt.runtime import guard
+
+        reporter = InMemoryReporter()
+        rt = configure(policy=make_policy(), reporter=reporter)
+
+        @guard
+        async def my_func(x: str) -> str:
+            return x
+
+        async with rt.agent_context("agent-a"):
+            await my_func("hello")
+
+        assert reporter.decisions[0].agent_id == "agent-a"
+
+    def test_guard_falls_back_to_default_agent_id_outside_agent_context(
+        self,
+        make_policy: Callable[..., Policy],
+        reset_runtime: None,
+    ) -> None:
+        from interbolt.runtime import guard
+
+        reporter = InMemoryReporter()
+        configure(policy=make_policy(), reporter=reporter)
+
+        @guard
+        def my_func(x: str) -> str:
+            return x
+
+        my_func("hello")
+        assert reporter.decisions[0].agent_id == DEFAULT_AGENT_ID
 
     def test_guard_with_tool_arg_uses_qualified_name(
         self,
