@@ -83,6 +83,11 @@ class Decision(BaseModel):
         trifecta: The lethal-trifecta legs satisfied by this call. In v1 this
             only ever contains `"from_untrusted"` or is empty; the
             `reaches_external` and `reads_private` legs are not computed.
+        run_tainted: Whether the active run has ingested untrusted data via
+            `taint()` at any point before this call, regardless of whether
+            this call's own arguments carry a label (run-level gating,
+            `dev/spec.md` §15.8). Survives a model-mediated handoff that
+            launders value-level taint away.
         mode: The enforcement mode in effect when this decision was made.
         decision_id: A unique id for this decision, for the audit trail.
         agent_id: The durable, integrator-supplied agent identity.
@@ -97,6 +102,7 @@ class Decision(BaseModel):
     tool: str
     contributing_labels: tuple[Label, ...]
     trifecta: frozenset[str]
+    run_tainted: bool
     mode: Mode
     decision_id: str
     agent_id: str
@@ -142,6 +148,7 @@ class Event(BaseModel):
     lineage: tuple[str, ...]
     matched_rule: str | None
     trifecta: frozenset[str]
+    run_tainted: bool
     mode: Mode
     outcome: str
     timestamp: datetime

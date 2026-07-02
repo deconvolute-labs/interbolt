@@ -83,17 +83,29 @@ def compile_policy(document: PolicyDocument) -> dict[str, CompiledSink]:
     return compiled
 
 
+def resolve_source_trust(
+    name: str, sources_table: Mapping[str, TrustLevel]
+) -> TrustLevel:
+    """Resolve one bare source name against the policy's `sources` table.
+
+    A name not in the table defaults to untrusted (default-deny). This is
+    the single trust-resolution primitive; `resolve_label_trust` (per-label
+    lineage) and the run-level gating computation in `enforcement` (per-run
+    ingress sources) both reduce to repeated calls of this.
+    """
+    return sources_table.get(name, TrustLevel.UNTRUSTED)
+
+
 def resolve_label_trust(
     label: Label, sources_table: Mapping[str, TrustLevel]
 ) -> TrustLevel:
     """Resolve a label's trust from every name in its lineage, untrusted-wins.
 
     Trust is never stored on a `Label`; this is the one place it is computed,
-    at the sink, from the policy's `sources` table. A name not in the table
-    defaults to untrusted (default-deny).
+    at the sink, from the policy's `sources` table.
     """
     for name in label.lineage:
-        if sources_table.get(name, TrustLevel.UNTRUSTED) is TrustLevel.UNTRUSTED:
+        if resolve_source_trust(name, sources_table) is TrustLevel.UNTRUSTED:
             return TrustLevel.UNTRUSTED
     return TrustLevel.TRUSTED
 
@@ -117,6 +129,7 @@ def build_context(
     labels: tuple[Label, ...],
     trifecta: frozenset[str],
     sources_table: Mapping[str, TrustLevel],
+    run_tainted: bool,
 ) -> dict[str, Any]:
     """Build the CEL evaluation context for one `check()` call.
 
@@ -128,7 +141,9 @@ def build_context(
     working as macros over it. The two aggregate convenience values move to
     top-level siblings, `sources` and `max_trust`, rather than `taint.sources`/
     `taint.max_trust`: CEL cannot make one context variable both a list (for
-    the macros) and a map (for dotted field access) at once.
+    the macros) and a map (for dotted field access) at once. `run` is a map
+    for the same reason: `run.tainted` only ever needs dotted access, never
+    quantification, so there is no list-vs-map conflict to resolve.
 
     Args:
         tool: The dotted qualified tool name.
@@ -136,6 +151,9 @@ def build_context(
         labels: Every label collected from the call's original arguments.
         trifecta: The trifecta legs satisfied by this call.
         sources_table: The policy's declared source-to-trust mapping.
+        run_tainted: Whether the active run has ingested untrusted data via
+            `taint()` at any point, resolved by `enforcement` from the
+            per-run ingress registry (`dev/spec.md` §15.8, run-level gating).
 
     Returns:
         A context mapping ready for `celpy.Runner.evaluate(...)`.
@@ -177,6 +195,9 @@ def build_context(
         ),
         "max_trust": celtypes.StringType(max_trust.value),
         "trifecta": celtypes.ListType([celtypes.StringType(leg) for leg in trifecta]),
+        "run": celtypes.MapType(
+            {celtypes.StringType("tainted"): celtypes.BoolType(run_tainted)}
+        ),
     }
 
 

@@ -25,8 +25,19 @@ from interbolt.models.core import (
 )
 from interbolt.models.protocols import Reporter
 from interbolt.policy import Policy
-from interbolt.policy.engine import build_context, evaluate_sink, resolve_label_trust
-from interbolt.taint import Tainted, TaintedBytes, collect_labels, unwrap
+from interbolt.policy.engine import (
+    build_context,
+    evaluate_sink,
+    resolve_label_trust,
+    resolve_source_trust,
+)
+from interbolt.taint import (
+    Tainted,
+    TaintedBytes,
+    collect_labels,
+    run_ingress_sources,
+    unwrap,
+)
 from interbolt.utils import get_logger
 
 _logger = get_logger("enforcement")
@@ -84,6 +95,7 @@ def check(
     trifecta = _compute_trifecta(labels, sources_table)
     compiled_sink = policy.compiled_sinks.get(tool)
     resolved_run_id = run_id or str(uuid.uuid4())
+    run_tainted = _compute_run_tainted(resolved_run_id, sources_table)
 
     matched_rule: str | None = None
     action: Action = policy.document.defaults.sink_action
@@ -95,6 +107,7 @@ def check(
             labels=labels,
             trifecta=trifecta,
             sources_table=sources_table,
+            run_tainted=run_tainted,
         )
         if compiled_sink is not None:
             matched_rule, action = evaluate_sink(
@@ -120,6 +133,7 @@ def check(
         tool=tool,
         contributing_labels=labels,
         trifecta=trifecta,
+        run_tainted=run_tainted,
         mode=mode,
         decision_id=str(uuid.uuid4()),
         agent_id=agent_id,
@@ -138,6 +152,7 @@ def check(
         lineage=tuple(sorted(all_sources)),
         matched_rule=matched_rule,
         trifecta=trifecta,
+        run_tainted=run_tainted,
         mode=mode,
         outcome=outcome,
         timestamp=datetime.now(UTC),
@@ -193,6 +208,22 @@ def _compute_trifecta(
     ):
         return frozenset({TRIFECTA_FROM_UNTRUSTED})
     return frozenset()
+
+
+def _compute_run_tainted(run_id: str, sources_table: Mapping[str, TrustLevel]) -> bool:
+    """Resolve whether the active run has ingested untrusted data via `taint()`.
+
+    Reads the run's recorded ingress source names (`taint.run_ingress_sources`,
+    populated at `taint()` call time, independent of this call's own
+    arguments) and resolves each against the policy's `sources` table, the
+    same way `resolve_label_trust` resolves a label's lineage. This is what
+    lets `run.tainted` survive a model-mediated handoff that launders
+    value-level taint away (`dev/spec.md` §8.3, §15.8).
+    """
+    return any(
+        resolve_source_trust(name, sources_table) is TrustLevel.UNTRUSTED
+        for name in run_ingress_sources(run_id)
+    )
 
 
 def _walk_strings(

@@ -61,4 +61,4 @@ def test_constant_values() -> None:
     assert DEFAULT_RECURSION_DEPTH == 4
     assert RECURSION_DEPTH_MAX == 10
     assert AUDIT_MIN_MATCH_LENGTH == 12
-    assert EVENT_SCHEMA_VERSION == 1
+    assert EVENT_SCHEMA_VERSION == 2

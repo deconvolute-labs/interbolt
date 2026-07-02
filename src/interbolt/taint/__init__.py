@@ -7,8 +7,43 @@ from typing import Any
 from interbolt.constants import RECURSION_DEPTH
 from interbolt.errors import InterboltUsageError
 from interbolt.models.core import Label
+from interbolt.utils import current_run_id, get_logger
 
 _CONTAINER_TYPES = (list, tuple, set, frozenset)
+_logger = get_logger("taint")
+
+_run_ingress_sources: dict[str, set[str]] = {}
+
+
+def _record_ingress(source: str) -> None:
+    """Record that `source` tainted data during the active run, if any.
+
+    Deliberately does not resolve trust: `taint()` never learns whether
+    `source` is untrusted (that only happens at the sink, from the policy's
+    `sources` table). This only records the bare name, keyed by the ambient
+    `current_run_id`, for `enforcement.check()` to resolve later against
+    run-level gating (`run.tainted`, see `dev/spec.md` §15.8).
+    """
+    run_id = current_run_id.get()
+    if run_id is None:
+        _logger.debug(
+            "taint(source=%r) called with no active agent_context; this "
+            "ingress cannot be attributed to a run, so run.tainted will not "
+            "reflect it for any policy that references it",
+            source,
+        )
+        return
+    _run_ingress_sources.setdefault(run_id, set()).add(source)
+
+
+def run_ingress_sources(run_id: str) -> frozenset[str]:
+    """Every source name passed to `taint()` while `run_id` was active."""
+    return frozenset(_run_ingress_sources.get(run_id, ()))
+
+
+def clear_run_ingress(run_id: str) -> None:
+    """Drop the recorded ingress sources for a finished run."""
+    _run_ingress_sources.pop(run_id, None)
 
 
 def _new_value_id() -> str:
@@ -272,6 +307,7 @@ def taint(value: Any, *, source: str) -> Any:  # noqa: ANN401 -- accepts any ing
         The labeled value: a `Tainted`/`TaintedBytes` carrier, a recursively
         labeled container, or a `LabeledValue` wrapper.
     """
+    _record_ingress(source)
     return _taint_value(value, source=source, depth=RECURSION_DEPTH)
 
 
