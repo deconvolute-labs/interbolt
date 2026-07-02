@@ -47,7 +47,15 @@ class Runtime:
         self._audit_registry = AuditRegistry() if audit else None
 
     def agent(self, agent_id: str) -> AgentHandle:
-        """Return a handle bound to a durable agent identity.
+        """Return a durable per-agent handle, a secondary pattern to bare `guard`.
+
+        Prefer `agent_context` and the bare `guard`/`check` for most cases.
+        Reach for this handle when a function needs a fixed `agent_id`
+        captured once at decoration time rather than read from the ambient
+        `agent_context`, and in particular when guarded calls are offloaded
+        to a thread pool: `agent_context`'s `contextvars.ContextVar` does not
+        cross that boundary, but this handle's `agent_id` is a plain string
+        carried explicitly and is immune to that limit.
 
         Args:
             agent_id: The durable, integrator-supplied agent identity.
@@ -61,9 +69,16 @@ class Runtime:
     async def agent_context(self, agent_id: str) -> AsyncGenerator[None]:
         """Bind the current agent and mint a run_id for the duration of the block.
 
-        Guarded calls made inside this block (via the bare `guard`/`check`)
-        pick up `agent_id` and share one `run_id`. Calls made outside any
-        `agent_context` get a fresh `run_id` each.
+        This is the primary way to inject agent identity: it pairs with the
+        bare `guard`/`check`, which read `agent_id` from the
+        `contextvars.ContextVar` this sets rather than from a durable handle.
+        Guarded calls made inside this block share one `run_id`. Calls made
+        outside any `agent_context` fall back to `constants.DEFAULT_AGENT_ID`
+        and get a fresh `run_id` each.
+
+        A `ContextVar` does not cross into a thread pool. If guarded calls
+        are offloaded to threads, use the durable `agent(...)` handle
+        instead, which carries `agent_id` explicitly.
 
         Args:
             agent_id: The agent identity to bind for this run.
@@ -220,11 +235,21 @@ def _current() -> Runtime:
 def guard[F: Callable[..., Any]](
     func: F | None = None, *, tool: str | None = None
 ) -> Any:  # noqa: ANN401
-    """Guard a function with the ambient agent identity.
+    """Guard a function with the ambient agent identity. The primary pattern.
+
+    This is the recommended way to guard a tool call: decorate the function
+    with a bare `@guard` where it is defined, with no agent reference at
+    decoration time, and bind the acting agent's identity for the duration
+    of a run with `Runtime.agent_context` at the call site. Agent identity
+    is read from the `agent_context` contextvar, falling back to
+    `constants.DEFAULT_AGENT_ID` when no `agent_context` is active.
 
     Resolves the current runtime lazily, at call time, so decorating a
-    module never requires `configure()` to have run. Agent identity comes
-    from the `agent_context` contextvar, or `constants.DEFAULT_AGENT_ID`.
+    module never requires `configure()` to have run.
+
+    For guarded calls offloaded to a thread pool, where a
+    `contextvars.ContextVar` does not cross the thread boundary, use the
+    durable `Runtime.agent` handle instead.
 
     Args:
         func: The function to guard, when used as a bare `@guard`.
@@ -256,6 +281,13 @@ def check(
     session_id: str | None = None,
 ) -> Decision:
     """Evaluate policy for one call, against the current runtime.
+
+    The explicit, framework-agnostic counterpart to `guard`: it never reads
+    the `agent_context` contextvar, so `agent_id` is always a required
+    argument here. Use this directly for a custom dispatch loop, an MCP
+    router, or an existing tool registry; use `guard` when the ambient
+    agent identity from `Runtime.agent_context` should be picked up
+    automatically instead.
 
     Args:
         tool: The dotted qualified tool name.

