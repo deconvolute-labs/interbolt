@@ -8,7 +8,6 @@ from pathlib import Path
 import platformdirs
 
 logger = logging.getLogger("interbolt")
-logger.addHandler(logging.NullHandler())
 
 current_run_id: ContextVar[str | None] = ContextVar("interbolt_run_id", default=None)
 """The active run's identity, bound by `Runtime.agent_context` for its duration.

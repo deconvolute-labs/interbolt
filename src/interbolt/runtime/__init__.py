@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import inspect
 import os
 import uuid
 from collections.abc import AsyncGenerator, Callable, Mapping
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from interbolt.constants import DEFAULT_AGENT_ID, ENV_AUDIT, ENV_MODE
@@ -169,13 +171,16 @@ def configure(
     argument (the in-code default, lowest precedence). A `INTERBOLT_MODE`
     override that actually changes the effective mode logs a warning, so a
     non-enforcing mode cannot silently ship. `INTERBOLT_AUDIT` overrides
-    `audit`.
+    `audit`. Every call also logs one WARNING-level summary line (effective
+    mode, policy source, source/sink counts, and the caller's file:line),
+    independent of any configured `Reporter`, so the library is not silent
+    by default even without a `LoggingReporter`.
 
     Args:
         policy: The compiled policy to enforce. When ``None``, the built-in
             default policy is used: no sources, no sinks, every guarded call
-            falls through to ``require_approval``. A warning is logged when
-            this happens, pointing to ``interbolt init``.
+            falls through to ``require_approval``. This is reflected in the
+            `configure()` summary warning, pointing to ``interbolt init``.
         reporter: Where decisions and findings are emitted. Defaults to
             `NullReporter()`.
         approval_resolver: Resolves `require_approval` decisions. Defaults to
@@ -194,11 +199,6 @@ def configure(
 
     if policy is None:
         policy = _default_policy()
-        _logger.warning(
-            "configure() called without a policy; using the built-in default "
-            "(no sources declared, every guarded call requires approval). "
-            "Run `interbolt init` to generate a starter policy file."
-        )
 
     resolved_mode = _parse_mode(mode, source="mode")
     if policy.document.defaults.fail_mode is not None:
@@ -219,6 +219,24 @@ def configure(
     env_audit = os.environ.get(ENV_AUDIT)
     if env_audit is not None:
         audit = env_audit.strip().lower() in {"1", "true", "yes", "on"}
+
+    frame = inspect.currentframe()
+    caller = frame.f_back if frame is not None else None
+    caller_location = (
+        f"{Path(caller.f_code.co_filename).name}:{caller.f_lineno}"
+        if caller is not None
+        else "unknown"
+    )
+
+    policy_source = policy.source or "built-in default (run `interbolt init`)"
+    _logger.warning(
+        "interbolt active: mode=%s policy=%s sources=%d sinks=%d (configured at %s)",
+        resolved_mode,
+        policy_source,
+        len(policy.document.sources),
+        len(policy.document.sinks),
+        caller_location,
+    )
 
     runtime = Runtime(
         policy=policy,

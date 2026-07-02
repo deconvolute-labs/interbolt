@@ -16,13 +16,20 @@ class Policy:
     Attributes:
         document: The validated policy document.
         compiled_sinks: Every sink's compiled, ready-to-evaluate rule list.
+        source: The filesystem path the policy was loaded from via
+            `from_file`, or `None` for a programmatically constructed policy
+            (including the built-in default).
     """
 
     def __init__(
-        self, document: PolicyDocument, compiled_sinks: dict[str, CompiledSink]
+        self,
+        document: PolicyDocument,
+        compiled_sinks: dict[str, CompiledSink],
+        source: str | None = None,
     ) -> None:
         self.document = document
         self.compiled_sinks = compiled_sinks
+        self.source = source
 
     @property
     def sources_table(self) -> dict[str, TrustLevel]:
@@ -46,7 +53,9 @@ class Policy:
                 fails schema or CEL compilation.
         """
         document = load_policy_document(path)
-        return cls(document=document, compiled_sinks=compile_policy(document))
+        return cls(
+            document=document, compiled_sinks=compile_policy(document), source=path
+        )
 
     @classmethod
     def validate(cls, path: str) -> list[str]:
