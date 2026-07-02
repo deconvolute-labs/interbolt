@@ -10,6 +10,7 @@ from __future__ import annotations
 
 __version__ = "0.1.0"
 
+from interbolt.constants import RECORD_TYPE_EVENT, RECORD_TYPE_FINDING
 from interbolt.errors import (
     ApprovalDenied,
     InterboltConfigError,
@@ -18,10 +19,23 @@ from interbolt.errors import (
     PolicyEvaluationError,
     PolicyViolation,
 )
-from interbolt.models.core import Action, Decision, Label, Mode, TrustLevel
+from interbolt.models.core import (
+    Action,
+    Decision,
+    Event,
+    Finding,
+    Label,
+    Mode,
+    TrustLevel,
+)
 from interbolt.models.protocols import ApprovalResolver, Reporter
 from interbolt.policy import Policy, default_policy
-from interbolt.reporting import InMemoryReporter, LoggingReporter, NullReporter
+from interbolt.reporting import (
+    InMemoryReporter,
+    JsonlReporter,
+    LoggingReporter,
+    NullReporter,
+)
 from interbolt.runtime import Runtime, check, configure, guard
 from interbolt.taint import LabeledValue, Tainted, TaintedBytes, taint
 
@@ -34,6 +48,8 @@ __all__ = [
     "Runtime",
     "Policy",
     "Decision",
+    "Event",
+    "Finding",
     "Action",
     "Mode",
     "Label",
@@ -43,6 +59,9 @@ __all__ = [
     "NullReporter",
     "InMemoryReporter",
     "LoggingReporter",
+    "JsonlReporter",
+    "RECORD_TYPE_EVENT",
+    "RECORD_TYPE_FINDING",
     "InterboltError",
     "PolicyViolation",
     "PolicyEvaluationError",
