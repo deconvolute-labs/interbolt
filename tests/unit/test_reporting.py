@@ -7,17 +7,30 @@ from pytest_mock import MockerFixture
 
 from interbolt.constants import EVENT_SCHEMA_VERSION
 from interbolt.models.core import Action, Decision, Event, Finding, Mode
-from interbolt.reporting import InMemoryReporter, LoggingReporter, NullReporter
+from interbolt.reporting import (
+    InMemoryReporter,
+    LoggingReporter,
+    NullReporter,
+    describe_decision,
+    describe_event,
+    describe_finding,
+)
 
 
-def _decision() -> Decision:
+def _decision(
+    action: Action = Action.ALLOW,
+    matched_rule: str | None = None,
+    matched_condition: str | None = None,
+    untrusted_sources: frozenset[str] = frozenset(),
+) -> Decision:
     return Decision(
-        action=Action.ALLOW,
-        matched_rule=None,
+        action=action,
+        matched_rule=matched_rule,
+        matched_condition=matched_condition,
         tool="default.tool",
         contributing_labels=(),
         trifecta=frozenset(),
-        untrusted_sources=frozenset(),
+        untrusted_sources=untrusted_sources,
         run_tainted=False,
         mode=Mode.ENFORCE,
         decision_id=str(uuid.uuid4()),
@@ -121,3 +134,53 @@ class TestLoggingReporter:
         mock_debug.assert_called_once()
         call_args = mock_debug.call_args
         assert ev in call_args.args or ev in call_args.kwargs.values()
+
+
+class TestDescribeEvent:
+    def test_includes_tool_and_action(self) -> None:
+        text = describe_event(_event())
+        assert "default.tool" in text
+        assert "allow" in text
+
+    def test_includes_matched_rule_or_default(self) -> None:
+        assert "default" in describe_event(_event())
+
+
+class TestDescribeFinding:
+    def test_includes_source_tool_and_argument(self) -> None:
+        text = describe_finding(_finding())
+        assert "web" in text
+        assert "default.tool" in text
+        assert "cmd" in text
+
+
+class TestDescribeDecision:
+    def test_includes_tool_and_action(self) -> None:
+        text = describe_decision(_decision(action=Action.BLOCK))
+        assert "default.tool" in text
+        assert "block" in text
+
+    def test_matched_rule_name_shown_when_present(self) -> None:
+        text = describe_decision(_decision(matched_rule="block_exfil"))
+        assert "block_exfil" in text
+
+    def test_no_matched_rule_shows_default_sink_action_note(self) -> None:
+        text = describe_decision(_decision(matched_rule=None))
+        assert "no match" in text
+
+    def test_untrusted_sources_shown(self) -> None:
+        text = describe_decision(_decision(untrusted_sources=frozenset({"web_search"})))
+        assert "web_search" in text
+
+    def test_matched_condition_shown_when_present(self) -> None:
+        text = describe_decision(
+            _decision(
+                matched_rule="block_exfil",
+                matched_condition="taint.any(t, t.trust == 'untrusted')",
+            )
+        )
+        assert "taint.any(t, t.trust == 'untrusted')" in text
+
+    def test_matched_condition_absent_when_none(self) -> None:
+        text = describe_decision(_decision(matched_condition=None))
+        assert "when=" not in text

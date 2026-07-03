@@ -317,6 +317,86 @@ class TestCheckFunction:
         assert exc_info.value.decision is not None
         assert exc_info.value.decision.action is Action.BLOCK
 
+    def test_cel_unsupported_error_monitor_mode_returns_allow(
+        self, make_policy: Callable[..., Policy], mocker: MockerFixture
+    ) -> None:
+        from celpy.evaluation import CELUnsupportedError
+
+        policy = make_policy(
+            sinks={"default.t": (SinkRule(name="r", when="true", action=Action.BLOCK),)}
+        )
+        mocker.patch(
+            "interbolt.enforcement.evaluate_sink",
+            side_effect=CELUnsupportedError("oops", 1, 1),
+        )
+        decision = check(
+            tool="default.t",
+            args={},
+            agent_id="a",
+            run_id="r",
+            session_id=None,
+            policy=policy,
+            reporter=NullReporter(),
+            mode=Mode.MONITOR,
+        )
+        assert decision.action is Action.ALLOW
+
+    def test_cel_unsupported_error_enforce_mode_raises(
+        self, make_policy: Callable[..., Policy], mocker: MockerFixture
+    ) -> None:
+        from celpy.evaluation import CELUnsupportedError
+
+        from interbolt.errors import PolicyEvaluationError
+
+        policy = make_policy(
+            sinks={"default.t": (SinkRule(name="r", when="true", action=Action.BLOCK),)}
+        )
+        mocker.patch(
+            "interbolt.enforcement.evaluate_sink",
+            side_effect=CELUnsupportedError("oops", 1, 1),
+        )
+        with pytest.raises(PolicyEvaluationError) as exc_info:
+            check(
+                tool="default.t",
+                args={},
+                agent_id="a",
+                run_id="r",
+                session_id=None,
+                policy=policy,
+                reporter=NullReporter(),
+                mode=Mode.ENFORCE,
+            )
+        assert exc_info.value.decision is not None
+        assert exc_info.value.decision.action is Action.BLOCK
+
+    def test_cel_unsupported_error_still_emits_event(
+        self, make_policy: Callable[..., Policy], mocker: MockerFixture
+    ) -> None:
+        # Before the exception surface was widened, a CELUnsupportedError
+        # propagated uncaught, skipping reporter emission entirely.
+        from celpy.evaluation import CELUnsupportedError
+
+        policy = make_policy(
+            sinks={"default.t": (SinkRule(name="r", when="true", action=Action.BLOCK),)}
+        )
+        mocker.patch(
+            "interbolt.enforcement.evaluate_sink",
+            side_effect=CELUnsupportedError("oops", 1, 1),
+        )
+        reporter = InMemoryReporter()
+        check(
+            tool="default.t",
+            args={},
+            agent_id="a",
+            run_id="r",
+            session_id=None,
+            policy=policy,
+            reporter=reporter,
+            mode=Mode.MONITOR,
+        )
+        assert len(reporter.events) == 1
+        assert reporter.events[0].outcome == "evaluation_error"
+
     def test_dry_run_downgrades_block_to_allow(
         self, make_policy: Callable[..., Policy]
     ) -> None:
@@ -565,14 +645,14 @@ class TestWalkStrings:
         assert "hello" in content
         assert label is not None
 
-    def test_mapping_walks_values_only_not_keys(self) -> None:
-        # Tainted key should NOT appear in results — only values are walked.
+    def test_mapping_walks_keys_and_values(self) -> None:
+        # Matches taint.collect_labels's traversal: both keys and values are
+        # walked, so a tainted key is not invisible to the laundering audit.
         tainted_key = taint("secret_key_data", source="s")
         results = list(_walk_strings({tainted_key: "plain_value"}, depth=2))
         labels = [lbl for _, lbl in results]
-        # The plain value is yielded (label=None); the tainted key is not.
-        assert any(lbl is None for lbl in labels)
-        assert not any(lbl is not None for lbl in labels)
+        assert any(lbl is None for lbl in labels)  # the plain value
+        assert any(lbl is not None for lbl in labels)  # the tainted key
 
     def test_list_container_recurses(self) -> None:
         results = list(_walk_strings(["a", "b"], depth=2))
@@ -721,6 +801,64 @@ class TestAuditRegistry:
         )
         assert len(registry.findings) >= 2
 
+    def test_register_from_args_detects_untrusted_content_in_mapping_keys(
+        self,
+    ) -> None:
+        registry = AuditRegistry()
+        secret = "a" * AUDIT_MIN_MATCH_LENGTH
+        tainted_key = taint(secret, source="web")
+        registry.register_from_args(
+            {"x": {tainted_key: "plain_value"}},
+            sources_table=self._sources(),
+            run_id="r",
+            depth=4,
+        )
+        assert len(registry._by_run.get("r", [])) == 1
+        findings = registry.scan(
+            {"cmd": secret},  # same content as the key, now a plain string
+            tool="default.tool",
+            run_id="r",
+            agent_id="a",
+            session_id=None,
+            depth=4,
+        )
+        assert len(findings) >= 1
+
+    def test_findings_capped_at_configured_max(self) -> None:
+        registry = AuditRegistry(max_findings=2)
+        secret = "a" * AUDIT_MIN_MATCH_LENGTH
+        val = taint(secret, source="web")
+        registry.register_from_args(
+            {"x": val}, sources_table=self._sources(), run_id="r", depth=4
+        )
+        for i in range(3):
+            registry.scan(
+                {"cmd": secret},
+                tool=f"default.t{i}",
+                run_id="r",
+                agent_id="a",
+                session_id=None,
+                depth=4,
+            )
+        assert len(registry.findings) == 2
+        # The oldest finding (tool="default.t0") was evicted; the two most
+        # recent survive.
+        tools = {f.tool for f in registry.findings}
+        assert tools == {"default.t1", "default.t2"}
+
+    def test_by_run_bounded_evicts_oldest_run(self) -> None:
+        registry = AuditRegistry(max_tracked_runs=2)
+        secret = "a" * AUDIT_MIN_MATCH_LENGTH
+        for run_id in ("r1", "r2", "r3"):
+            val = taint(secret, source="web")
+            registry.register_from_args(
+                {"x": val}, sources_table=self._sources(), run_id=run_id, depth=4
+            )
+        assert len(registry._by_run) == 2
+        assert "r1" not in registry._by_run
+        assert "r2" in registry._by_run
+        assert "r3" in registry._by_run
+
 
 # ---------------------------------------------------------------------------
 # TestEmit
@@ -740,6 +878,7 @@ class TestEmit:
         d = Decision(
             action=Action.ALLOW,
             matched_rule=None,
+            matched_condition=None,
             tool="default.t",
             contributing_labels=(),
             trifecta=frozenset(),
@@ -781,6 +920,7 @@ class TestEmit:
         d = Decision(
             action=Action.ALLOW,
             matched_rule=None,
+            matched_condition=None,
             tool="default.t",
             contributing_labels=(),
             trifecta=frozenset(),

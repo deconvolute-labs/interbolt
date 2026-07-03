@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import threading
 import uuid
+from collections import OrderedDict, deque
 from collections.abc import Generator, Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-from celpy.evaluation import CELEvalError
+from celpy.evaluation import CELEvalError, CELUnsupportedError
 
 from interbolt.constants import (
+    AUDIT_FINDINGS_MAX,
+    AUDIT_MAX_TRACKED_RUNS,
     AUDIT_MIN_MATCH_LENGTH,
+    CONTAINER_TYPES,
     EVENT_SCHEMA_VERSION,
     RECURSION_DEPTH,
     TRIFECTA_FROM_UNTRUSTED,
@@ -41,7 +46,6 @@ from interbolt.taint import (
 from interbolt.utils import get_logger
 
 _logger = get_logger("enforcement")
-_CONTAINER_TYPES = (list, tuple, set, frozenset)
 
 
 def check(
@@ -98,8 +102,9 @@ def check(
     run_tainted = _compute_run_tainted(resolved_run_id, sources_table)
 
     matched_rule: str | None = None
+    matched_condition: str | None = None
     action: Action = policy.document.defaults.sink_action
-    evaluation_error: CELEvalError | None = None
+    evaluation_error: CELEvalError | CELUnsupportedError | None = None
     try:
         context = build_context(
             tool=tool,
@@ -110,12 +115,12 @@ def check(
             run_tainted=run_tainted,
         )
         if compiled_sink is not None:
-            matched_rule, action = evaluate_sink(
+            matched_rule, action, matched_condition = evaluate_sink(
                 compiled_sink,
                 context,
                 default_action=policy.document.defaults.sink_action,
             )
-    except CELEvalError as exc:
+    except (CELEvalError, CELUnsupportedError) as exc:
         evaluation_error = exc
 
     raw_action = action
@@ -123,6 +128,7 @@ def check(
     if evaluation_error is not None:
         outcome = "evaluation_error"
         matched_rule = None
+        matched_condition = None
         raw_action = Action.BLOCK if mode == Mode.ENFORCE else Action.ALLOW
 
     final_action = Action.ALLOW if mode == Mode.DRY_RUN else raw_action
@@ -139,6 +145,7 @@ def check(
     decision = Decision(
         action=final_action,
         matched_rule=matched_rule,
+        matched_condition=matched_condition,
         tool=tool,
         contributing_labels=labels,
         trifecta=trifecta,
@@ -276,10 +283,11 @@ def _walk_strings(
     if depth <= 0:
         return
     if isinstance(value, Mapping):
-        for v in value.values():
+        for k, v in value.items():
+            yield from _walk_strings(k, depth=depth - 1)
             yield from _walk_strings(v, depth=depth - 1)
         return
-    if isinstance(value, _CONTAINER_TYPES):
+    if isinstance(value, CONTAINER_TYPES):
         for item in value:
             yield from _walk_strings(item, depth=depth - 1)
 
@@ -289,12 +297,29 @@ class AuditRegistry:
 
     Advisory only. Catches mechanical laundering, not model paraphrase; see
     docs/concepts/taint-propagation.md.
+
+    `findings` is bounded to the most recent `max_findings` (oldest evicted
+    first): the audit trail otherwise grows for the lifetime of the process.
+    Per-run registered content is bounded to `max_tracked_runs` (oldest,
+    least-recently-touched run evicted first) as defense in depth: normal
+    cleanup happens via `clear_run`, called from `Runtime.agent_context`/
+    `agent_context_sync` on exit, but a run whose calls never pass through
+    either (for example, a durable `AgentHandle` used without one) has no
+    other cleanup path.
     """
 
-    def __init__(self, *, min_match_length: int = AUDIT_MIN_MATCH_LENGTH) -> None:
+    def __init__(
+        self,
+        *,
+        min_match_length: int = AUDIT_MIN_MATCH_LENGTH,
+        max_findings: int = AUDIT_FINDINGS_MAX,
+        max_tracked_runs: int = AUDIT_MAX_TRACKED_RUNS,
+    ) -> None:
         self._min_match_length = min_match_length
-        self._by_run: dict[str, list[tuple[str, str]]] = {}
-        self._findings: list[Finding] = []
+        self._max_tracked_runs = max_tracked_runs
+        self._by_run: OrderedDict[str, list[tuple[str, str]]] = OrderedDict()
+        self._findings: deque[Finding] = deque(maxlen=max_findings)
+        self._lock = threading.Lock()
 
     def register_from_args(
         self,
@@ -305,12 +330,20 @@ class AuditRegistry:
         depth: int,
     ) -> None:
         """Register every untrusted-resolving string found in `args` for this run."""
+        to_register: list[tuple[str, str]] = []
         for value in args.values():
             for content, label in _walk_strings(value, depth=depth):
                 if label is None or len(content) < self._min_match_length:
                     continue
                 if resolve_label_trust(label, sources_table) is TrustLevel.UNTRUSTED:
-                    self._by_run.setdefault(run_id, []).append((content, label.source))
+                    to_register.append((content, label.source))
+        if not to_register:
+            return
+        with self._lock:
+            self._by_run.setdefault(run_id, []).extend(to_register)
+            self._by_run.move_to_end(run_id)
+            while len(self._by_run) > self._max_tracked_runs:
+                self._by_run.popitem(last=False)
 
     def scan(
         self,
@@ -323,7 +356,8 @@ class AuditRegistry:
         depth: int,
     ) -> list[Finding]:
         """Scan `args` for previously-registered untrusted content with no label."""
-        registered = self._by_run.get(run_id, [])
+        with self._lock:
+            registered = list(self._by_run.get(run_id, ()))
         if not registered:
             return []
         findings: list[Finding] = []
@@ -345,14 +379,18 @@ class AuditRegistry:
                                 timestamp=datetime.now(UTC),
                             )
                         )
-        self._findings.extend(findings)
+        with self._lock:
+            self._findings.extend(findings)
         return findings
 
     def clear_run(self, run_id: str) -> None:
         """Drop the registered content for a finished run."""
-        self._by_run.pop(run_id, None)
+        with self._lock:
+            self._by_run.pop(run_id, None)
 
     @property
     def findings(self) -> list[Finding]:
-        """Every finding recorded so far, across all runs."""
-        return list(self._findings)
+        """Every finding recorded so far, bounded to the most recent
+        `max_findings` (oldest evicted first once the cap is exceeded)."""
+        with self._lock:
+            return list(self._findings)

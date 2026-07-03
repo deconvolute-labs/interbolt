@@ -36,11 +36,13 @@ from interbolt.reporting import (
     JsonlReporter,
     LoggingReporter,
     NullReporter,
+    describe_decision,
     describe_event,
     describe_finding,
 )
-from interbolt.runtime import Runtime, check, configure, guard
-from interbolt.taint import LabeledValue, Tainted, TaintedBytes, taint
+from interbolt.runtime import Runtime, agent, check, configure, guard
+from interbolt.runtime.guard import AgentHandle
+from interbolt.taint import LabeledValue, Tainted, TaintedBytes, taint, track_model_call
 
 __all__ = [
     "taint",
@@ -48,6 +50,9 @@ __all__ = [
     "check",
     "configure",
     "default_policy",
+    "agent",
+    "AgentHandle",
+    "track_model_call",
     "Runtime",
     "Policy",
     "Decision",
@@ -64,6 +69,7 @@ __all__ = [
     "LoggingReporter",
     "JsonlReporter",
     "CompositeReporter",
+    "describe_decision",
     "describe_event",
     "describe_finding",
     "RECORD_TYPE_EVENT",

@@ -173,6 +173,34 @@ def describe_event(event: Event) -> str:
     )
 
 
+def describe_decision(decision: Decision) -> str:
+    """Build a one-line, rich-markup-tagged human summary of a `Decision`.
+
+    For a caller catching `PolicyViolation`/`ApprovalDenied` (both carry
+    `.decision`) or holding a `Decision` returned from `check()` directly:
+    a ready-made explanation of what happened and why, without assembling
+    one from `matched_rule`/`untrusted_sources`/`matched_condition` by hand.
+
+    Args:
+        decision: The decision to describe.
+
+    Returns:
+        A rich-markup string summarizing the decision, including the
+        matched rule's CEL condition text when one is available.
+    """
+    color = _ACTION_COLOR.get(decision.action, "white")
+    rule = decision.matched_rule or "no match (default sink action)"
+    condition = (
+        f"  when={decision.matched_condition!r}" if decision.matched_condition else ""
+    )
+    untrusted = ", ".join(sorted(decision.untrusted_sources)) or "-"
+    return (
+        f"{decision.tool}  [{color}]{decision.action.value}[/{color}]  "
+        f"rule={rule}{condition}  mode={decision.mode.value}  "
+        f"untrusted_sources={{{untrusted}}}"
+    )
+
+
 def describe_finding(finding: Finding) -> str:
     """Build a one-line, rich-markup-tagged human summary of a `Finding`.
 

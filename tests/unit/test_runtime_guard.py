@@ -19,7 +19,6 @@ from interbolt.reporting import InMemoryReporter
 from interbolt.runtime import configure
 from interbolt.runtime.guard import (
     AgentHandle,
-    _bind_args,
     _build_wrapper,
     _enforce_decision_async,
     _enforce_decision_sync,
@@ -200,32 +199,6 @@ class TestEnforceDecisionAsync:
         decision = make_decision(action=Action.REQUIRE_APPROVAL)
         await _enforce_decision_async(rt, decision)
         mock_resolver.assert_awaited_once()
-
-
-class TestBindArgs:
-    def test_bind_positional_and_keyword_args(self) -> None:
-        def fn(a: str, b: int) -> str:
-            return a
-
-        sig = inspect.signature(fn)
-        result = _bind_args(sig, ("hello",), {"b": 42})
-        assert result == {"a": "hello", "b": 42}
-
-    def test_bind_applies_defaults(self) -> None:
-        def fn(a: str, b: int = 99) -> str:
-            return a
-
-        sig = inspect.signature(fn)
-        result = _bind_args(sig, ("hello",), {})
-        assert result == {"a": "hello", "b": 99}
-
-    def test_bind_all_kwargs(self) -> None:
-        def fn(x: str, y: str) -> str:
-            return x + y
-
-        sig = inspect.signature(fn)
-        result = _bind_args(sig, (), {"x": "a", "y": "b"})
-        assert result == {"x": "a", "y": "b"}
 
 
 class TestBuildWrapper:

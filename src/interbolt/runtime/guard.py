@@ -14,6 +14,7 @@ from interbolt.models.core import (
     split_qualified_name,
     validate_qualified_name_part,
 )
+from interbolt.utils import bind_arguments
 from interbolt.utils import current_run_id as current_run_id
 
 if TYPE_CHECKING:
@@ -120,14 +121,6 @@ async def _enforce_decision_async(rt: Runtime, decision: Decision) -> None:
         raise ApprovalDenied(_approval_message(decision), decision=decision)
 
 
-def _bind_args(
-    sig: inspect.Signature, args: tuple[Any, ...], kwargs: dict[str, Any]
-) -> dict[str, Any]:
-    bound = sig.bind(*args, **kwargs)
-    bound.apply_defaults()
-    return dict(bound.arguments)
-
-
 def _build_wrapper[F: Callable[..., Any]](
     fn: F,
     *,
@@ -152,7 +145,7 @@ def _build_wrapper[F: Callable[..., Any]](
             rt = runtime_resolver()
             decision = rt.check(
                 tool=qualified_tool,
-                args=_bind_args(sig, args, kwargs),
+                args=bind_arguments(sig, args, kwargs),
                 agent_id=agent_id_source(),
                 run_id=current_run_id.get(),
             )
@@ -166,7 +159,7 @@ def _build_wrapper[F: Callable[..., Any]](
         rt = runtime_resolver()
         decision = rt.check(
             tool=qualified_tool,
-            args=_bind_args(sig, args, kwargs),
+            args=bind_arguments(sig, args, kwargs),
             agent_id=agent_id_source(),
             run_id=current_run_id.get(),
         )

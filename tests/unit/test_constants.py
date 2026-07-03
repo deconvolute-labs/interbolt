@@ -3,7 +3,10 @@ from __future__ import annotations
 import pytest
 
 from interbolt.constants import (
+    AUDIT_FINDINGS_MAX,
+    AUDIT_MAX_TRACKED_RUNS,
     AUDIT_MIN_MATCH_LENGTH,
+    CONTAINER_TYPES,
     DEFAULT_RECURSION_DEPTH,
     ENV_RECURSION_DEPTH,
     EVENT_SCHEMA_VERSION,
@@ -61,4 +64,10 @@ def test_constant_values() -> None:
     assert DEFAULT_RECURSION_DEPTH == 4
     assert RECURSION_DEPTH_MAX == 10
     assert AUDIT_MIN_MATCH_LENGTH == 12
-    assert EVENT_SCHEMA_VERSION == 3
+    assert EVENT_SCHEMA_VERSION == 4
+    assert AUDIT_FINDINGS_MAX == 10_000
+    assert AUDIT_MAX_TRACKED_RUNS == 1_000
+
+
+def test_container_types_value() -> None:
+    assert CONTAINER_TYPES == (list, tuple, set, frozenset)

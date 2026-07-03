@@ -103,6 +103,73 @@ handoff = taint(agent_a_output, source="agent_a")
 
 This is coarse (the whole output is marked, not just the untrusted-derived
 parts), but coarse-and-safe is the right default for a containment layer.
+See the next section for the trust-aware form of this same re-taint.
+
+## Model calls and derived values
+
+`taint()` accepts an optional `derived_from` argument for exactly this kind
+of boundary: instead of marking `value` as a fresh ingress point, it marks
+`value` as **derived from** other values, so trust is inherited from them
+rather than assumed one way or the other.
+
+```python
+def taint(value: Any, *, source: str, derived_from: Iterable[Any] | None = None) -> Any: ...
+```
+
+```python
+summary = taint(model_output, source="model", derived_from=[prompt, context])
+```
+
+Every label found among `derived_from` (recursing into containers, to the
+same bounded depth as everything else in this document) is merged: the
+returned value's `lineage` is the union of those labels' lineage, so trust
+resolves at the sink exactly as if the original inputs had reached it
+directly — untrusted if any one of them was, trusted if all were. `source`
+becomes the *derivation hop*'s name (`"model"` above), kept on the returned
+label for tracing, the same way a merged label's `source` already names the
+first contributor (see [the trust model](#the-trust-model-a-provenance-set-not-a-lattice)
+above); `lineage` still names the real upstream sources for full
+traceability back through the hop. If `derived_from` carries no label at
+all (every item was a plain, untainted value), `value` is returned
+completely unmarked: there is no provenance among the inputs to propagate,
+consistent with a plain `str` literal being trusted by construction.
+
+This does not record `source` as a run-level ingress event the way a plain
+`taint(value, source=...)` call does (see
+[Policies: run-level gating](policies.md#run-level-gating-run-tainted)):
+`"model"` is a derivation marker, not a source declared in your policy's
+`sources:` table, and recording it would make `run.tainted` spuriously true
+on every model call regardless of whether its actual inputs were trusted.
+
+`track_model_call` is the ergonomic wrapper over this same primitive for the
+common shape, "wrap a function so its return value inherits trust from its
+arguments":
+
+```python
+from interbolt import track_model_call
+
+@track_model_call(source="model")
+def summarize(web_result: str, internal_result: str) -> str:
+    return llm_client.complete(...)
+```
+
+It binds the wrapped function's call arguments (the same way `@guard`
+binds them for label collection) and calls `taint(result, source=source,
+derived_from=bound_arguments.values())` on the return value. It works on
+both sync and async functions, auto-detected the same way `@guard` detects
+a coroutine function. It tracks provenance only; it does not evaluate
+policy, so stack `@guard` alongside it if the call into the model should
+also be gated.
+
+**This closes part of, not all of, the model-mediated-handoff gap above.**
+`derived_from` requires the integrator to identify which values a
+derivation's trust should come from and either call `taint(..., derived_from=...)`
+by hand or wrap the producing function in `@track_model_call`; it is not
+automatic, and interbolt never inspects the model's own generated text to
+verify a summary is faithful to its untrusted input. It is still the
+documented, explicit mechanism (§5.4/§8.3 in `dev/spec.md`), not the
+deferred automatic contamination model; see
+[Deferred features: agent-boundary provenance](../design/deferred.md#agent-boundary-provenance).
 
 ## The honest summary
 
