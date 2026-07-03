@@ -1,18 +1,25 @@
 from __future__ import annotations
 
-import uuid
-from collections.abc import Iterable, Mapping
+import functools
+import inspect
+import threading
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
-from interbolt.constants import RECURSION_DEPTH
-from interbolt.errors import InterboltUsageError
+from interbolt.constants import CONTAINER_TYPES, RECURSION_DEPTH
 from interbolt.models.core import Label
-from interbolt.utils import current_run_id, get_logger
+from interbolt.taint.carriers import LabeledValue as LabeledValue
+from interbolt.taint.carriers import Tainted as Tainted
+from interbolt.taint.carriers import TaintedBytes as TaintedBytes
+from interbolt.taint.carriers import _fresh_label as _fresh_label
+from interbolt.taint.carriers import _merge_labels as _merge_labels
+from interbolt.taint.carriers import _new_value_id
+from interbolt.utils import bind_arguments, current_run_id, get_logger
 
-_CONTAINER_TYPES = (list, tuple, set, frozenset)
 _logger = get_logger("taint")
 
 _run_ingress_sources: dict[str, set[str]] = {}
+_ingress_lock = threading.Lock()
 
 
 def _record_ingress(source: str) -> None:
@@ -32,298 +39,166 @@ def _record_ingress(source: str) -> None:
             source,
         )
         return
-    _run_ingress_sources.setdefault(run_id, set()).add(source)
+    with _ingress_lock:
+        _run_ingress_sources.setdefault(run_id, set()).add(source)
 
 
 def run_ingress_sources(run_id: str) -> frozenset[str]:
     """Every source name passed to `taint()` while `run_id` was active."""
-    return frozenset(_run_ingress_sources.get(run_id, ()))
+    with _ingress_lock:
+        return frozenset(_run_ingress_sources.get(run_id, ()))
 
 
 def clear_run_ingress(run_id: str) -> None:
     """Drop the recorded ingress sources for a finished run."""
-    _run_ingress_sources.pop(run_id, None)
+    with _ingress_lock:
+        _run_ingress_sources.pop(run_id, None)
 
 
-def _new_value_id() -> str:
-    return str(uuid.uuid4())
-
-
-def _fresh_label(source: str) -> Label:
-    return Label(source=source, value_id=_new_value_id(), lineage=(source,))
-
-
-def _merge_labels(*labels: Label) -> Label:
-    """Union the lineage of one or more labels and mint a fresh value_id.
-
-    Used both to retag a single-label transformation result (one label in,
-    fresh id out) and to merge two differently-sourced operands (lineage union).
-    """
-    if not labels:
-        raise InterboltUsageError("_merge_labels requires at least one label")
-    seen: dict[str, None] = {}
-    for label in labels:
-        for name in label.lineage:
-            seen.setdefault(name, None)
-    return Label.model_construct(
-        source=labels[0].source, value_id=_new_value_id(), lineage=tuple(seen)
-    )
-
-
-def _labels_of(*values: Any) -> list[Label]:  # noqa: ANN401 -- operands are arbitrary by nature
-    return [v.label for v in values if isinstance(v, (Tainted, TaintedBytes))]
-
-
-def _wrap(value: str, *labels: Label) -> Tainted:
-    return Tainted(value, label=_merge_labels(*labels))
-
-
-def _wrap_bytes(value: bytes, *labels: Label) -> TaintedBytes:
-    return TaintedBytes(value, label=_merge_labels(*labels))
-
-
-class Tainted(str):
-    """A `str` that carries a provenance `Label` through a defined operation subset.
-
-    Operator-style combination (`+`, `%`, `*`, slicing, string methods called
-    on a `Tainted` receiver) propagates the label. F-strings with literal
-    text, `str.format`/`format_map` on a plain template, and `join` on a
-    plain separator produce a fresh, unlabeled string; re-`taint` the
-    result in those cases.
-    """
-
-    __slots__ = ("label",)
-    label: Label
-
-    def __new__(cls, value: str, *, label: Label) -> Tainted:
-        obj = str.__new__(cls, value)
-        obj.label = label
-        return obj
-
-    def __add__(self, other: Any) -> Any:  # noqa: ANN401 -- binary operand, type-checked at runtime
-        if not isinstance(other, str):
-            return NotImplemented
-        result = str.__add__(self, other)
-        return _wrap(result, self.label, *_labels_of(other))
-
-    def __radd__(self, other: Any) -> Any:  # noqa: ANN401
-        if not isinstance(other, str):
-            return NotImplemented
-        result = str.__add__(other, self)
-        return _wrap(result, self.label)
-
-    def __mod__(self, other: Any) -> Any:  # noqa: ANN401
-        result = str.__mod__(self, other)
-        values = other if isinstance(other, tuple) else (other,)
-        return _wrap(result, self.label, *_labels_of(*values))
-
-    def __rmod__(self, other: Any) -> Any:  # noqa: ANN401
-        if not isinstance(other, str):
-            return NotImplemented
-        result = str.__mod__(other, self)
-        return _wrap(result, self.label)
-
-    def __mul__(self, n: Any) -> Any:  # noqa: ANN401
-        result = str.__mul__(self, n)
-        if result is NotImplemented:
-            return result
-        return _wrap(result, self.label)
-
-    def __rmul__(self, n: Any) -> Any:  # noqa: ANN401
-        result = str.__mul__(self, n)
-        if result is NotImplemented:
-            return result
-        return _wrap(result, self.label)
-
-    def __getitem__(self, key: Any) -> Any:  # noqa: ANN401
-        result = str.__getitem__(self, key)
-        return _wrap(result, self.label)
-
-    def __format__(self, format_spec: str) -> Any:
-        if format_spec == "":
-            return self
-        return str.__format__(self, format_spec)
-
-    def upper(self) -> Tainted:
-        return _wrap(str.upper(self), self.label)
-
-    def lower(self) -> Tainted:
-        return _wrap(str.lower(self), self.label)
-
-    def strip(self, chars: str | None = None) -> Tainted:
-        return _wrap(str.strip(self, chars), self.label)
-
-    def lstrip(self, chars: str | None = None) -> Tainted:
-        return _wrap(str.lstrip(self, chars), self.label)
-
-    def rstrip(self, chars: str | None = None) -> Tainted:
-        return _wrap(str.rstrip(self, chars), self.label)
-
-    def replace(self, old: str, new: str, count: int = -1) -> Tainted:  # type: ignore[override]
-        # Narrows str's return type to Tainted; a covariant, intentional override.
-        result = str.replace(self, old, new, count)
-        return _wrap(result, self.label, *_labels_of(new))
-
-    def format(self, *args: Any, **kwargs: Any) -> Tainted:  # noqa: ANN401
-        result = str.format(self, *args, **kwargs)
-        return _wrap(result, self.label, *_labels_of(*args, *kwargs.values()))
-
-    def split(  # type: ignore[override]
-        self, sep: str | None = None, maxsplit: int = -1
-    ) -> list[Tainted]:
-        # Narrows str's return type to list[Tainted]; a covariant, intentional override.
-        return [_wrap(part, self.label) for part in str.split(self, sep, maxsplit)]
-
-    def rsplit(  # type: ignore[override]
-        self, sep: str | None = None, maxsplit: int = -1
-    ) -> list[Tainted]:
-        return [_wrap(part, self.label) for part in str.rsplit(self, sep, maxsplit)]
-
-    def splitlines(self, keepends: bool = False) -> list[Tainted]:  # type: ignore[override]
-        return [_wrap(part, self.label) for part in str.splitlines(self, keepends)]
-
-    def partition(self, sep: str) -> tuple[Tainted, Tainted, Tainted]:
-        head, sep_part, tail = str.partition(self, sep)
-        return (
-            _wrap(head, self.label),
-            _wrap(sep_part, self.label),
-            _wrap(tail, self.label),
-        )
-
-    def rpartition(self, sep: str) -> tuple[Tainted, Tainted, Tainted]:
-        head, sep_part, tail = str.rpartition(self, sep)
-        return (
-            _wrap(head, self.label),
-            _wrap(sep_part, self.label),
-            _wrap(tail, self.label),
-        )
-
-    def join(self, iterable: Iterable[Any]) -> Tainted:
-        items = list(iterable)
-        result = str.join(self, items)
-        return _wrap(result, self.label, *_labels_of(*items))
-
-
-class TaintedBytes(bytes):
-    """The `bytes` counterpart to `Tainted`, with the same propagation subset.
-
-    Stores `label` as a plain attribute rather than via `__slots__`, since
-    CPython bytes subclasses can't add nonempty slots.
-    """
-
-    label: Label
-
-    def __new__(cls, value: bytes, *, label: Label) -> TaintedBytes:
-        obj = bytes.__new__(cls, value)
-        obj.label = label
-        return obj
-
-    def __add__(self, other: Any) -> Any:  # noqa: ANN401
-        if not isinstance(other, bytes):
-            return NotImplemented
-        result = bytes.__add__(self, other)
-        return _wrap_bytes(result, self.label, *_labels_of(other))
-
-    def __radd__(self, other: Any) -> Any:  # noqa: ANN401
-        if not isinstance(other, bytes):
-            return NotImplemented
-        result = bytes.__add__(other, self)
-        return _wrap_bytes(result, self.label)
-
-    def __getitem__(self, key: Any) -> Any:  # noqa: ANN401
-        result = bytes.__getitem__(self, key)
-        if isinstance(result, int):
-            return result
-        return _wrap_bytes(result, self.label)
-
-    def upper(self) -> TaintedBytes:
-        return _wrap_bytes(bytes.upper(self), self.label)
-
-    def lower(self) -> TaintedBytes:
-        return _wrap_bytes(bytes.lower(self), self.label)
-
-    def strip(self, chars: bytes | None = None) -> TaintedBytes:  # type: ignore[override]
-        # Narrows bytes's return type; a covariant, intentional override.
-        return _wrap_bytes(bytes.strip(self, chars), self.label)
-
-    def replace(  # type: ignore[override]
-        self, old: bytes, new: bytes, count: int = -1
-    ) -> TaintedBytes:
-        result = bytes.replace(self, old, new, count)
-        return _wrap_bytes(result, self.label, *_labels_of(new))
-
-
-class LabeledValue:
-    """A non-string, non-bytes value labeled at ingress.
-
-    Preserves the label on a number, `bool`, or `None` (types that can't be
-    subclassed the way `str`/`bytes` are) for direct use as a sink argument.
-    Transforming `.value` first produces a plain, unlabeled result.
-    """
-
-    __slots__ = ("value", "label")
-
-    def __init__(self, *, value: Any, label: Label) -> None:  # noqa: ANN401
-        self.value = value
-        self.label = label
-
-    def __repr__(self) -> str:
-        return f"LabeledValue({self.value!r}, source={self.label.source!r})"
-
-    def __eq__(self, other: object) -> bool:
-        if isinstance(other, LabeledValue):
-            return bool(self.value == other.value)
-        return bool(self.value == other)
-
-    def __hash__(self) -> int:
-        return hash(self.value)
-
-    def __bool__(self) -> bool:
-        return bool(self.value)
-
-
-def taint(value: Any, *, source: str) -> Any:  # noqa: ANN401 -- accepts any ingress shape
+def taint(
+    value: Any,  # noqa: ANN401 -- accepts any ingress shape
+    *,
+    source: str,
+    derived_from: Iterable[Any] | None = None,
+) -> Any:  # noqa: ANN401 -- returns whatever shape it labeled
     """Mark a value with its provenance at the point it enters the agent.
 
     For `str`/`bytes` this returns a `Tainted`/`TaintedBytes` carrier that
     propagates over the supported operation subset. For other scalars it
     returns a `LabeledValue` that does not propagate through transformations.
-    For builtin containers (`list`, `tuple`, `set`, `frozenset`, `dict` keys
-    and values) it recurses and labels string leaves, to the resolved depth
-    `constants.RECURSION_DEPTH` (the same constant `check()`/`guard` read, so
-    ingress labeling and sink collection are bounded identically).
+    For builtin containers (`list`, `tuple`, `set`, `frozenset`, `Mapping`
+    keys and values) it recurses and labels string leaves, to the resolved
+    depth `constants.RECURSION_DEPTH` (the same constant `check()`/`guard`
+    read, so ingress labeling and sink collection are bounded identically).
 
     The label only records `source`. Trust is resolved later, at the sink,
     from the policy's `sources` table.
 
+    Passing `derived_from` marks `value` as derived from other values instead
+    of as a raw ingress point: `source` becomes the name of the derivation
+    hop (for example `"model"`, an LLM call, or `"agent_a"`, an agent
+    handoff), and the label's `lineage` is the union of every label found
+    among `derived_from`, so trust resolves at the sink exactly as if the
+    original inputs had reached the sink directly: trusted only if every
+    contributing input was trusted, untrusted if any one of them was. If no
+    label is found among `derived_from` (every input was trusted-by-
+    construction), `value` is returned completely unwrapped, since there is
+    no provenance to propagate. This does not record a raw ingress event for
+    `source`: the derivation hop is not itself a policy-declared source, and
+    recording it would make `run.tainted` spuriously true regardless of
+    whether the actual inputs were trusted.
+
     Args:
         value: The value to mark.
-        source: The stable name of the source this value came from.
+        source: The stable name of the source this value came from, or the
+            name of the derivation hop when `derived_from` is given.
+        derived_from: The input values this one was derived from (for
+            example, an LLM call's prompt and retrieved context). When
+            omitted or empty, `value` is treated as a fresh ingress point.
 
     Returns:
         The labeled value: a `Tainted`/`TaintedBytes` carrier, a recursively
-        labeled container, or a `LabeledValue` wrapper.
+        labeled container, a `LabeledValue` wrapper, or, when `derived_from`
+        is given and carries no provenance at all, `value` unchanged.
     """
-    _record_ingress(source)
-    return _taint_value(value, source=source, depth=RECURSION_DEPTH)
+    derived_items = None if derived_from is None else list(derived_from)
+    if not derived_items:
+        _record_ingress(source)
+        return _taint_value(
+            value, depth=RECURSION_DEPTH, make_label=lambda: _fresh_label(source)
+        )
+
+    labels = collect_labels(derived_items, max_depth=RECURSION_DEPTH)
+    if not labels:
+        return value
+
+    lineage = _merge_labels(*labels).lineage
+    return _taint_value(
+        value,
+        depth=RECURSION_DEPTH,
+        make_label=lambda: Label.model_construct(
+            source=source, value_id=_new_value_id(), lineage=lineage
+        ),
+    )
 
 
-def _taint_value(value: Any, *, source: str, depth: int) -> Any:  # noqa: ANN401
+def _taint_value(
+    value: Any,  # noqa: ANN401
+    *,
+    depth: int,
+    make_label: Callable[[], Label],
+) -> Any:  # noqa: ANN401
     if isinstance(value, str):
-        return Tainted(value, label=_fresh_label(source))
+        return Tainted(value, label=make_label())
     if isinstance(value, bytes):
-        return TaintedBytes(value, label=_fresh_label(source))
-    if depth > 0 and isinstance(value, _CONTAINER_TYPES):
-        items = (_taint_value(item, source=source, depth=depth - 1) for item in value)
+        return TaintedBytes(value, label=make_label())
+    if depth > 0 and isinstance(value, CONTAINER_TYPES):
+        items = (
+            _taint_value(item, depth=depth - 1, make_label=make_label) for item in value
+        )
         return type(value)(items)
-    if depth > 0 and isinstance(value, dict):
+    if depth > 0 and isinstance(value, Mapping):
         return {
-            _taint_value(k, source=source, depth=depth - 1): _taint_value(
-                v, source=source, depth=depth - 1
+            _taint_value(k, depth=depth - 1, make_label=make_label): _taint_value(
+                v, depth=depth - 1, make_label=make_label
             )
             for k, v in value.items()
         }
-    return LabeledValue(value=value, label=_fresh_label(source))
+    return LabeledValue(value=value, label=make_label())
+
+
+def track_model_call[F: Callable[..., Any]](
+    fn: F | None = None, *, source: str = "model"
+) -> Any:  # noqa: ANN401 -- returns a decorator or a wrapped callable
+    """Taint a model/LLM call's return value, derived from its arguments.
+
+    Wraps `fn` so its return value is tainted via `taint(result,
+    source=source, derived_from=<fn's bound arguments>)`: trusted only if
+    every tainted argument was trusted, untrusted if any one of them was.
+    Usable bare (`@track_model_call`) or parameterized
+    (`@track_model_call(source="gpt-4")`); auto-detects sync vs async.
+
+    This only tracks provenance; it does not evaluate policy. Stack it with
+    `@guard`/`@handle.guard` separately if the call into the model should
+    also be gated.
+
+    Args:
+        fn: The function to wrap, when used as a bare `@track_model_call`.
+        source: The name recorded as the derivation hop on the tainted
+            return value.
+
+    Returns:
+        The wrapped function, or a decorator if called with arguments.
+    """
+
+    def decorator(inner: F) -> F:
+        return _build_model_call_wrapper(inner, source=source)
+
+    if fn is not None:
+        return decorator(fn)
+    return decorator
+
+
+def _build_model_call_wrapper[F: Callable[..., Any]](fn: F, *, source: str) -> F:
+    sig = inspect.signature(fn)
+
+    if inspect.iscoroutinefunction(fn):
+
+        @functools.wraps(fn)
+        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            bound = bind_arguments(sig, args, kwargs)
+            result = await fn(*args, **kwargs)
+            return taint(result, source=source, derived_from=bound.values())
+
+        return async_wrapper  # type: ignore[return-value]
+
+    @functools.wraps(fn)
+    def sync_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        bound = bind_arguments(sig, args, kwargs)
+        result = fn(*args, **kwargs)
+        return taint(result, source=source, derived_from=bound.values())
+
+    return sync_wrapper  # type: ignore[return-value]
 
 
 def collect_labels(value: Any, *, max_depth: int) -> tuple[Label, ...]:  # noqa: ANN401
@@ -360,7 +235,7 @@ def _collect(value: Any, *, depth: int, found: list[Label]) -> None:  # noqa: AN
             _collect(k, depth=depth - 1, found=found)
             _collect(v, depth=depth - 1, found=found)
         return
-    if isinstance(value, _CONTAINER_TYPES):
+    if isinstance(value, CONTAINER_TYPES):
         for item in value:
             _collect(item, depth=depth - 1, found=found)
 
@@ -385,6 +260,6 @@ def unwrap(value: Any) -> Any:  # noqa: ANN401 -- accepts and returns any shape
         return unwrap(value.value)
     if isinstance(value, Mapping):
         return {unwrap(k): unwrap(v) for k, v in value.items()}
-    if isinstance(value, _CONTAINER_TYPES):
+    if isinstance(value, CONTAINER_TYPES):
         return type(value)(unwrap(item) for item in value)
     return value

@@ -101,7 +101,8 @@ library makes no network calls under any default configuration.
 ## Agent-boundary provenance
 
 Automatic re-taint at an agent's output boundary (rather than the manual
-`taint(agent_a_output, source="agent_a")` pattern documented in
+`taint(agent_a_output, source="agent_a", derived_from=[...])` pattern
+documented in
 [Identity](../concepts/identity.md#multi-agent-and-handoffs)), an
 agent-level provenance graph showing which agents touched data and in what
 order, and run-level gating as the enforcement consumer of both. The
@@ -109,5 +110,19 @@ contaminate-on-generation propagation half and the agent-level provenance
 graph remain deferred; the run-level gating half now has its `run.tainted`
 slice shipped (see "Run-level capability gating" above), though it consumes
 `taint()` calls directly rather than an automatic per-agent handoff label.
-Manual re-taint at the handoff is still the only way to get agent-scoped
-value-level provenance across a handoff.
+
+**The manual mechanism got a trust-aware upgrade:** `taint()`'s optional
+`derived_from` argument (see
+[Taint propagation: model calls and derived values](../concepts/taint-propagation.md#model-calls-and-derived-values))
+and the `track_model_call` decorator built on it merge the lineage of the
+values a handoff or model call was derived from, so the result resolves
+untrusted only if one of those inputs actually was, rather than being
+marked untrusted unconditionally. This is still explicit and manual (the
+integrator identifies which values to derive from, and calls `taint(...,
+derived_from=...)` or wraps the producing function), and it is still
+value-level, not the automatic, default contamination described above:
+interbolt never inspects the model's own generated text, so nothing here
+detects a paraphrase that smuggles untrusted content past a rule looking
+only at `lineage`. Manual re-taint (now optionally trust-aware) at the
+handoff is still the only way to get agent-scoped value-level provenance
+across a handoff.

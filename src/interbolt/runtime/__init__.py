@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import inspect
 import os
+import threading
 import uuid
-from collections.abc import AsyncGenerator, Callable, Mapping
-from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator, Callable, Generator, Mapping
+from contextlib import asynccontextmanager, contextmanager
+from contextvars import Token
 from typing import Any
 
 from interbolt.constants import DEFAULT_AGENT_ID, ENV_AUDIT, ENV_MODE
@@ -27,6 +30,7 @@ from interbolt.utils import get_logger
 _logger = get_logger("runtime")
 
 _current_runtime: Runtime | None = None
+_runtime_lock = threading.Lock()
 
 
 class Runtime:
@@ -48,13 +52,12 @@ class Runtime:
         self._audit_registry = AuditRegistry() if audit else None
 
     def agent(self, agent_id: str) -> AgentHandle:
-        """Return a durable per-agent handle, a secondary pattern to bare `guard`.
+        """Equivalent to the module-level `agent()`.
 
-        Prefer `agent_context` and the bare `guard`/`check` for most cases.
-        Use this handle when a function needs a fixed `agent_id` captured
-        once at decoration time, or when guarded calls run on a thread pool:
-        `agent_id` here is a plain string carried explicitly, so it works
-        across threads where `agent_context`'s `ContextVar` would not.
+        Kept as a method for discoverability (`runtime.agent(...)`);
+        delegates to the same lazy-resolving implementation rather than
+        pinning to this `Runtime` instance, so it rebinds after a later
+        `configure()` call exactly like bare `guard` does.
 
         Args:
             agent_id: The durable, integrator-supplied agent identity.
@@ -62,7 +65,27 @@ class Runtime:
         Returns:
             An `AgentHandle` whose `.guard` decorates with this agent_id.
         """
-        return AgentHandle(agent_id, runtime_resolver=lambda: self)
+        return agent(agent_id)
+
+    def _enter_agent_context(
+        self, agent_id: str
+    ) -> tuple[str, Token[str | None], Token[str | None]]:
+        run_id = str(uuid.uuid4())
+        agent_token = current_agent_id.set(agent_id)
+        run_token = current_run_id.set(run_id)
+        return run_id, agent_token, run_token
+
+    def _exit_agent_context(
+        self,
+        run_id: str,
+        agent_token: Token[str | None],
+        run_token: Token[str | None],
+    ) -> None:
+        current_agent_id.reset(agent_token)
+        current_run_id.reset(run_token)
+        clear_run_ingress(run_id)
+        if self._audit_registry is not None:
+            self._audit_registry.clear_run(run_id)
 
     @asynccontextmanager
     async def agent_context(self, agent_id: str) -> AsyncGenerator[None]:
@@ -77,6 +100,9 @@ class Runtime:
         attribution clears, along with the audit registry, when the block
         exits.
 
+        For a synchronous call site, use `agent_context_sync` instead: same
+        binding and cleanup, no `async with` required.
+
         Offloading guarded calls to a thread pool? Use `agent(...)` instead
         (see its docstring): a `ContextVar` doesn't cross that boundary,
         and for the same reason, `taint()` calls made in an offloaded
@@ -85,17 +111,27 @@ class Runtime:
         Args:
             agent_id: The agent identity to bind for this run.
         """
-        run_id = str(uuid.uuid4())
-        agent_token = current_agent_id.set(agent_id)
-        run_token = current_run_id.set(run_id)
+        run_id, agent_token, run_token = self._enter_agent_context(agent_id)
         try:
             yield
         finally:
-            current_agent_id.reset(agent_token)
-            current_run_id.reset(run_token)
-            clear_run_ingress(run_id)
-            if self._audit_registry is not None:
-                self._audit_registry.clear_run(run_id)
+            self._exit_agent_context(run_id, agent_token, run_token)
+
+    @contextmanager
+    def agent_context_sync(self, agent_id: str) -> Generator[None]:
+        """Synchronous counterpart to `agent_context`.
+
+        Same identity/run binding and cleanup as `agent_context`; use this
+        when the call site cannot use `async with`.
+
+        Args:
+            agent_id: The agent identity to bind for this run.
+        """
+        run_id, agent_token, run_token = self._enter_agent_context(agent_id)
+        try:
+            yield
+        finally:
+            self._exit_agent_context(run_id, agent_token, run_token)
 
     def check(
         self,
@@ -221,16 +257,57 @@ def configure(
         mode=resolved_mode,
         audit=audit,
     )
-    _current_runtime = runtime
+    with _runtime_lock:
+        _current_runtime = runtime
+
+    caller = inspect.stack()[1]
+    _logger.warning(
+        "configure(): mode=%s policy_source=%s sources=%d sinks=%d audit=%s "
+        "caller=%s:%d",
+        resolved_mode.value,
+        policy.source or "programmatic (no file; interbolt init to generate one)",
+        len(policy.document.sources),
+        len(policy.document.sinks),
+        audit,
+        caller.filename,
+        caller.lineno,
+    )
     return runtime
 
 
 def _current() -> Runtime:
-    if _current_runtime is None:
-        raise InterboltUsageError(
-            "interbolt.configure() must be called before using the bare guard/check API"
-        )
-    return _current_runtime
+    with _runtime_lock:
+        if _current_runtime is None:
+            raise InterboltUsageError(
+                "interbolt.configure() must be called before using the bare "
+                "guard/check API"
+            )
+        return _current_runtime
+
+
+def agent(agent_id: str) -> AgentHandle:
+    """Return a durable per-agent handle, a secondary pattern to bare `guard`.
+
+    Prefer `agent_context`/`agent_context_sync` and the bare `guard`/`check`
+    for most cases. Use this handle when a function needs a fixed `agent_id`
+    captured once at decoration time, or when guarded calls run on a thread
+    pool: `agent_id` here is a plain string carried explicitly, so it works
+    across threads where `agent_context`'s `ContextVar` would not.
+
+    Captures `agent_id` eagerly (a plain string, safe to call at import time,
+    before `configure()` has run) and resolves the current runtime lazily,
+    at call time, exactly like bare `guard` does: a module defining
+    `support = agent("support-agent")` at import time works regardless of
+    whether `configure()` has run yet, and rebinds automatically if
+    `configure()` is called again later (for example, between tests).
+
+    Args:
+        agent_id: The durable, integrator-supplied agent identity.
+
+    Returns:
+        An `AgentHandle` whose `.guard` decorates with this agent_id.
+    """
+    return AgentHandle(agent_id, runtime_resolver=_current)
 
 
 def guard[F: Callable[..., Any]](
@@ -248,8 +325,7 @@ def guard[F: Callable[..., Any]](
     Resolves the current runtime lazily, at call time, so a module using
     `@guard` can be imported before `configure()` has run.
 
-    Offloaded to a thread pool? Use `Runtime.agent` instead (see its
-    docstring).
+    Offloaded to a thread pool? Use `agent(...)` instead (see its docstring).
 
     Args:
         func: The function to guard, when used as a bare `@guard`.

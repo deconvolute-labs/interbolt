@@ -99,6 +99,9 @@ class Decision(BaseModel):
         action: The decision taken.
         matched_rule: The name of the first matching rule, or `None` if the
             sink's default action was used.
+        matched_condition: The matched rule's original CEL `when` text, or
+            `None` for the catch-all rule or when no rule matched. Lets a
+            caller see exactly which policy condition fired, not just its name.
         tool: The qualified tool name the decision was made for.
         contributing_labels: Every label collected from the call's arguments.
         trifecta: The lethal-trifecta legs satisfied by this call. In v1 this
@@ -124,6 +127,7 @@ class Decision(BaseModel):
 
     action: Action
     matched_rule: str | None
+    matched_condition: str | None
     tool: str
     contributing_labels: tuple[Label, ...]
     trifecta: frozenset[str]

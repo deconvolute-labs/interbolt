@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import inspect
 import logging
 from contextvars import ContextVar
+from typing import Any
 
 logger = logging.getLogger("interbolt")
 
@@ -27,3 +29,17 @@ def get_logger(name: str | None = None) -> logging.Logger:
     if name is None:
         return logger
     return logger.getChild(name)
+
+
+def bind_arguments(
+    sig: inspect.Signature, args: tuple[Any, ...], kwargs: dict[str, Any]
+) -> dict[str, Any]:
+    """Bind a call's positional/keyword arguments to `sig`, defaults applied.
+
+    A leaf-level primitive shared by `runtime/guard.py` (the `guard`
+    decorator's argument collection) and `taint/` (`track_model_call`'s
+    argument collection), without either importing the other.
+    """
+    bound = sig.bind(*args, **kwargs)
+    bound.apply_defaults()
+    return dict(bound.arguments)

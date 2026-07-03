@@ -49,6 +49,7 @@ class CompiledRule:
     name: str
     action: Action
     program: celpy.Runner | None
+    when: str | None = None
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,7 @@ def compile_policy(document: PolicyDocument) -> dict[str, CompiledSink]:
                 program=compile_cel_expression(rule.when)
                 if rule.when is not None
                 else None,
+                when=rule.when,
             )
             for rule in rules
         )
@@ -201,7 +203,7 @@ def build_context(
 
 def evaluate_sink(
     compiled_sink: CompiledSink, context: Mapping[str, Any], *, default_action: Action
-) -> tuple[str | None, Action]:
+) -> tuple[str | None, Action, str | None]:
     """Evaluate a sink's compiled rules, first match wins.
 
     Args:
@@ -210,15 +212,19 @@ def evaluate_sink(
         default_action: The action to fall through to if no rule matches.
 
     Returns:
-        The matched rule's name (or `None` for the default) and its action.
+        The matched rule's name (or `None` for the default), its action, and
+        the matched rule's original CEL condition text (`None` for the
+        catch-all rule or when nothing matched).
 
     Raises:
         celpy.evaluation.CELEvalError: If a rule's `when` references a missing
             argument, a `None` value, or otherwise fails to evaluate.
+        celpy.evaluation.CELUnsupportedError: If a rule's `when` uses a CEL
+            feature the runtime does not fully implement.
     """
     for rule in compiled_sink.rules:
         if rule.program is None:
-            return rule.name, rule.action
+            return rule.name, rule.action, rule.when
         if bool(rule.program.evaluate(context)):
-            return rule.name, rule.action
-    return None, default_action
+            return rule.name, rule.action, rule.when
+    return None, default_action, None

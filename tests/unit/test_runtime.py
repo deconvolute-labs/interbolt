@@ -9,10 +9,11 @@ import pytest
 import interbolt.runtime as _rt_module
 from interbolt.constants import DEFAULT_AGENT_ID, ENV_AUDIT, ENV_MODE
 from interbolt.errors import InterboltConfigError, InterboltUsageError
-from interbolt.models.core import Mode
+from interbolt.models.core import Action, Mode
 from interbolt.policy import Policy
+from interbolt.policy.schema import SinkRule
 from interbolt.reporting import InMemoryReporter, NullReporter
-from interbolt.runtime import Runtime, _current, configure
+from interbolt.runtime import Runtime, _current, agent, configure
 from interbolt.runtime.guard import AgentHandle, current_agent_id, current_run_id
 
 if TYPE_CHECKING:
@@ -122,6 +123,38 @@ class TestConfigure:
         rt = configure(policy=make_policy(), reporter=reporter)
         assert rt.reporter is reporter
 
+    def test_logs_summary_warning_for_file_loaded_policy(
+        self,
+        make_policy: Callable[..., Policy],
+        caplog: pytest.LogCaptureFixture,
+        reset_runtime: None,
+    ) -> None:
+        policy = make_policy(
+            sources=(),
+            sinks={"default.t": (SinkRule(name="r", action=Action.ALLOW),)},
+        )
+        with caplog.at_level("WARNING", logger="interbolt.runtime"):
+            configure(policy=policy, mode=Mode.MONITOR)
+        messages = [r.message for r in caplog.records]
+        assert any("mode=monitor" in m and "sinks=1" in m for m in messages)
+
+    def test_logs_summary_warning_for_default_policy(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        reset_runtime: None,
+    ) -> None:
+        # No policy= given: configure() falls back to the built-in default,
+        # whose Policy has no file source. The log message says so
+        # generically ("programmatic (no file...)") rather than claiming
+        # specifically "this is the built-in default" — a caller passing
+        # their own programmatically-built Policy hits the same source=None
+        # case and deserves the same honest wording, not a false claim that
+        # it's the built-in default.
+        with caplog.at_level("WARNING", logger="interbolt.runtime"):
+            configure()
+        messages = [r.message for r in caplog.records]
+        assert any("programmatic" in m and "no file" in m for m in messages)
+
 
 class TestCurrent:
     def test_current_without_configure_raises_interbolt_usage_error(
@@ -158,6 +191,30 @@ class TestRuntime:
 
         send_email(to="a@example.com")
         assert reporter.decisions[0].agent_id == "x"
+
+    def test_runtime_agent_rebinds_after_reconfigure(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        # Runtime.agent() must not pin to the instance it was called on: a
+        # later configure() should redirect the same handle to the new
+        # runtime, exactly like bare guard already does.
+        reporter_a = InMemoryReporter()
+        rt = configure(policy=make_policy(), reporter=reporter_a)
+        handle = rt.agent("x")
+
+        @handle.guard
+        def send_email(to: str) -> None:
+            return None
+
+        send_email(to="a@example.com")
+        assert len(reporter_a.decisions) == 1
+
+        reporter_b = InMemoryReporter()
+        configure(policy=make_policy(), reporter=reporter_b)
+        send_email(to="a@example.com")
+
+        assert len(reporter_a.decisions) == 1  # unchanged
+        assert len(reporter_b.decisions) == 1  # the second call landed here
 
     def test_check_delegates_to_enforcement_check(
         self, make_policy: Callable[..., Policy], reset_runtime: None
@@ -257,6 +314,149 @@ class TestRuntime:
         # Each agent_context block mints its own run_id; no bleed means
         # the two decisions never share one.
         assert by_agent["agent-a"].run_id != by_agent["agent-b"].run_id
+
+
+class TestAgentContextSync:
+    """Mirrors TestRuntime's agent_context tests, but synchronous."""
+
+    def test_agent_context_sync_sets_context_vars(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        rt = configure(policy=make_policy())
+        with rt.agent_context_sync("agent-xyz"):
+            assert current_agent_id.get() == "agent-xyz"
+            assert current_run_id.get() is not None
+
+    def test_agent_context_sync_resets_context_vars_on_exit(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        rt = configure(policy=make_policy())
+        with rt.agent_context_sync("agent-xyz"):
+            pass
+        assert current_agent_id.get() is None
+        assert current_run_id.get() is None
+
+    def test_agent_context_sync_resets_context_vars_on_exception(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        rt = configure(policy=make_policy())
+        with (
+            pytest.raises(ValueError, match="boom"),
+            rt.agent_context_sync("agent-xyz"),
+        ):
+            raise ValueError("boom")
+        assert current_agent_id.get() is None
+        assert current_run_id.get() is None
+
+    def test_agent_context_sync_clears_audit_registry_on_exit(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        from interbolt.constants import AUDIT_MIN_MATCH_LENGTH
+        from interbolt.models.core import TrustLevel
+        from interbolt.taint import taint
+
+        rt = configure(policy=make_policy(), audit=True)
+        secret = "a" * AUDIT_MIN_MATCH_LENGTH
+        tainted = taint(secret, source="web")
+
+        with rt.agent_context_sync("agent-xyz"):
+            run_id = current_run_id.get()
+            assert run_id is not None
+            registry = rt._audit_registry
+            assert registry is not None
+            registry.register_from_args(
+                {"x": tainted},
+                sources_table={"web": TrustLevel.UNTRUSTED},
+                run_id=run_id,
+                depth=4,
+            )
+            assert run_id in registry._by_run
+
+        assert registry is not None
+        assert run_id not in registry._by_run
+
+    def test_agent_context_sync_mints_fresh_run_id_per_call(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        rt = configure(policy=make_policy())
+        run_ids = []
+        for _ in range(2):
+            with rt.agent_context_sync("agent-xyz"):
+                run_ids.append(current_run_id.get())
+        assert run_ids[0] != run_ids[1]
+
+    def test_agent_context_sync_requires_no_event_loop(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        # A plain sync test with no pytest-asyncio machinery involved proves
+        # this doesn't require an event loop to be running.
+        from interbolt.runtime import guard
+
+        rt = configure(policy=make_policy(), reporter=InMemoryReporter())
+
+        @guard
+        def my_tool(x: str) -> str:
+            return x
+
+        with rt.agent_context_sync("agent-xyz"):
+            result = my_tool("hello")
+        assert result == "hello"
+
+
+class TestModuleLevelAgent:
+    def test_agent_callable_before_configure(self, reset_runtime: None) -> None:
+        handle = agent("support-agent")
+        assert isinstance(handle, AgentHandle)
+
+    def test_agent_handle_raises_usage_error_before_configure(
+        self, reset_runtime: None
+    ) -> None:
+        handle = agent("support-agent")
+
+        @handle.guard
+        def my_func(x: str) -> str:
+            return x
+
+        with pytest.raises(InterboltUsageError):
+            my_func("value")
+
+    def test_agent_defined_before_configure_binds_at_first_call(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        # The handle is created (e.g. at module import time) before
+        # configure() has run anywhere; the first *call* still resolves
+        # correctly once configure() has since been called.
+        handle = agent("support-agent")
+
+        @handle.guard
+        def my_func(x: str) -> str:
+            return x
+
+        reporter = InMemoryReporter()
+        configure(policy=make_policy(), reporter=reporter)
+        my_func("hello")
+        assert reporter.decisions[0].agent_id == "support-agent"
+
+    def test_agent_rebinds_after_reconfigure(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        reporter_a = InMemoryReporter()
+        configure(policy=make_policy(), reporter=reporter_a)
+        handle = agent("support-agent")
+
+        @handle.guard
+        def my_func(x: str) -> str:
+            return x
+
+        my_func("hello")
+        assert len(reporter_a.decisions) == 1
+
+        reporter_b = InMemoryReporter()
+        configure(policy=make_policy(), reporter=reporter_b)
+        my_func("hello")
+
+        assert len(reporter_a.decisions) == 1
+        assert len(reporter_b.decisions) == 1
 
 
 class TestModuleLevelGuard:

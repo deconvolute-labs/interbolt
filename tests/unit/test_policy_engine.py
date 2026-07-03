@@ -106,6 +106,26 @@ class TestCompilePolicy:
         rule = compiled["default.tool"].rules[0]
         assert rule.program is not None
 
+    def test_conditional_rule_retains_original_when_text(self) -> None:
+        doc = _simple_doc(
+            sinks={
+                "default.tool": [
+                    {"name": "r", "when": "args.x == 'y'", "action": "allow"}
+                ]
+            }
+        )
+        compiled = compile_policy(doc)
+        rule = compiled["default.tool"].rules[0]
+        assert rule.when == "args.x == 'y'"
+
+    def test_catch_all_rule_has_none_when(self) -> None:
+        doc = _simple_doc(
+            sinks={"default.tool": [{"name": "default", "action": "allow"}]}
+        )
+        compiled = compile_policy(doc)
+        rule = compiled["default.tool"].rules[0]
+        assert rule.when is None
+
 
 class TestResolveLabelTrust:
     def test_all_trusted_returns_trusted(self) -> None:
@@ -227,11 +247,12 @@ class TestEvaluateSink:
 
     def test_catch_all_fires_immediately(self) -> None:
         sink = self._catch_all_sink(Action.ALLOW)
-        name, action = evaluate_sink(
+        name, action, condition = evaluate_sink(
             sink, self._empty_context(), default_action=Action.BLOCK
         )
         assert name == "default"
         assert action is Action.ALLOW
+        assert condition is None
 
     def test_first_conditional_match_wins(self) -> None:
         sink = CompiledSink(
@@ -240,19 +261,22 @@ class TestEvaluateSink:
                     name="first",
                     action=Action.BLOCK,
                     program=compile_cel_expression("true"),
+                    when="true",
                 ),
                 CompiledRule(
                     name="second",
                     action=Action.ALLOW,
                     program=compile_cel_expression("true"),
+                    when="true",
                 ),
             )
         )
-        name, action = evaluate_sink(
+        name, action, condition = evaluate_sink(
             sink, self._empty_context(), default_action=Action.ALLOW
         )
         assert name == "first"
         assert action is Action.BLOCK
+        assert condition == "true"
 
     def test_no_match_returns_default_action(self) -> None:
         sink = CompiledSink(
@@ -261,11 +285,13 @@ class TestEvaluateSink:
                     name="never",
                     action=Action.BLOCK,
                     program=compile_cel_expression("false"),
+                    when="false",
                 ),
             )
         )
-        name, action = evaluate_sink(
+        name, action, condition = evaluate_sink(
             sink, self._empty_context(), default_action=Action.ALLOW
         )
         assert name is None
         assert action is Action.ALLOW
+        assert condition is None

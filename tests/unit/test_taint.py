@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+from collections import UserDict
+
 import pytest
+from pytest_mock import MockerFixture
 
 from interbolt.errors import InterboltUsageError
 from interbolt.models.core import Label
@@ -12,6 +16,7 @@ from interbolt.taint import (
     _merge_labels,
     collect_labels,
     taint,
+    track_model_call,
     unwrap,
 )
 
@@ -282,6 +287,101 @@ class TestTaintedBytes:
         result = tb.replace(b"world", b"there")
         assert isinstance(result, TaintedBytes)
 
+    def test_mod_propagates_label(self) -> None:
+        tb = TaintedBytes(b"hello %s", label=_label("a"))
+        result = tb % (b"world",)
+        assert isinstance(result, TaintedBytes)
+        assert result.label.lineage == ("a",)
+
+    def test_mod_merges_tainted_argument_label(self) -> None:
+        tb = TaintedBytes(b"hello %s", label=_label("a"))
+        arg = TaintedBytes(b"world", label=_label("b"))
+        result = tb % (arg,)
+        assert "a" in result.label.lineage
+        assert "b" in result.label.lineage
+
+    def test_rmod_plain_template_keeps_self_label(self) -> None:
+        tb = TaintedBytes(b"world", label=_label("a"))
+        result = b"hello %s" % tb
+        assert isinstance(result, TaintedBytes)
+        assert result.label.lineage == ("a",)
+
+    def test_mul_propagates_label(self) -> None:
+        tb = TaintedBytes(b"ab", label=_label("a"))
+        result = tb * 3
+        assert isinstance(result, TaintedBytes)
+        assert result == b"ababab"
+        assert result.label.lineage == ("a",)
+
+    def test_rmul_propagates_label(self) -> None:
+        tb = TaintedBytes(b"ab", label=_label("a"))
+        result = 3 * tb
+        assert isinstance(result, TaintedBytes)
+        assert result == b"ababab"
+
+    def test_lstrip_propagates_label(self) -> None:
+        tb = TaintedBytes(b"  hi", label=_label())
+        result = tb.lstrip()
+        assert isinstance(result, TaintedBytes)
+        assert result == b"hi"
+
+    def test_rstrip_propagates_label(self) -> None:
+        tb = TaintedBytes(b"hi  ", label=_label())
+        result = tb.rstrip()
+        assert isinstance(result, TaintedBytes)
+        assert result == b"hi"
+
+    def test_split_returns_list_of_tainted_bytes(self) -> None:
+        tb = TaintedBytes(b"a,b,c", label=_label("a"))
+        parts = tb.split(b",")
+        assert all(isinstance(p, TaintedBytes) for p in parts)
+        assert [bytes(p) for p in parts] == [b"a", b"b", b"c"]
+
+    def test_rsplit_returns_list_of_tainted_bytes(self) -> None:
+        tb = TaintedBytes(b"a,b,c", label=_label("a"))
+        parts = tb.rsplit(b",", 1)
+        assert all(isinstance(p, TaintedBytes) for p in parts)
+        assert [bytes(p) for p in parts] == [b"a,b", b"c"]
+
+    def test_splitlines_returns_list_of_tainted_bytes(self) -> None:
+        tb = TaintedBytes(b"a\nb", label=_label("a"))
+        parts = tb.splitlines()
+        assert all(isinstance(p, TaintedBytes) for p in parts)
+        assert [bytes(p) for p in parts] == [b"a", b"b"]
+
+    def test_partition_all_parts_tainted_bytes(self) -> None:
+        tb = TaintedBytes(b"a=b", label=_label("a"))
+        head, sep, tail = tb.partition(b"=")
+        assert isinstance(head, TaintedBytes)
+        assert isinstance(sep, TaintedBytes)
+        assert isinstance(tail, TaintedBytes)
+        assert (bytes(head), bytes(sep), bytes(tail)) == (b"a", b"=", b"b")
+
+    def test_rpartition_all_parts_tainted_bytes(self) -> None:
+        tb = TaintedBytes(b"a=b=c", label=_label("a"))
+        head, sep, tail = tb.rpartition(b"=")
+        assert isinstance(head, TaintedBytes)
+        assert isinstance(sep, TaintedBytes)
+        assert isinstance(tail, TaintedBytes)
+        assert (bytes(head), bytes(sep), bytes(tail)) == (b"a=b", b"=", b"c")
+
+    def test_join_with_tainted_items_merges_lineage(self) -> None:
+        sep = TaintedBytes(b",", label=_label("sep"))
+        items = [
+            TaintedBytes(b"a", label=_label("x")),
+            TaintedBytes(b"b", label=_label("y")),
+        ]
+        result = sep.join(items)
+        assert isinstance(result, TaintedBytes)
+        assert result == b"a,b"
+        assert set(result.label.lineage) == {"sep", "x", "y"}
+
+    def test_join_with_plain_items_keeps_sep_label(self) -> None:
+        sep = TaintedBytes(b",", label=_label("sep"))
+        result = sep.join([b"a", b"b"])
+        assert isinstance(result, TaintedBytes)
+        assert result.label.lineage == ("sep",)
+
 
 # ---------------------------------------------------------------------------
 # LabeledValue
@@ -359,6 +459,15 @@ class TestTaintFunction:
             assert isinstance(k, Tainted)
             assert isinstance(v, Tainted)
 
+    def test_userdict_mapping_recurses_like_dict(self) -> None:
+        # A non-dict Mapping must be recursed into just like a plain dict,
+        # not collapsed into one opaque LabeledValue for the whole mapping.
+        result = taint(UserDict({"key": "val"}), source="s")
+        assert isinstance(result, dict)
+        for k, v in result.items():
+            assert isinstance(k, Tainted)
+            assert isinstance(v, Tainted)
+
     def test_int_returns_labeled_value(self) -> None:
         result = taint(42, source="s")
         assert isinstance(result, LabeledValue)
@@ -374,6 +483,134 @@ class TestTaintFunction:
         assert isinstance(result, Tainted)
         assert result.label.source == "my_source"
         assert result.label.lineage == ("my_source",)
+
+
+# ---------------------------------------------------------------------------
+# taint(derived_from=...) — "model as a new source"
+# ---------------------------------------------------------------------------
+
+
+class TestTaintDerivedFrom:
+    def test_none_behaves_like_plain_taint(self, mocker: MockerFixture) -> None:
+        spy = mocker.patch("interbolt.taint._record_ingress")
+        result = taint("out", source="model", derived_from=None)
+        assert isinstance(result, Tainted)
+        assert result.label.lineage == ("model",)
+        spy.assert_called_once_with("model")
+
+    def test_empty_list_behaves_like_plain_taint(self, mocker: MockerFixture) -> None:
+        spy = mocker.patch("interbolt.taint._record_ingress")
+        result = taint("out", source="model", derived_from=[])
+        assert isinstance(result, Tainted)
+        assert result.label.lineage == ("model",)
+        spy.assert_called_once_with("model")
+
+    def test_all_plain_inputs_returns_value_unwrapped(
+        self, mocker: MockerFixture
+    ) -> None:
+        spy = mocker.patch("interbolt.taint._record_ingress")
+        value = "out"
+        result = taint(value, source="model", derived_from=["plain prompt", 42])
+        assert result is value
+        assert not isinstance(result, Tainted)
+        spy.assert_not_called()
+
+    def test_single_labeled_input_propagates_its_lineage(self) -> None:
+        prompt = taint("attacker text", source="web_search")
+        result = taint("summary", source="model", derived_from=[prompt])
+        assert isinstance(result, Tainted)
+        assert result.label.source == "model"
+        assert result.label.lineage == ("web_search",)
+
+    def test_mixed_trust_inputs_union_lineage(self) -> None:
+        untrusted = taint("attacker text", source="web_search")
+        trusted = taint("kb text", source="internal_kb")
+        result = taint("summary", source="model", derived_from=[untrusted, trusted])
+        assert set(result.label.lineage) == {"web_search", "internal_kb"}
+
+    def test_does_not_record_ingress_for_derivation_hop(
+        self, mocker: MockerFixture
+    ) -> None:
+        spy = mocker.patch("interbolt.taint._record_ingress")
+        untrusted = taint("attacker text", source="web_search")
+        spy.reset_mock()  # drop the call recorded by the taint() call above
+        taint("summary", source="model", derived_from=[untrusted])
+        spy.assert_not_called()
+
+    def test_container_value_mints_distinct_value_id_per_leaf(self) -> None:
+        untrusted = taint("attacker text", source="web_search")
+        result = taint(["a", "b"], source="model", derived_from=[untrusted])
+        assert isinstance(result, list)
+        assert result[0].label.value_id != result[1].label.value_id
+        assert result[0].label.lineage == ("web_search",) == result[1].label.lineage
+
+    def test_derived_from_container_input_collects_nested_labels(self) -> None:
+        untrusted = taint("attacker text", source="web_search")
+        result = taint("summary", source="model", derived_from=[{"nested": untrusted}])
+        assert result.label.lineage == ("web_search",)
+
+
+# ---------------------------------------------------------------------------
+# track_model_call
+# ---------------------------------------------------------------------------
+
+
+class TestTrackModelCall:
+    def test_bare_decorator_taints_return_value(self) -> None:
+        @track_model_call
+        def call_model(prompt: str) -> str:
+            return "summary"
+
+        untrusted = taint("attacker text", source="web_search")
+        result = call_model(untrusted)
+        assert isinstance(result, Tainted)
+        assert result.label.source == "model"
+        assert result.label.lineage == ("web_search",)
+
+    def test_parameterized_decorator_uses_custom_source(self) -> None:
+        @track_model_call(source="gpt-4")  # type: ignore[untyped-decorator]
+        def call_model(prompt: str) -> str:
+            return "summary"
+
+        untrusted = taint("attacker text", source="web_search")
+        result = call_model(untrusted)
+        assert result.label.source == "gpt-4"
+
+    def test_all_plain_arguments_returns_untainted_result(self) -> None:
+        @track_model_call
+        def call_model(prompt: str) -> str:
+            return "summary"
+
+        result = call_model("plain prompt")
+        assert not isinstance(result, Tainted)
+        assert result == "summary"
+
+    def test_mixed_trust_arguments_union_lineage(self) -> None:
+        @track_model_call
+        def call_model(prompt: str, context: str) -> str:
+            return "summary"
+
+        untrusted = taint("attacker text", source="web_search")
+        trusted = taint("kb text", source="internal_kb")
+        result = call_model(untrusted, context=trusted)
+        assert set(result.label.lineage) == {"web_search", "internal_kb"}
+
+    def test_async_function_is_wrapped_and_tainted(self) -> None:
+        @track_model_call
+        async def call_model(prompt: str) -> str:
+            return "summary"
+
+        untrusted = taint("attacker text", source="web_search")
+        result = asyncio.run(call_model(untrusted))
+        assert isinstance(result, Tainted)
+        assert result.label.lineage == ("web_search",)
+
+    def test_preserves_function_name(self) -> None:
+        @track_model_call
+        def call_model(prompt: str) -> str:
+            return "summary"
+
+        assert call_model.__name__ == "call_model"
 
 
 # ---------------------------------------------------------------------------

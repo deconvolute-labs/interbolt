@@ -74,6 +74,7 @@ def make_decision() -> Callable[..., Decision]:
     def _factory(
         action: Action = Action.ALLOW,
         matched_rule: str | None = None,
+        matched_condition: str | None = None,
         tool: str = "default.test_tool",
         contributing_labels: tuple[Label, ...] = (),
         trifecta: frozenset[str] = frozenset(),
@@ -87,6 +88,7 @@ def make_decision() -> Callable[..., Decision]:
         return Decision(
             action=action,
             matched_rule=matched_rule,
+            matched_condition=matched_condition,
             tool=tool,
             contributing_labels=contributing_labels,
             trifecta=trifecta,

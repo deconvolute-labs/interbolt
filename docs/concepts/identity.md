@@ -17,11 +17,13 @@ rework: a multi-agent run shares one `run_id`, each agent stamps its own
 ## Two ways to bind agent identity
 
 ```python
+from interbolt import agent, configure
+
 runtime = configure(policy=..., reporter=..., mode="enforce")
 
 # Explicit per-agent handle (identity known at decoration time).
-support = runtime.agent("support-agent")
-billing = runtime.agent("billing-agent")
+support = agent("support-agent")
+billing = agent("billing-agent")
 
 @support.guard
 async def send_email(to: str, body: str) -> None: ...
@@ -34,10 +36,21 @@ async with runtime.agent_context("support-agent"):
     await run_turn(...)   # guarded calls inside pick up "support-agent"
 ```
 
-The two compose: `runtime.agent(...)` returns an `AgentHandle` carrying the
-durable `agent_id`; `runtime.agent_context(...)` binds the current agent via
-a `contextvars.ContextVar` for the duration of an `async with` block, and
-mints that block's `run_id`.
+The two compose: `agent(...)` returns an `AgentHandle` carrying the durable
+`agent_id`; `runtime.agent_context(...)` binds the current agent via a
+`contextvars.ContextVar` for the duration of an `async with` block, and
+mints that block's `run_id`. A synchronous counterpart,
+`runtime.agent_context_sync(...)`, binds and cleans up identically for a
+call site that cannot use `async with`.
+
+`agent(...)` is a module-level function, not a method: it needs no
+`Runtime` instance, so it is the natural way to define a codebase's agent
+identities in one module (`agents.py`) and import them into whichever
+module defines the tools each agent owns (`tools.py`), regardless of import
+order relative to `configure()`. `runtime.agent(...)` (a method on the
+object `configure()` returns) delegates to the exact same lazily-resolving
+implementation; it is kept only for discoverability when a `Runtime`
+instance is already in hand.
 
 A guarded call made through the bare `@guard` decorator (not bound to a
 specific `AgentHandle`) reads `agent_id` from the active `agent_context`,
@@ -56,16 +69,18 @@ single run may span multiple agents.
 `configure(...)` builds a `Runtime` and stores it as the process-current
 runtime; there is one runtime per process. The bare `guard` and `check`
 resolve the current runtime **lazily, at call time**, not at decoration
-time. `runtime.agent("id")` captures the `agent_id` string eagerly (safe at
-import) but also resolves the runtime lazily through the same mechanism.
+time. `agent("id")` (and `runtime.agent("id")`, equivalent) captures the
+`agent_id` string eagerly (safe at import, needing no `Runtime` instance)
+but also resolves the runtime lazily through the same mechanism.
 
 A module decorated with `@handle.guard` can be imported before `configure()`
 has run; only the first *call* needs a configured runtime. Calling a guarded
 function before any `configure()` call raises `InterboltUsageError`.
 Re-`configure()` (the standard test recipe; see
 [Testing](../guides/testing.md)) rebinds the process-current runtime
-cleanly, with no stale capture, because every lazily-resolving decorator
-picks up whichever runtime is current on its next call.
+cleanly, with no stale capture, because every lazily-resolving decorator,
+including a handle obtained from `agent(...)` before that `configure()`
+call, picks up whichever runtime is current on its next call.
 
 `taint()` needs no `Runtime` instance at all and works before `configure()`
 has run: it takes no `agent_id`, and reads container-recursion depth from
@@ -79,17 +94,24 @@ log, with no change to `taint()`'s core behavior.
 
 ## Thread offload limit
 
-`agent_context` is built on `contextvars.ContextVar`, which stays on the
-calling task's context and doesn't reach a thread pool. Guarded tool calls
-dispatched to a thread pool lose the context-bound agent and run identity
-inside those threads; bare `@guard` calls there fall back to
-`DEFAULT_AGENT_ID` with a fresh `run_id` each. The eager `runtime.agent("id")`
+`agent_context`/`agent_context_sync` are built on `contextvars.ContextVar`,
+which stays on the calling task's context and doesn't reach a thread pool.
+Guarded tool calls dispatched to a thread pool lose the context-bound agent
+and run identity inside those threads; bare `@guard` calls there fall back
+to `DEFAULT_AGENT_ID` with a fresh `run_id` each. The eager `agent("id")`
 handle carries `agent_id` explicitly instead of reading the contextvar, so
 it works across threads and is the recommended form for offloaded tool
 calls. It carries only `agent_id`, though, not `run_id`: a `taint()` call
 inside an offloaded thread still finds no active run, so that ingress stays
 invisible to `run.tainted` for the run it should have contributed to (see
-[Policies: run-level gating](policies.md#run-level-gating-run-tainted)).
+[Policies: run-level gating](policies.md#run-level-gating-run-tainted)). If
+each thread enters its **own** `agent_context_sync` block at the start of
+its own work, this is not a problem: a spawned OS thread gets its own,
+independent `contextvars.Context`, so identity set inside that thread's own
+block is isolated from every other thread's, the same isolation
+`agent_context` already gives concurrent `asyncio` tasks. The limit above
+applies specifically to identity bound in the *dispatching* thread before
+handing work to the pool, which a spawned thread never sees.
 
 ## `check()` and the contextvar
 
@@ -126,5 +148,22 @@ Re-`taint` an agent's output at the handoff boundary as a deliberate,
 confused-deputy-safe default:
 
 ```python
-handoff = taint(agent_a_output, source="agent_a")
+handoff = taint(agent_a_output, source="agent_a", derived_from=[agent_a_inputs...])
 ```
+
+Passing `derived_from` makes the re-taint trust-aware instead of
+unconditional: `handoff` resolves untrusted only if one of agent A's own
+inputs did, rather than being marked untrusted regardless. Omitting
+`derived_from` (`taint(agent_a_output, source="agent_a")`) still works and is
+the coarser, always-safe form: the whole output is marked as agent A's own
+fresh source, unconditionally, useful when the input labels aren't
+conveniently in scope at the handoff point. Either way this is still the
+manual, value-level mechanism; it is not automatic (interbolt never inspects
+or paraphrase-detects the model's own text), and it is not the deferred
+agent-boundary contamination model (see
+[Deferred features](../design/deferred.md#agent-boundary-provenance)). See
+[Taint propagation](taint-propagation.md#model-calls-and-derived-values) for
+the underlying mechanism, and the quickstart's
+[model tracking section](../quickstart.md#track-data-into-and-out-of-a-model-call)
+for the equivalent, more ergonomic `track_model_call` decorator for the
+common "wrap a model/LLM call" shape of this same pattern.

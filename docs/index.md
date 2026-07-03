@@ -10,23 +10,29 @@ together, or jump straight to the [quickstart](quickstart.md).
 
 ## Start here
 
-- [Quickstart](quickstart.md): install, write a policy, taint a value, guard a tool.
+- [Quickstart](quickstart.md): install, write a policy, taint a value, guard
+  a tool, define agents and tools across modules, track a model call as a
+  new source, and get the decision (and why) at the sink.
 
 ## Concepts
 
-- [Taint propagation](concepts/taint-propagation.md): what `taint()` marks
-  and what survives a transformation.
+- [Taint propagation](concepts/taint-propagation.md): what `taint()` marks,
+  what survives a transformation, and how `derived_from` makes a model call
+  or agent handoff a trust-aware new source rather than a fresh, unrelated
+  ingress point.
 - [Policies](concepts/policies.md): the YAML+CEL policy format, evaluation
   semantics, and the CEL context available to a `when` expression.
 - [Identity](concepts/identity.md): the `agent_id` / `run_id` / `session_id`
-  triple, per-agent handles, and `agent_context`.
+  triple, per-agent handles (including the module-level `agent(...)`, for
+  agents and tools defined across files), and `agent_context`/
+  `agent_context_sync`.
 - [Namespacing](concepts/namespacing.md): the `(namespace, tool)` identity pair
   and the dotted `namespace.tool` policy-key surface.
 
 ## Reference
 
 - [API reference](reference/api.md): every name re-exported from `interbolt`.
-- [Reporters](reference/reporters.md): the `Reporter` protocol and the three
+- [Reporters](reference/reporters.md): the `Reporter` protocol and the five
   shipped implementations.
 
 ## Guides

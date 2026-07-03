@@ -28,6 +28,7 @@ def _decision(action: Action = Action.ALLOW) -> Decision:
     return Decision(
         action=action,
         matched_rule=None,
+        matched_condition=None,
         tool="default.tool",
         contributing_labels=(),
         trifecta=frozenset(),
