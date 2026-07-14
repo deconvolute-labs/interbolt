@@ -13,8 +13,8 @@ from interbolt.errors import InterboltConfigError, InterboltUsageError
 from interbolt.models.core import Action, Mode
 from interbolt.policy import Policy
 from interbolt.policy.schema import SinkRule
-from interbolt.reporting import InMemoryReporter, NullReporter
-from interbolt.runtime import Runtime, _current, agent, configure
+from interbolt.reporting import CompositeReporter, InMemoryReporter, NullReporter
+from interbolt.runtime import Runtime, _current, agent, configure, get_runtime
 from interbolt.runtime.guard import AgentHandle, current_agent_id, current_run_id
 
 if TYPE_CHECKING:
@@ -123,18 +123,28 @@ class TestConfigure:
             rt = configure(policy=make_policy(), audit=False)
             assert rt._audit_registry is not None, f"Expected audit for {value!r}"
 
-    def test_reporter_defaults_to_null_reporter(
+    def test_reporter_defaults_to_composite_wrapping_null_reporter(
         self, make_policy: Callable[..., Policy], reset_runtime: None
     ) -> None:
         rt = configure(policy=make_policy())
-        assert isinstance(rt.reporter, NullReporter)
+        assert isinstance(rt.reporter, CompositeReporter)
+        assert len(rt.reporter.reporters) == 1
+        assert isinstance(rt.reporter.reporters[0], NullReporter)
 
     def test_custom_reporter_is_used(
         self, make_policy: Callable[..., Policy], reset_runtime: None
     ) -> None:
         reporter = InMemoryReporter()
         rt = configure(policy=make_policy(), reporter=reporter)
-        assert rt.reporter is reporter
+        assert isinstance(rt.reporter, CompositeReporter)
+        assert reporter in rt.reporter.reporters
+
+    def test_reporter_already_composite_is_used_directly(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        composite = CompositeReporter([InMemoryReporter(), InMemoryReporter()])
+        rt = configure(policy=make_policy(), reporter=composite)
+        assert rt.reporter is composite
 
     def test_logs_summary_info_for_file_loaded_policy(
         self,
@@ -252,6 +262,25 @@ class TestCurrent:
         assert all(r is rt for r in results)
 
 
+class TestGetRuntime:
+    def test_before_configure_raises_usage_error(self, reset_runtime: None) -> None:
+        with pytest.raises(InterboltUsageError):
+            get_runtime()
+
+    def test_after_configure_returns_same_object(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        rt = configure(policy=make_policy())
+        assert get_runtime() is rt
+
+    def test_after_second_configure_returns_the_new_one(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        configure(policy=make_policy())
+        rt2 = configure(policy=make_policy())
+        assert get_runtime() is rt2
+
+
 class TestRuntime:
     def test_agent_returns_agent_handle(
         self, make_policy: Callable[..., Policy], reset_runtime: None
@@ -297,6 +326,20 @@ class TestRuntime:
 
         assert len(reporter_a.decisions) == 1  # unchanged
         assert len(reporter_b.decisions) == 1  # the second call landed here
+
+    def test_add_reporter_receives_subsequent_check_events(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        original = InMemoryReporter()
+        rt = configure(policy=make_policy(), reporter=original)
+        added = InMemoryReporter()
+        rt.add_reporter(added)
+
+        rt.check(tool="default.tool", args={}, agent_id="agent")
+
+        assert len(original.decisions) == 1
+        assert len(added.decisions) == 1
+        assert added.decisions[0].decision_id == original.decisions[0].decision_id
 
     def test_check_delegates_to_enforcement_check(
         self, make_policy: Callable[..., Policy], reset_runtime: None

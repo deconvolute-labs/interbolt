@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import uuid
 from datetime import UTC, datetime
 
@@ -8,6 +9,7 @@ from pytest_mock import MockerFixture
 from interbolt.constants import EVENT_SCHEMA_VERSION
 from interbolt.models.core import Action, Decision, Event, Finding, Mode
 from interbolt.reporting import (
+    CompositeReporter,
     InMemoryReporter,
     LoggingReporter,
     NullReporter,
@@ -134,6 +136,77 @@ class TestLoggingReporter:
         mock_debug.assert_called_once()
         call_args = mock_debug.call_args
         assert ev in call_args.args or ev in call_args.kwargs.values()
+
+
+class TestCompositeReporter:
+    def test_export_fans_out_to_all_wrapped_reporters(self) -> None:
+        a, b = InMemoryReporter(), InMemoryReporter()
+        composite = CompositeReporter([a, b])
+        ev = _event()
+        composite.export(ev)
+        assert a.events == [ev]
+        assert b.events == [ev]
+
+    def test_add_appends_and_is_visible_via_reporters(self) -> None:
+        a = InMemoryReporter()
+        composite = CompositeReporter([a])
+        b = InMemoryReporter()
+        composite.add(b)
+        assert composite.reporters == (a, b)
+
+    def test_export_reaches_a_reporter_added_after_construction(self) -> None:
+        a = InMemoryReporter()
+        composite = CompositeReporter([a])
+        b = InMemoryReporter()
+        composite.add(b)
+        ev = _event()
+        composite.export(ev)
+        assert a.events == [ev]
+        assert b.events == [ev]
+
+    def test_one_reporter_raising_does_not_block_another(
+        self, mocker: MockerFixture
+    ) -> None:
+        broken = mocker.Mock()
+        broken.export.side_effect = RuntimeError("boom")
+        ok = InMemoryReporter()
+        composite = CompositeReporter([broken, ok])
+        ev = _event()
+        composite.export(ev)  # must not raise
+        assert ok.events == [ev]
+
+    def test_added_reporter_raising_does_not_block_another(
+        self, mocker: MockerFixture
+    ) -> None:
+        ok = InMemoryReporter()
+        composite = CompositeReporter([ok])
+        broken = mocker.Mock()
+        broken.export.side_effect = RuntimeError("boom")
+        composite.add(broken)
+        ev = _event()
+        composite.export(ev)  # must not raise
+        assert ok.events == [ev]
+
+    def test_add_from_another_thread_while_exporting_does_not_raise(self) -> None:
+        composite = CompositeReporter([InMemoryReporter()])
+        errors: list[BaseException] = []
+
+        def add_loop() -> None:
+            try:
+                for _ in range(200):
+                    composite.add(InMemoryReporter())
+            except BaseException as exc:  # noqa: BLE001 -- captured for the main thread
+                errors.append(exc)
+
+        thread = threading.Thread(target=add_loop)
+        thread.start()
+        try:
+            for _ in range(200):
+                composite.export(_event())
+        finally:
+            thread.join()
+
+        assert errors == []
 
 
 class TestDescribeEvent:
