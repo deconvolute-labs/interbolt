@@ -23,7 +23,7 @@ from celpy import celtypes
 from celpy.adapter import json_to_cel
 
 from interbolt.models.core import Action, Label, TrustLevel
-from interbolt.policy.schema import PolicyDocument
+from interbolt.policy.schema import PolicyDocument, SinkRule
 
 _ENV = celpy.Environment()
 
@@ -90,8 +90,33 @@ class CompiledSink:
     rules: tuple[CompiledRule, ...]
 
 
+def _require_endorsement_when(kind: str) -> str:
+    """Synthesize the `when:` text for a `require_endorsement: <kind>` rule.
+
+    Compiles to exactly the kind-matching idiom: gate untrusted data that
+    lacks the endorsement this sink requires, matching a source endorsed for
+    one kind but not this one (the sanitizer-mismatch case).
+    """
+    return (
+        'taint.any(t, t.trust == "untrusted" && '
+        f'!t.endorsements.exists(k, k == "{kind}"))'
+    )
+
+
+def _rule_when(rule: SinkRule) -> str | None:
+    if rule.require_endorsement is not None:
+        return _require_endorsement_when(rule.require_endorsement)
+    return rule.when
+
+
 def compile_policy(document: PolicyDocument) -> dict[str, CompiledSink]:
     """Compile every sink's rule list once, at policy load time.
+
+    A rule's `require_endorsement: <kind>` field (mutually exclusive with
+    `when`, enforced at schema validation) is sugar that compiles to the
+    equivalent `when:` CEL text, so `CompiledRule.when`/`matched_condition`
+    always show real, human-readable CEL regardless of which field the
+    policy author wrote.
 
     Args:
         document: The validated policy document.
@@ -101,18 +126,18 @@ def compile_policy(document: PolicyDocument) -> dict[str, CompiledSink]:
     """
     compiled: dict[str, CompiledSink] = {}
     for sink_key, rules in document.sinks.items():
-        compiled_rules = tuple(
-            CompiledRule(
-                name=rule.name,
-                action=rule.action,
-                program=compile_cel_expression(rule.when)
-                if rule.when is not None
-                else None,
-                when=rule.when,
+        compiled_rules = []
+        for rule in rules:
+            when = _rule_when(rule)
+            compiled_rules.append(
+                CompiledRule(
+                    name=rule.name,
+                    action=rule.action,
+                    program=compile_cel_expression(when) if when is not None else None,
+                    when=when,
+                )
             )
-            for rule in rules
-        )
-        compiled[sink_key] = CompiledSink(rules=compiled_rules)
+        compiled[sink_key] = CompiledSink(rules=tuple(compiled_rules))
     return compiled
 
 
@@ -143,6 +168,46 @@ def resolve_label_trust(
     return TrustLevel.TRUSTED
 
 
+@dataclass(frozen=True)
+class ResolvedLabel:
+    """A label's trust, resolved once against the policy's `sources` table.
+
+    The single-resolution structure `check()` derives its four label-trust-
+    dependent values from (the per-label CEL entry, `max_trust`, `trifecta`,
+    `untrusted_sources`), instead of resolving the same labels repeatedly.
+    """
+
+    label: Label
+    trust: TrustLevel
+    untrusted_lineage: frozenset[str]
+
+
+def resolve_labels(
+    labels: tuple[Label, ...], sources_table: Mapping[str, TrustLevel]
+) -> tuple[ResolvedLabel, ...]:
+    """Resolve every label's trust against `sources_table`, exactly once each.
+
+    Args:
+        labels: Every label collected from a call's arguments.
+        sources_table: The policy's declared source-to-trust mapping.
+
+    Returns:
+        One `ResolvedLabel` per input label, in the same order.
+    """
+    resolved = []
+    for label in labels:
+        untrusted_lineage = frozenset(
+            name
+            for name in label.lineage
+            if resolve_source_trust(name, sources_table) is TrustLevel.UNTRUSTED
+        )
+        trust = TrustLevel.UNTRUSTED if untrusted_lineage else TrustLevel.TRUSTED
+        resolved.append(
+            ResolvedLabel(label=label, trust=trust, untrusted_lineage=untrusted_lineage)
+        )
+    return tuple(resolved)
+
+
 def _convert_args(args: Mapping[str, Any]) -> celtypes.MapType:
     converted: dict[celtypes.StringType, Any] = {}
     for key, value in args.items():
@@ -159,16 +224,18 @@ def build_context(
     *,
     tool: str,
     args: Mapping[str, Any],
-    labels: tuple[Label, ...],
+    resolved_labels: tuple[ResolvedLabel, ...],
     trifecta: frozenset[str],
-    sources_table: Mapping[str, TrustLevel],
     run_tainted: bool,
 ) -> dict[str, Any]:
     """Build the CEL evaluation context for one `check()` call.
 
     `args` must already be plain values with taint carriers stripped;
     `policy/` has no dependency on `taint/`, so this function only handles
-    `str`/`bytes`/containers.
+    `str`/`bytes`/containers. Trust is read from `resolved_labels`
+    (`resolve_labels`, resolved once in `enforcement.check()`) rather than
+    re-resolved here against a sources table, so this function never walks
+    a label's lineage itself.
 
     `taint` stays a plain CEL list so `taint.any(...)`/`taint.all(...)` work
     as macros. `sources` and `max_trust` are top-level siblings, not
@@ -179,9 +246,9 @@ def build_context(
     Args:
         tool: The dotted qualified tool name.
         args: The call's bound arguments, taint carriers already stripped.
-        labels: Every label collected from the call's original arguments.
+        resolved_labels: Every label collected from the call's original
+            arguments, with trust already resolved.
         trifecta: The trifecta legs satisfied by this call.
-        sources_table: The policy's declared source-to-trust mapping.
         run_tainted: Whether the active run has ingested untrusted data via
             `taint()` at any point, resolved by `enforcement` from the
             per-run ingress registry (`dev/spec.md` §15.8, run-level gating).
@@ -193,27 +260,35 @@ def build_context(
         [
             celtypes.MapType(
                 {
-                    celtypes.StringType("source"): celtypes.StringType(label.source),
+                    celtypes.StringType("source"): celtypes.StringType(
+                        resolved.label.source
+                    ),
                     celtypes.StringType("trust"): celtypes.StringType(
-                        resolve_label_trust(label, sources_table).value
+                        resolved.trust.value
+                    ),
+                    celtypes.StringType("lineage"): celtypes.ListType(
+                        [celtypes.StringType(name) for name in resolved.label.lineage]
+                    ),
+                    celtypes.StringType("endorsements"): celtypes.ListType(
+                        [
+                            celtypes.StringType(kind)
+                            for kind in resolved.label.endorsements
+                        ]
                     ),
                 }
             )
-            for label in labels
+            for resolved in resolved_labels
         ]
     )
 
     all_sources: dict[str, None] = {}
-    for label in labels:
-        for name in label.lineage:
+    for resolved in resolved_labels:
+        for name in resolved.label.lineage:
             all_sources.setdefault(name, None)
 
     max_trust = (
         TrustLevel.UNTRUSTED
-        if any(
-            resolve_label_trust(label, sources_table) is TrustLevel.UNTRUSTED
-            for label in labels
-        )
+        if any(resolved.trust is TrustLevel.UNTRUSTED for resolved in resolved_labels)
         else TrustLevel.TRUSTED
     )
 

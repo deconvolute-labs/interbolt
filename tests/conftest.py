@@ -20,7 +20,7 @@ from interbolt.policy.schema import (
     SinkRule,
     SourceDeclaration,
 )
-from interbolt.taint import install_taint_observer
+from interbolt.taint import install_endorsement_emitter, install_taint_observer
 
 if TYPE_CHECKING:
     pass
@@ -148,3 +148,15 @@ def reset_taint_observer() -> Generator[None, None, None]:
     install_taint_observer(None)
     yield
     install_taint_observer(None)
+
+
+@pytest.fixture(autouse=True)
+def reset_endorsement_emitter() -> Generator[None, None, None]:
+    """Set the endorse()-time emitter to None before and after each test.
+
+    Without this, one test's configure() could leave an emitter installed
+    that leaks into an unrelated test calling endorse() directly.
+    """
+    install_endorsement_emitter(None)
+    yield
+    install_endorsement_emitter(None)

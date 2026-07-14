@@ -71,6 +71,42 @@ sinks:
       action: block
 """
 
+_POLICY_WITH_SOURCE_EQUALITY = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: source_check
+      when: 't.source == "web_search"'
+      action: block
+"""
+
+_POLICY_WITH_SOURCE_INEQUALITY = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: source_check
+      when: 't.source != "web_search"'
+      action: block
+"""
+
+_POLICY_WITH_LINEAGE_ONLY = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: lineage_check
+      when: 't.lineage.exists(s, s == "web_search")'
+      action: block
+"""
+
 _POLICY_SCHEMA_ERROR = """\
 not_a_valid_field: true
 """
@@ -199,6 +235,38 @@ sinks:
         problems = validate_policy("fake.yaml")
         assert any("unreachable" in p for p in problems)
 
+    def test_source_equality_produces_warning(self, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "builtins.open", mocker.mock_open(read_data=_POLICY_WITH_SOURCE_EQUALITY)
+        )
+        problems = validate_policy("fake.yaml")
+        assert any(p.startswith("warning:") and "t.lineage" in p for p in problems)
+
+    def test_source_inequality_produces_warning(self, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "builtins.open", mocker.mock_open(read_data=_POLICY_WITH_SOURCE_INEQUALITY)
+        )
+        problems = validate_policy("fake.yaml")
+        assert any(p.startswith("warning:") for p in problems)
+
+    def test_lineage_usage_is_not_flagged(self, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "builtins.open", mocker.mock_open(read_data=_POLICY_WITH_LINEAGE_ONLY)
+        )
+        problems = validate_policy("fake.yaml")
+        assert problems == []
+
+    def test_source_equality_warning_does_not_block_otherwise_valid_policy(
+        self, mocker: MockerFixture
+    ) -> None:
+        # A warning-only problem list; the CLI (not validate_policy itself)
+        # decides the exit code split between warnings and errors.
+        mocker.patch(
+            "builtins.open", mocker.mock_open(read_data=_POLICY_WITH_SOURCE_EQUALITY)
+        )
+        problems = validate_policy("fake.yaml")
+        assert all(p.startswith("warning:") for p in problems)
+
 
 class TestDefaultsModel:
     def test_fail_mode_defaults_to_none(self) -> None:
@@ -233,3 +301,19 @@ class TestSinkRule:
     def test_without_when(self) -> None:
         rule = SinkRule(name="default", action=Action.ALLOW)
         assert rule.when is None
+
+    def test_require_endorsement_alone_is_valid(self) -> None:
+        rule = SinkRule(
+            name="r", require_endorsement="recipient_allowlisted", action=Action.BLOCK
+        )
+        assert rule.require_endorsement == "recipient_allowlisted"
+        assert rule.when is None
+
+    def test_when_and_require_endorsement_together_raises(self) -> None:
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            SinkRule(
+                name="r",
+                when="true",
+                require_endorsement="recipient_allowlisted",
+                action=Action.BLOCK,
+            )

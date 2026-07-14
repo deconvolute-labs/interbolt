@@ -12,11 +12,14 @@ from rich.console import Console
 from rich.tree import Tree
 
 from interbolt import (
+    RECORD_TYPE_ENDORSEMENT,
     RECORD_TYPE_EVENT,
     RECORD_TYPE_FINDING,
+    Endorsement,
     Event,
     Finding,
     Policy,
+    describe_endorsement,
     describe_event,
     describe_finding,
 )
@@ -72,10 +75,17 @@ def main(argv: list[str] | None = None) -> int:
 
 def _validate(policy_path: str) -> int:
     problems = Policy.validate(policy_path)
-    if problems:
-        for problem in problems:
-            _console.print(f"[red]✗[/red] {problem}")
+    warnings = [p for p in problems if p.startswith("warning:")]
+    errors = [p for p in problems if not p.startswith("warning:")]
+    for warning in warnings:
+        _console.print(f"[yellow]![/yellow] {warning}")
+    for error in errors:
+        _console.print(f"[red]✗[/red] {error}")
+    if errors:
         return 1
+    if warnings:
+        _console.print(f"[green]✓[/green] {policy_path} is valid (with warnings)")
+        return 0
     _console.print(f"[green]✓[/green] {policy_path} is valid")
     return 0
 
@@ -100,19 +110,19 @@ def _init(policy_path: str) -> int:
     return 0
 
 
-def _load_records(path: Path) -> list[Event | Finding]:
+def _load_records(path: Path) -> list[Event | Finding | Endorsement]:
     """Parse a JSONL file written by `JsonlReporter`.
 
     Args:
         path: The JSONL file to read.
 
     Returns:
-        Every successfully parsed `Event`/`Finding`, in file order. A line
-        that fails to parse as JSON, carries an unrecognized or missing
-        `record_type`, or fails model validation is skipped, with a warning
-        printed to the console, and reading continues.
+        Every successfully parsed `Event`/`Finding`/`Endorsement`, in file
+        order. A line that fails to parse as JSON, carries an unrecognized
+        or missing `record_type`, or fails model validation is skipped, with
+        a warning printed to the console, and reading continues.
     """
-    records: list[Event | Finding] = []
+    records: list[Event | Finding | Endorsement] = []
     with path.open("r", encoding="utf-8") as fh:
         for line_number, raw_line in enumerate(fh, start=1):
             stripped = raw_line.strip()
@@ -125,6 +135,8 @@ def _load_records(path: Path) -> list[Event | Finding]:
                     records.append(Event.model_validate(raw))
                 elif record_type == RECORD_TYPE_FINDING:
                     records.append(Finding.model_validate(raw))
+                elif record_type == RECORD_TYPE_ENDORSEMENT:
+                    records.append(Endorsement.model_validate(raw))
                 else:
                     raise ValueError(f"unrecognized record_type: {record_type!r}")
             except (json.JSONDecodeError, ValidationError, ValueError) as exc:
@@ -132,7 +144,7 @@ def _load_records(path: Path) -> list[Event | Finding]:
     return records
 
 
-def _build_tree(records: Sequence[Event | Finding]) -> Tree:
+def _build_tree(records: Sequence[Event | Finding | Endorsement]) -> Tree:
     """Render records as a console tree grouped by run, then by agent.
 
     Args:
@@ -141,7 +153,7 @@ def _build_tree(records: Sequence[Event | Finding]) -> Tree:
     Returns:
         A `rich.tree.Tree` ready to print with a `rich.console.Console`.
     """
-    by_run: dict[str, dict[str, list[Event | Finding]]] = defaultdict(
+    by_run: dict[str, dict[str, list[Event | Finding | Endorsement]]] = defaultdict(
         lambda: defaultdict(list)
     )
     for record in records:
@@ -152,14 +164,20 @@ def _build_tree(records: Sequence[Event | Finding]) -> Tree:
         run_records = [r for agent_records in by_agent.values() for r in agent_records]
         n_events = sum(1 for r in run_records if isinstance(r, Event))
         n_findings = sum(1 for r in run_records if isinstance(r, Finding))
-        run_node = root.add(f"run {run_id} ({n_events} events, {n_findings} findings)")
+        n_endorsements = sum(1 for r in run_records if isinstance(r, Endorsement))
+        run_node = root.add(
+            f"run {run_id} ({n_events} events, {n_findings} findings, "
+            f"{n_endorsements} endorsements)"
+        )
         for agent_id, agent_records in by_agent.items():
             agent_node = run_node.add(f"agent {agent_id}")
             for record in sorted(agent_records, key=lambda r: r.timestamp):
                 if isinstance(record, Event):
                     agent_node.add(describe_event(record))
-                else:
+                elif isinstance(record, Finding):
                     agent_node.add(describe_finding(record))
+                else:
+                    agent_node.add(describe_endorsement(record))
     return root
 
 

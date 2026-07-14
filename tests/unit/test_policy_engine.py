@@ -14,6 +14,7 @@ from interbolt.policy.engine import (
     compile_policy,
     evaluate_sink,
     resolve_label_trust,
+    resolve_labels,
 )
 from interbolt.policy.schema import (
     Defaults,
@@ -98,9 +99,8 @@ class TestAnyRewriteLiteralPreservation:
         ctx = build_context(
             tool="t",
             args={"path": path},
-            labels=labels,
+            resolved_labels=resolve_labels(labels, sources_table or {}),
             trifecta=frozenset(),
-            sources_table=sources_table or {},
             run_tainted=False,
         )
         return bool(runner.evaluate(ctx))
@@ -152,9 +152,8 @@ class TestAnyRewriteLiteralPreservation:
         ctx_match = build_context(
             tool="default.tool",
             args={"path": "a backup.any( file"},
-            labels=(),
+            resolved_labels=(),
             trifecta=frozenset(),
-            sources_table={},
             run_tainted=False,
         )
         _, action, _ = evaluate_sink(
@@ -165,9 +164,8 @@ class TestAnyRewriteLiteralPreservation:
         ctx_no_match = build_context(
             tool="default.tool",
             args={"path": "clean"},
-            labels=(),
+            resolved_labels=(),
             trifecta=frozenset(),
-            sources_table={},
             run_tainted=False,
         )
         _, action2, _ = evaluate_sink(
@@ -270,9 +268,8 @@ class TestBuildContext:
         ctx = build_context(
             tool="default.tool",
             args={},
-            labels=(),
+            resolved_labels=(),
             trifecta=frozenset(),
-            sources_table={},
             run_tainted=False,
         )
         for key in ("tool", "args", "taint", "sources", "max_trust", "trifecta"):
@@ -283,9 +280,8 @@ class TestBuildContext:
         ctx = build_context(
             tool="default.tool",
             args={},
-            labels=labels,
+            resolved_labels=resolve_labels(labels, {"web": TrustLevel.UNTRUSTED}),
             trifecta=frozenset(),
-            sources_table={"web": TrustLevel.UNTRUSTED},
             run_tainted=False,
         )
         assert str(ctx["max_trust"]) == "untrusted"
@@ -295,9 +291,8 @@ class TestBuildContext:
         ctx = build_context(
             tool="default.tool",
             args={},
-            labels=labels,
+            resolved_labels=resolve_labels(labels, {"kb": TrustLevel.TRUSTED}),
             trifecta=frozenset(),
-            sources_table={"kb": TrustLevel.TRUSTED},
             run_tainted=False,
         )
         assert str(ctx["max_trust"]) == "trusted"
@@ -306,9 +301,8 @@ class TestBuildContext:
         ctx = build_context(
             tool="default.tool",
             args={},
-            labels=(),
+            resolved_labels=(),
             trifecta=frozenset(),
-            sources_table={},
             run_tainted=False,
         )
         assert str(ctx["max_trust"]) == "trusted"
@@ -319,13 +313,164 @@ class TestBuildContext:
         ctx = build_context(
             tool="t",
             args={},
-            labels=(lbl1, lbl2),
+            resolved_labels=resolve_labels((lbl1, lbl2), {}),
             trifecta=frozenset(),
-            sources_table={},
             run_tainted=False,
         )
         sources = [str(s) for s in ctx["sources"]]
         assert sources.count("shared") == 1
+
+    def test_per_label_map_contains_lineage(self) -> None:
+        merged = Label(source="a", value_id="x1", lineage=("a", "b"))
+        ctx = build_context(
+            tool="t",
+            args={},
+            resolved_labels=resolve_labels((merged,), {}),
+            trifecta=frozenset(),
+            run_tainted=False,
+        )
+        taint_list = ctx["taint"]
+        lineage = [str(s) for s in taint_list[0]["lineage"]]
+        assert lineage == ["a", "b"]
+
+    def test_per_label_map_contains_endorsements(self) -> None:
+        lbl = Label(
+            source="a", value_id="x1", lineage=("a",), endorsements=("k1", "k2")
+        )
+        ctx = build_context(
+            tool="t",
+            args={},
+            resolved_labels=resolve_labels((lbl,), {}),
+            trifecta=frozenset(),
+            run_tainted=False,
+        )
+        endorsements = [str(s) for s in ctx["taint"][0]["endorsements"]]
+        assert endorsements == ["k1", "k2"]
+
+
+class TestLineageVsSourceAfterMerge:
+    """A merged label's `source` is only its first contributor; `t.lineage`
+    is the honest way to check every contributing source after a merge."""
+
+    def test_lineage_exists_fires_where_source_equality_would_not(self) -> None:
+        # Simulates `kb_value + " " + web_value`: source is the first
+        # contributor ("internal_kb"), but lineage carries both.
+        merged = Label(
+            source="internal_kb", value_id="m1", lineage=("internal_kb", "web_search")
+        )
+        sources_table = {
+            "internal_kb": TrustLevel.TRUSTED,
+            "web_search": TrustLevel.UNTRUSTED,
+        }
+
+        lineage_expr = compile_cel_expression(
+            'taint.any(t, t.lineage.exists(s, s == "web_search"))'
+        )
+        source_expr = compile_cel_expression('taint.any(t, t.source == "web_search")')
+        ctx = build_context(
+            tool="t",
+            args={},
+            resolved_labels=resolve_labels((merged,), sources_table),
+            trifecta=frozenset(),
+            run_tainted=False,
+        )
+        assert bool(lineage_expr.evaluate(ctx)) is True
+        assert bool(source_expr.evaluate(ctx)) is False
+
+
+class TestRequireEndorsementSugar:
+    def test_compiles_to_kind_matching_when_text(self) -> None:
+        doc = PolicyDocument(
+            version="1.0",
+            defaults=Defaults(sink_action=Action.ALLOW),
+            sources=(),
+            sinks={
+                "default.tool": (
+                    SinkRule(
+                        name="r",
+                        require_endorsement="recipient_allowlisted",
+                        action=Action.BLOCK,
+                    ),
+                )
+            },
+        )
+        compiled = compile_policy(doc)
+        rule = compiled["default.tool"].rules[0]
+        assert rule.when is not None
+        assert "recipient_allowlisted" in rule.when
+        assert rule.program is not None
+
+    def test_endorsed_with_required_kind_does_not_match(self) -> None:
+        doc = PolicyDocument(
+            version="1.0",
+            defaults=Defaults(sink_action=Action.ALLOW),
+            sources=(),
+            sinks={
+                "default.tool": (
+                    SinkRule(
+                        name="require_allowlist",
+                        require_endorsement="recipient_allowlisted",
+                        action=Action.BLOCK,
+                    ),
+                    SinkRule(name="default", action=Action.ALLOW),
+                )
+            },
+        )
+        compiled = compile_policy(doc)
+        lbl = Label(
+            source="web_search",
+            value_id="v1",
+            lineage=("web_search",),
+            endorsements=("recipient_allowlisted",),
+        )
+        ctx = build_context(
+            tool="default.tool",
+            args={},
+            resolved_labels=resolve_labels((lbl,), {}),
+            trifecta=frozenset(),
+            run_tainted=False,
+        )
+        _, action, _ = evaluate_sink(
+            compiled["default.tool"], ctx, default_action=Action.ALLOW
+        )
+        assert action is Action.ALLOW
+
+    def test_endorsed_with_wrong_kind_still_matches(self) -> None:
+        # Sanitizer-mismatch: endorsed for a different kind than the sink
+        # requires must still be gated.
+        doc = PolicyDocument(
+            version="1.0",
+            defaults=Defaults(sink_action=Action.ALLOW),
+            sources=(),
+            sinks={
+                "default.tool": (
+                    SinkRule(
+                        name="require_allowlist",
+                        require_endorsement="recipient_allowlisted",
+                        action=Action.BLOCK,
+                    ),
+                    SinkRule(name="default", action=Action.ALLOW),
+                )
+            },
+        )
+        compiled = compile_policy(doc)
+        lbl = Label(
+            source="web_search",
+            value_id="v1",
+            lineage=("web_search",),
+            endorsements=("url_sanitized",),
+        )
+        ctx = build_context(
+            tool="default.tool",
+            args={},
+            resolved_labels=resolve_labels((lbl,), {}),
+            trifecta=frozenset(),
+            run_tainted=False,
+        )
+        _, action, _ = evaluate_sink(
+            compiled["default.tool"], ctx, default_action=Action.ALLOW
+        )
+        assert action is Action.BLOCK
 
 
 class TestEvaluateSink:
@@ -349,9 +494,8 @@ class TestEvaluateSink:
         return build_context(
             tool="t",
             args={},
-            labels=(),
+            resolved_labels=(),
             trifecta=frozenset(),
-            sources_table={},
             run_tainted=False,
         )
 

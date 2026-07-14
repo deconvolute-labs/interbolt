@@ -51,21 +51,32 @@ fact determines the entire contract below.
   (`__mul__`/`__rmul__`).
 - Slicing and indexing on a `Tainted` receiver (`__getitem__`).
 - `str` methods called **on** a `Tainted` receiver that return a new string:
-  `upper`, `lower`, `strip`/`lstrip`/`rstrip`, `replace`, and the
-  part-returning methods `split`/`rsplit`/`splitlines`/`partition`/
-  `rpartition` (every returned part is individually re-wrapped, carrying the
-  same label).
-- `template.format(*args, **kwargs)` and `template % arg` where the
-  **template** (the receiver / left operand) is `Tainted`. Any `Tainted`
-  value passed as a substitution argument is also inspected and its label
-  merged in, so a tainted argument's provenance is captured too, not only
-  the template's. When the substitution argument is a mapping
+  the case methods (`upper`, `lower`, `casefold`, `capitalize`, `title`,
+  `swapcase`), `strip`/`lstrip`/`rstrip`, `removeprefix`/`removesuffix`, the
+  padding methods (`center`, `ljust`, `rjust`, `zfill`, `expandtabs`),
+  `replace`, and the part-returning methods `split`/`rsplit`/`splitlines`/
+  `partition`/`rpartition` (every returned part is individually re-wrapped,
+  carrying the same label).
+- `encode()` on a `Tainted` (returns a `TaintedBytes` with the same label)
+  and `decode()` on a `TaintedBytes` (returns a `Tainted` with the same
+  label): the str/bytes I/O boundary tool output typically crosses.
+- `template.format(*args, **kwargs)`, `template.format_map(mapping)`, and
+  `template % arg` where the **template** (the receiver / left operand) is
+  `Tainted`. Any `Tainted` value passed as a substitution argument (or
+  mapping value, for `format_map`/mapping-operand `%`) is also inspected and
+  its label merged in, so a tainted argument's provenance is captured too,
+  not only the template's. When the substitution argument is a mapping
   (`template % {"k": tainted_value}`), each value in the mapping is
   inspected the same way and merged in; only keys are not, since
   `%`-formatting only ever substitutes values.
 - The bare single-field f-string `f"{x}"` (no surrounding literal text)
   preserves taint, because `__format__` is overridden. This case is
   salvageable but narrow; see below.
+- `copy.copy`/`copy.deepcopy` on a `Tainted`, `TaintedBytes`, or
+  `LabeledValue` preserve the label: the value and the label are both
+  immutable, so `Tainted`/`TaintedBytes` return `self` from
+  `__copy__`/`__deepcopy__`, and `LabeledValue.__deepcopy__` deep-copies
+  `.value` while sharing the label.
 
 ## Laundering points (re-`taint` required)
 
@@ -94,6 +105,13 @@ and reading from a database or file), and crossing the process boundary all
 reset the label. Data that leaves the process and returns is fresh untrusted
 ingress, unconnected to any prior label, and must be re-`taint`ed at
 re-entry.
+
+Pickling a `Tainted`, `TaintedBytes`, or `LabeledValue` degrades to the plain
+underlying `str`/`bytes`/value on the round trip, dropping the label
+entirely — a stated instance of this same boundary reset, not a bug.
+`copy.copy`/`copy.deepcopy` are different: they stay in-process (see
+[Propagates](#propagates-reliable) above), so they preserve the label;
+pickling crosses the boundary this section already resets at, so it does not.
 
 A model-mediated agent-to-agent handoff is the same kind of boundary: the
 next agent receives the prior agent's output as plain, unlabeled text, even
@@ -204,6 +222,11 @@ exposing `.value` and `.label` for direct passing to a sink argument, where
 `check()` and the policy see it. Transforming `.value` first produces a
 plain, unlabeled result.
 
+`LabeledValue` is produced in exactly one case: `taint()` called directly on
+a **top-level** non-string, non-bytes, non-container scalar. A non-string
+leaf found *inside* a container is never wrapped in a `LabeledValue`; see the
+next section.
+
 ## Container recursion
 
 Tool outputs are routinely containers: a search returns a list of records, an
@@ -212,14 +235,22 @@ API returns a dict. `taint()` recurses into builtin containers (`list`,
 leaves; `check()`/`guard` recurse the same way when collecting labels from
 bound call arguments.
 
+**Inside a container, only `str`/`bytes` leaves are wrapped.** A number,
+`bool`, `None`, or any other non-string leaf passes through completely
+unchanged, exactly as it was: `taint({"count": 3}, source="api")["count"] + 1`
+works, because the `3` stays a plain `int`, never a `LabeledValue` shell
+around one.
+
 Both read the same bounded depth, `interbolt.constants.RECURSION_DEPTH`
 (default 4, overridable by `INTERBOLT_RECURSION_DEPTH` in `[1, 10]`), so
 ingress labeling and sink collection are bounded identically. Bounding is a
 denial-of-service and latency requirement: container recursion runs on the
 guarded-call hot path. The honest edge: a label buried below the resolved
 depth is not seen, and the call is evaluated as if that leaf were untainted.
-Only builtin containers are traversed; arbitrary objects are not
-introspected.
+**A sub-container at the depth cutoff passes through completely unchanged and
+unlabeled** — never wrapped, so it stays subscriptable and usable exactly as
+the original. Only builtin containers are traversed; arbitrary objects are
+not introspected.
 
 A namedtuple is handled correctly: it is a `tuple` subclass whose
 constructor takes positional fields, so both `taint()` and `unwrap()`
@@ -232,8 +263,17 @@ guarded call.
 ## Merge rule
 
 When two tainted values combine (for example `+`), the merged label's
-`lineage` is the de-duplicated union of every contributing source, and a
-fresh `value_id` is minted. There is no trusted/untrusted state to merge;
-trust resolution happens later, at the sink. Merge is associative and
+`lineage` is the de-duplicated union of every contributing source, and its
+`endorsements` (see [Auditing: endorsement](../guides/auditing.md)) is the
+**intersection** of the contributors' — a kind survives only if every
+contributor carried it. There is no trusted/untrusted state to merge; trust
+resolution happens later, at the sink. Merge is associative and
 order-independent, so propagation is predictable regardless of how an
 expression is parenthesized.
+
+**Single-parent derivations are a fast path, not a merge.** A slice, a case
+change, one part of a `split`, or any other operation with exactly one
+contributing label reuses that label's object outright, including its
+`value_id` — no new label is minted, since there is nothing to merge. A
+fresh `value_id` is minted only at ingress, at a genuine merge of two or more
+labels, or at an [`endorse()`](../guides/auditing.md) hop.

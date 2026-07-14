@@ -27,6 +27,16 @@ sources:
 # no `when` is the catch-all.
 sinks:
   default.send_email:
+    # Endorsement idiom (checked first, so it can carve out an exception to
+    # the block rule below): if your code validates a recipient against an
+    # allowlist and calls endorse(value, kind="recipient_allowlisted"), this
+    # rule lets that specific value through without weakening the block
+    # rule for everything else. require_endorsement is sugar for the
+    # equivalent taint.any(t, t.trust == "untrusted" &&
+    #   !t.endorsements.exists(k, k == "recipient_allowlisted")) when clause.
+    # - name: allow_endorsed_recipients
+    #   require_endorsement: recipient_allowlisted
+    #   action: allow
     - name: block_untrusted_exfil
       # taint.any(...) is rewritten to CEL's `exists` macro at compile time;
       # write it exactly like this, it works unchanged.

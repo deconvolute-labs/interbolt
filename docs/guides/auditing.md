@@ -107,3 +107,52 @@ The audit raises the floor on developer-introduced leaks. For
 model-mediated laundering, the mitigation is re-`taint`ing at every
 agent-to-agent or model-generation boundary (see
 [Identity: multi-agent and handoffs](../concepts/identity.md#multi-agent-and-handoffs)).
+
+## Endorsement
+
+Re-`taint`ing at every laundering point isn't the only way a developer
+interacts with a tainted value: sometimes they've genuinely *validated* it —
+checked a recipient against an allowlist, parsed and confirmed a URL — and
+leaving the taint on just means every downstream sink blocks a value that's
+already been vetted. Laundering it through an f-string "fixes" this, but at
+the cost of making a deliberate validation indistinguishable from an
+accidental leak: the audit above would flag it as a finding, and there'd be
+no record that anyone looked at it.
+
+`endorse()` is the sanctioned alternative:
+
+```python
+from interbolt import endorse, taint
+
+recipient = taint(user_supplied_email, source="web_search")
+if is_on_allowlist(recipient):
+    recipient = endorse(recipient, kind="recipient_allowlisted",
+                         note="checked against CRM export 2026-07-01")
+send_email(to=recipient, body=...)
+```
+
+It is:
+
+- **Provenance-preserving.** `lineage` is unchanged; `t.trust` still
+  resolves exactly as it did before. Endorsement adds a fact, it doesn't
+  erase one.
+- **Sink-specific, by a required `kind`.** There's no bare "endorsed"
+  boolean: a value confirmed to be a well-formed URL is not thereby
+  confirmed to be a safe email recipient, and a policy names the exact kind
+  a sink accepts (see
+  [Policies: endorsement-aware rules](../concepts/policies.md#endorsement-aware-rules-tendorsements-require_endorsement)).
+  An endorsement for the wrong kind still blocks — the sanitizer-mismatch
+  case a boolean can't express.
+- **Audited.** Every `endorse()` call emits an `Endorsement` record (`kind`,
+  an optional free-text `note`, the identity triple, a timestamp) through
+  the same reporter seam as `Event`/`Finding`, whenever a runtime is
+  configured — unlike the laundering audit above, this isn't opt-in.
+- **Never model-triggered.** Call `endorse()` only from deterministic code,
+  immediately after a real validation step. Never call it because a model
+  asked to, or based on model output: the model is the confused deputy this
+  library defends against in the first place, and letting it also decide
+  when its own restrictions lift would defeat the containment property from
+  the inside.
+
+`run.tainted` (above) is unaffected by endorsement: it's a coarse,
+run-scoped signal by design, and a value-level fact must not clear it.

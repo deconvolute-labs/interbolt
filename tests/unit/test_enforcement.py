@@ -18,6 +18,7 @@ from interbolt.enforcement import (
 from interbolt.models.core import Action, Label, Mode, TrustLevel
 from interbolt.models.protocols import Reporter
 from interbolt.policy import Policy
+from interbolt.policy.engine import resolve_labels
 from interbolt.policy.schema import SinkRule, SourceDeclaration
 from interbolt.reporting import InMemoryReporter, NullReporter
 from interbolt.taint import _fresh_label, taint
@@ -586,31 +587,60 @@ class TestCheckFunction:
 
 
 # ---------------------------------------------------------------------------
+# Change 6: split-then-sink contributing_labels collapses to length 1
+# ---------------------------------------------------------------------------
+
+
+class TestSplitThenSinkContributingLabels:
+    def test_split_parts_collapse_to_one_contributing_label(
+        self, make_policy: Callable[..., Policy]
+    ) -> None:
+        policy = make_policy(sink_action=Action.ALLOW)
+        original = taint("line one\nline two\nline three", source="web_search")
+        parts = original.splitlines()
+        decision = check(
+            tool="default.test_tool",
+            args={"lines": parts},
+            agent_id="agent",
+            run_id="run",
+            session_id=None,
+            policy=policy,
+            reporter=NullReporter(),
+            mode=Mode.ENFORCE,
+        )
+        assert len(decision.contributing_labels) == 1
+
+
+# ---------------------------------------------------------------------------
 # TestComputeTrifecta
 # ---------------------------------------------------------------------------
 
 
 class TestComputeTrifecta:
     def test_empty_labels_empty_trifecta(self) -> None:
-        result = _compute_trifecta((), {})
+        result = _compute_trifecta(resolve_labels((), {}))
         assert result == frozenset()
 
     def test_untrusted_label_adds_from_untrusted(self) -> None:
         lbl = _label("web")
-        result = _compute_trifecta((lbl,), {"web": TrustLevel.UNTRUSTED})
+        result = _compute_trifecta(
+            resolve_labels((lbl,), {"web": TrustLevel.UNTRUSTED})
+        )
         assert "from_untrusted" in result
 
     def test_trusted_only_labels_empty_trifecta(self) -> None:
         lbl = _label("kb")
-        result = _compute_trifecta((lbl,), {"kb": TrustLevel.TRUSTED})
+        result = _compute_trifecta(resolve_labels((lbl,), {"kb": TrustLevel.TRUSTED}))
         assert result == frozenset()
 
     def test_mixed_labels_adds_from_untrusted(self) -> None:
         lbl_trusted = _label("kb")
         lbl_untrusted = _label("web")
         result = _compute_trifecta(
-            (lbl_trusted, lbl_untrusted),
-            {"kb": TrustLevel.TRUSTED, "web": TrustLevel.UNTRUSTED},
+            resolve_labels(
+                (lbl_trusted, lbl_untrusted),
+                {"kb": TrustLevel.TRUSTED, "web": TrustLevel.UNTRUSTED},
+            )
         )
         assert "from_untrusted" in result
 

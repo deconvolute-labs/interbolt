@@ -205,32 +205,79 @@ def _taint_value(
     depth: int,
     make_label: Callable[[], Label],
 ) -> Any:  # noqa: ANN401
+    """Top-level ingress entry: the only place a `LabeledValue` is produced.
+
+    A `str`/`bytes` top-level value is wrapped directly; a container or
+    mapping recurses via `_taint_container`, which labels only string/bytes
+    leaves inside it; any other top-level scalar (int, bool, None, ...)
+    becomes a `LabeledValue`, since it has no propagating carrier of its own.
+    """
     if isinstance(value, str):
         return Tainted(value, label=make_label())
     if isinstance(value, bytes):
         return TaintedBytes(value, label=make_label())
-    if depth > 0 and isinstance(value, CONTAINER_TYPES):
-        items = [
-            _taint_value(item, depth=depth - 1, make_label=make_label) for item in value
-        ]
-        try:
-            return _rebuild_container(value, items)
-        except Exception:  # noqa: BLE001 -- containment must never crash the guard
-            _logger.debug(
-                "taint(): could not reconstruct container type %s; "
-                "returning the value unlabeled",
-                type(value).__name__,
-                exc_info=True,
-            )
-            return value
-    if depth > 0 and isinstance(value, Mapping):
+    if isinstance(value, (CONTAINER_TYPES, Mapping)):
+        return _taint_container(value, depth=depth, make_label=make_label)
+    return LabeledValue(value=value, label=make_label())
+
+
+def _taint_container(
+    value: Any,  # noqa: ANN401
+    *,
+    depth: int,
+    make_label: Callable[[], Label],
+) -> Any:  # noqa: ANN401
+    """Recurse into a container/mapping, labeling only string/bytes leaves.
+
+    At the depth cutoff, or when reconstruction fails, the value passes
+    through unchanged and unlabeled rather than being wrapped: a buried
+    sub-container must stay a drop-in substitute for the original, never a
+    `LabeledValue` shell around it (spec §6.6).
+    """
+    if depth <= 0:
+        return value
+    if isinstance(value, Mapping):
         return {
-            _taint_value(k, depth=depth - 1, make_label=make_label): _taint_value(
+            _taint_leaf(k, depth=depth - 1, make_label=make_label): _taint_leaf(
                 v, depth=depth - 1, make_label=make_label
             )
             for k, v in value.items()
         }
-    return LabeledValue(value=value, label=make_label())
+    items = [
+        _taint_leaf(item, depth=depth - 1, make_label=make_label) for item in value
+    ]
+    try:
+        return _rebuild_container(value, items)
+    except Exception:  # noqa: BLE001 -- containment must never crash the guard
+        _logger.debug(
+            "taint(): could not reconstruct container type %s; "
+            "returning the value unlabeled",
+            type(value).__name__,
+            exc_info=True,
+        )
+        return value
+
+
+def _taint_leaf(
+    value: Any,  # noqa: ANN401
+    *,
+    depth: int,
+    make_label: Callable[[], Label],
+) -> Any:  # noqa: ANN401
+    """One recursive step inside a container.
+
+    String/bytes leaves are wrapped; a nested container/mapping recurses
+    further; anything else (a number, bool, None, or other object) passes
+    through completely unchanged, never wrapped in a `LabeledValue`, so it
+    remains a drop-in substitute for arithmetic and other native operations.
+    """
+    if isinstance(value, str):
+        return Tainted(value, label=make_label())
+    if isinstance(value, bytes):
+        return TaintedBytes(value, label=make_label())
+    if isinstance(value, (CONTAINER_TYPES, Mapping)):
+        return _taint_container(value, depth=depth, make_label=make_label)
+    return value
 
 
 def track_model_call[F: Callable[..., Any]](
@@ -359,3 +406,13 @@ def unwrap(value: Any) -> Any:  # noqa: ANN401 -- accepts and returns any shape
             )
             return value
     return value
+
+
+# `endorse.py` reaches back into this module for `_rebuild_container`
+# (deferred to call time inside `endorse()` itself, to dodge the import
+# cycle a module-level import here would form); re-exporting it below,
+# after everything it needs is already defined, keeps that reach-back safe.
+from interbolt.taint.endorse import endorse as endorse  # noqa: E402
+from interbolt.taint.endorse import (  # noqa: E402
+    install_endorsement_emitter as install_endorsement_emitter,
+)

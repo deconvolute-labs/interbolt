@@ -7,7 +7,20 @@
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/deconvolute-labs/interbolt/ci.yml?branch=main)](https://github.com/deconvolute-labs/interbolt/actions)
 
-Mark untrusted data where it enters an agent. Interbolt propagates that mark through your code and evaluates a YAML+CEL policy at each guarded tool call, returning allow, block, or require-approval based on the provenance of the call's arguments. Decisions are deterministic and in-process: no model, no network calls.
+Mark untrusted data where it enters an agent. Interbolt propagates that mark through your code and evaluates a YAML+CEL policy at each guarded tool call, returning allow, block, or require-approval based on the provenance of the call's arguments. Decisions are deterministic and in-process: no model, no network calls, and `check()` overhead measures about 0.13 ms per call (see [performance](docs/reference/performance.md)).
+
+When code has actually validated untrusted data, `endorse()` lets it say so without erasing the taint: provenance-preserving, policy-visible, and never model-triggered (see [auditing](docs/guides/auditing.md#endorsement)).
+
+## Design lineage
+
+The architecture assembles proven patterns rather than inventing new mechanisms:
+
+- **Enforcement core**, modeled on [Casbin](https://casbin.org/): a pure `check()` entrypoint, analogous to Casbin's `enforce()`.
+- **Reporting**, modeled on [OpenTelemetry](https://opentelemetry.io/): an inert-by-default public surface with swappable reporter implementations behind a protocol.
+- **Taint carrier**, modeled on Django's `SafeString` / MarkupSafe: a `str`/`bytes` subclass that propagates a **provenance set**, resolving trust late at the sink, rather than a two-state lattice that degrades on contact.
+- **Endorsement**, modeled on Resin (Yip et al., SOSP 2009): an explicit, auditable primitive that reduces a value's restrictiveness under a named policy, distinct from the tracking mechanism itself.
+
+See [the docs](docs/index.md#design-lineage) for the full comparison.
 
 ## Quick start
 

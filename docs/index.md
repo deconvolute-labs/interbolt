@@ -34,6 +34,8 @@ together, or jump straight to the [quickstart](quickstart.md).
 - [API reference](reference/api.md): every name re-exported from `interbolt`.
 - [Reporters](reference/reporters.md): the `Reporter` protocol and the five
   shipped implementations.
+- [Performance](reference/performance.md): the published `check()` and
+  propagation-path benchmark numbers.
 
 ## Guides
 
@@ -69,6 +71,10 @@ mechanisms:
   through a defined subset of string operations. The divergence: interbolt
   carries a **provenance set** and resolves trust late, at the sink, rather
   than a two-state lattice that degrades on contact.
+- **Endorsement, modeled on Resin** (Yip et al., SOSP 2009). Resin's
+  declassifier policies are the closest prior art for `endorse()`: an
+  explicit, auditable primitive that reduces a value's restrictiveness under
+  a named policy, distinct from the tracking mechanism itself.
 
 The full design rationale lives in [`dev/spec.md`](../dev/spec.md), which is
 the authoritative specification this documentation summarizes for users.

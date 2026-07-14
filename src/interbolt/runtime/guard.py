@@ -3,7 +3,6 @@ from __future__ import annotations
 import functools
 import inspect
 from collections.abc import Callable
-from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, TypeVar, overload
 
 from interbolt.constants import DEFAULT_NAMESPACE
@@ -16,16 +15,13 @@ from interbolt.models.core import (
 )
 from interbolt.taint import track_model_call as _track_model_call
 from interbolt.utils import bind_arguments
+from interbolt.utils import current_agent_id as current_agent_id
 from interbolt.utils import current_run_id as current_run_id
 
 if TYPE_CHECKING:
     from interbolt.runtime import Runtime
 
 _F = TypeVar("_F", bound=Callable[..., Any])
-
-current_agent_id: ContextVar[str | None] = ContextVar(
-    "interbolt_agent_id", default=None
-)
 
 
 def _qualify_tool_name(tool: str) -> str:

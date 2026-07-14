@@ -19,6 +19,9 @@ class Policy:
         source: The filesystem path the policy was loaded from via
             `from_file`, or `None` for a programmatically constructed policy
             (including the built-in default).
+        sources_table: The declared source-to-trust mapping, for trust
+            resolution at the sink. Computed once here, since `document` is
+            frozen and cannot change underneath a live `Policy`.
     """
 
     def __init__(
@@ -30,12 +33,8 @@ class Policy:
         self.document = document
         self.compiled_sinks = compiled_sinks
         self.source = source
-
-    @property
-    def sources_table(self) -> dict[str, TrustLevel]:
-        """The declared source-to-trust mapping, for trust resolution at the sink."""
-        return {
-            declaration.name: declaration.trust for declaration in self.document.sources
+        self.sources_table: dict[str, TrustLevel] = {
+            declaration.name: declaration.trust for declaration in document.sources
         }
 
     @classmethod
