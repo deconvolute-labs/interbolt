@@ -251,7 +251,7 @@ def build_context(
         trifecta: The trifecta legs satisfied by this call.
         run_tainted: Whether the active run has ingested untrusted data via
             `taint()` at any point, resolved by `enforcement` from the
-            per-run ingress registry (`dev/spec.md` §15.8, run-level gating).
+            per-run ingress registry (run-level gating).
 
     Returns:
         A context mapping ready for `celpy.Runner.evaluate(...)`.

@@ -215,9 +215,9 @@ def _emit(reporter: Reporter, event: Event | Finding) -> None:
 def _compute_trifecta(resolved_labels: tuple[ResolvedLabel, ...]) -> frozenset[str]:
     """Compute the lethal-trifecta legs satisfied by this call.
 
-    v1 computes only the `from_untrusted` leg (`reaches_external` and
-    `reads_private` need the deferred capabilities declaration, spec §15.2).
-    `trifecta.contains("reaches_external")` always evaluates false, so a
+    v1 computes only the `from_untrusted` leg; `reaches_external` and
+    `reads_private` need a capabilities declaration this version does not
+    yet have. `trifecta.contains("reaches_external")` always evaluates false, so a
     rule relying on trifecta size as a backstop fails open. Derived from
     `resolved_labels` (resolved once in `check()`), not re-resolved here.
     """
@@ -246,8 +246,7 @@ def _compute_run_tainted(run_id: str, sources_table: Mapping[str, TrustLevel]) -
     Reads the run's recorded ingress source names (`taint.run_ingress_sources`,
     independent of this call's own arguments) and resolves each the same way
     `resolve_label_trust` resolves a label's lineage. This lets `run.tainted`
-    catch a model-mediated handoff that launders value-level taint away
-    (spec §8.3, §15.8).
+    catch a model-mediated handoff that launders value-level taint away.
     """
     return any(
         resolve_source_trust(name, sources_table) is TrustLevel.UNTRUSTED
@@ -381,9 +380,9 @@ class AuditRegistry:
         whole scan (not the snapshot-then-relock split used elsewhere in this
         class): the dedup check-and-set must be atomic with respect to a
         concurrent `scan()` call for the same run, or both could observe "not
-        yet emitted" and both emit. This is off the sub-1ms enforcement hot
-        path (spec section 9.2: audit scans are not on that budget), so the
-        longer lock hold is an acceptable trade for race-free dedup.
+        yet emitted" and both emit. Audit scans are not latency-budgeted the
+        way a decision is, so the longer lock hold is an acceptable trade
+        for race-free dedup.
         """
         with self._lock:
             registered = list(self._by_run.get(run_id, ()))

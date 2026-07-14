@@ -1132,7 +1132,8 @@ class TestNamedtupleContainerHandling:
 
 class TestReadOnlyTraversalsHandleNamedtuplesWithoutChange:
     """collect_labels/_walk_strings only iterate, never reconstruct, so a
-    namedtuple never triggers the TypeError Fix 8 guards against for them."""
+    namedtuple never triggers the TypeError that container reconstruction
+    guards against for them."""
 
     def test_collect_labels_walks_namedtuple_without_reconstruction(self) -> None:
         tainted = taint(Point("a", "b"), source="s")

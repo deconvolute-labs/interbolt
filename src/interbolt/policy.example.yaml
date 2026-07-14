@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=./policy/schema.json
 #
 # Starter interbolt policy. Copy this file, then adjust sources and sinks for
-# your agent. See dev/spec.md §7 for the full policy reference.
+# your agent. See docs/concepts/policies.md for the full policy reference.
 
 version: "1.0"
 
