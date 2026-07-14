@@ -67,7 +67,7 @@ class Runtime:
         The `add_span_processor` analog: every `Runtime` holds a
         `CompositeReporter` internally, seeded from `configure(reporter=...)`,
         and this appends to it without reconfiguring. The non-blocking
-        contract (spec 10.1) applies to an added reporter exactly as it does
+        contract applies to an added reporter exactly as it does
         to the one passed to `configure()`: a reporter that blocks in
         `export` blocks the decision that triggered it, and owning that is
         the reporter author's responsibility. There is no `remove_reporter`;
@@ -375,11 +375,8 @@ def _current() -> Runtime:
 def get_runtime() -> Runtime:
     """Return the process-current runtime.
 
-    The `get_tracer_provider()` analog: the only other way to hold the
-    runtime is to have kept `configure()`'s return value, which doesn't work
-    for code in a different module from the one that called `configure()`.
-    Use this to reach the live runtime later, for example to call
-    `Runtime.add_reporter`.
+    The `get_tracer_provider()` analog.Use this to reach the live runtime
+    later, for example to call `Runtime.add_reporter`.
 
     Returns:
         The process-current `Runtime`.
