@@ -1,30 +1,60 @@
+"""CEL compilation: policy DSL rewrite, context building, and rule evaluation.
+
+The policy DSL's `.any(` is retargeted to CEL's real `exists` macro via an
+AST-level transform on celpy's parsed `lark.Tree` (`_rewrite_any_to_exists`),
+not a text-level rewrite. A text substitution would also rewrite `.any(`
+occurrences that appear inside a CEL string literal, silently corrupting a
+security predicate's intended meaning. The transform only mutates
+`member_dot_arg` nodes, celpy's own method-call/macro-dispatch AST shape
+(see `celpy/evaluation.py:member_dot_arg`), so string, bytes, and
+triple-quoted literal tokens are structurally unreachable by it and are
+never touched, regardless of their contents.
+"""
+
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
 import celpy
+import lark
 from celpy import celtypes
 from celpy.adapter import json_to_cel
 
 from interbolt.models.core import Action, Label, TrustLevel
 from interbolt.policy.schema import PolicyDocument
 
-_ANY_MACRO_PATTERN = re.compile(r"\.any\(")
 _ENV = celpy.Environment()
 
 
-def _rewrite_any_to_exists(source: str) -> str:
-    """Rewrite the policy DSL's `.any(` to CEL's real `exists` macro.
+def _rewrite_any_to_exists(tree: lark.Tree[lark.Token]) -> lark.Tree[lark.Token]:
+    """Retarget every `.any(` method-call node to CEL's `exists` macro, in place.
 
     CEL has no `any` macro; its set is `{map, filter, all, exists,
     exists_one, reduce, min}`. `exists` ("at least one element satisfies the
-    predicate") means the same thing, so this textual rewrite is safe and
-    runs once, at compile time.
+    predicate") means the same thing as the policy DSL's `.any(`.
+
+    Walks `tree`'s `member_dot_arg` nodes (the parse-tree shape celpy's own
+    evaluator dispatches macros from) and renames the method token from
+    `any` to `exists` wherever it appears. String, bytes, and triple-quoted
+    literal tokens live under a sibling `literal` grammar node and are never
+    visited by this walk, so a `.any(` occurring inside any CEL string form
+    is never touched.
+
+    Args:
+        tree: The parsed CEL AST from `Environment.compile()`.
+
+    Returns:
+        The same tree object, mutated in place.
     """
-    return _ANY_MACRO_PATTERN.sub(".exists(", source)
+    for subtree in tree.iter_subtrees():
+        if subtree.data != "member_dot_arg":
+            continue
+        method_token = subtree.children[1]
+        if isinstance(method_token, lark.Token) and method_token.value == "any":
+            subtree.children[1] = method_token.update(value="exists")
+    return tree
 
 
 def compile_cel_expression(source: str) -> celpy.Runner:
@@ -39,7 +69,8 @@ def compile_cel_expression(source: str) -> celpy.Runner:
     Raises:
         celpy.CELParseError: If the expression is not valid CEL.
     """
-    return _ENV.program(_ENV.compile(_rewrite_any_to_exists(source)))
+    tree = _rewrite_any_to_exists(_ENV.compile(source))
+    return _ENV.program(tree)
 
 
 @dataclass(frozen=True)

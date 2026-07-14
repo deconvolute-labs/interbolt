@@ -94,7 +94,11 @@ compiled call node, not on the raw expression text, so a literal `.any(`
 appearing inside a quoted string (a path, URL, or regex) in your CEL is
 never touched. Write `taint.any(t, ...)` exactly as shown throughout this
 page; the rewrite is an internal implementation detail. `taint.all(...)`
-already matches CEL's real `all` macro and needs no rewrite.
+already matches CEL's real `all` macro and needs no rewrite. This holds
+regardless of the literal's form: single- or double-quoted, triple-quoted,
+raw (`r"..."`), or a bytes literal (`b"..."`) are all left untouched, since
+the rewrite only ever inspects method-call nodes in the parsed expression,
+never literal tokens.
 
 ### Evaluation errors
 

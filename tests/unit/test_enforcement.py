@@ -859,6 +859,138 @@ class TestAuditRegistry:
         assert "r2" in registry._by_run
         assert "r3" in registry._by_run
 
+    def test_scan_dedupes_identical_finding_within_same_run(self) -> None:
+        registry = AuditRegistry()
+        secret = "a" * AUDIT_MIN_MATCH_LENGTH
+        registry.register_from_args(
+            {"x": taint(secret, source="web")},
+            sources_table=self._sources(),
+            run_id="r",
+            depth=4,
+        )
+        first = registry.scan(
+            {"cmd": secret},
+            tool="default.tool",
+            run_id="r",
+            agent_id="a",
+            session_id=None,
+            depth=4,
+        )
+        second = registry.scan(
+            {"cmd": secret},
+            tool="default.tool",
+            run_id="r",
+            agent_id="a",
+            session_id=None,
+            depth=4,
+        )
+        assert len(first) == 1
+        assert second == []
+        assert len(registry.findings) == 1
+
+    def test_scan_different_argument_still_reported(self) -> None:
+        registry = AuditRegistry()
+        secret = "a" * AUDIT_MIN_MATCH_LENGTH
+        registry.register_from_args(
+            {"x": taint(secret, source="web")},
+            sources_table=self._sources(),
+            run_id="r",
+            depth=4,
+        )
+        registry.scan(
+            {"cmd": secret},
+            tool="default.tool",
+            run_id="r",
+            agent_id="a",
+            session_id=None,
+            depth=4,
+        )
+        second = registry.scan(
+            {"other_arg": secret},
+            tool="default.tool",
+            run_id="r",
+            agent_id="a",
+            session_id=None,
+            depth=4,
+        )
+        assert len(second) == 1
+
+    def test_scan_different_tool_still_reported(self) -> None:
+        registry = AuditRegistry()
+        secret = "a" * AUDIT_MIN_MATCH_LENGTH
+        registry.register_from_args(
+            {"x": taint(secret, source="web")},
+            sources_table=self._sources(),
+            run_id="r",
+            depth=4,
+        )
+        registry.scan(
+            {"cmd": secret},
+            tool="default.tool_a",
+            run_id="r",
+            agent_id="a",
+            session_id=None,
+            depth=4,
+        )
+        second = registry.scan(
+            {"cmd": secret},
+            tool="default.tool_b",
+            run_id="r",
+            agent_id="a",
+            session_id=None,
+            depth=4,
+        )
+        assert len(second) == 1
+
+    def test_scan_new_run_reports_again(self) -> None:
+        registry = AuditRegistry()
+        secret = "a" * AUDIT_MIN_MATCH_LENGTH
+        for run_id in ("r1", "r2"):
+            registry.register_from_args(
+                {"x": taint(secret, source="web")},
+                sources_table=self._sources(),
+                run_id=run_id,
+                depth=4,
+            )
+        first = registry.scan(
+            {"cmd": secret},
+            tool="default.tool",
+            run_id="r1",
+            agent_id="a",
+            session_id=None,
+            depth=4,
+        )
+        second = registry.scan(
+            {"cmd": secret},
+            tool="default.tool",
+            run_id="r2",
+            agent_id="a",
+            session_id=None,
+            depth=4,
+        )
+        assert len(first) == 1
+        assert len(second) == 1
+
+    def test_clear_run_removes_emitted_keys_too(self) -> None:
+        registry = AuditRegistry()
+        secret = "a" * AUDIT_MIN_MATCH_LENGTH
+        registry.register_from_args(
+            {"x": taint(secret, source="web")},
+            sources_table=self._sources(),
+            run_id="r",
+            depth=4,
+        )
+        registry.scan(
+            {"cmd": secret},
+            tool="default.tool",
+            run_id="r",
+            agent_id="a",
+            session_id=None,
+            depth=4,
+        )
+        registry.clear_run("r")
+        assert "r" not in registry._emitted
+
 
 # ---------------------------------------------------------------------------
 # TestEmit

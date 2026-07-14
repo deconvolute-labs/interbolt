@@ -20,6 +20,7 @@ from interbolt.policy.schema import (
     SinkRule,
     SourceDeclaration,
 )
+from interbolt.taint import install_taint_observer
 
 if TYPE_CHECKING:
     pass
@@ -135,3 +136,15 @@ def reset_runtime() -> Generator[None, None, None]:
     _rt_module._current_runtime = None
     yield
     _rt_module._current_runtime = None
+
+
+@pytest.fixture(autouse=True)
+def reset_taint_observer() -> Generator[None, None, None]:
+    """Set the taint()-time audit observer to None before and after each test.
+
+    Without this, one test's configure(audit=True) could leave an installed
+    observer that leaks into an unrelated test in the same pytest session.
+    """
+    install_taint_observer(None)
+    yield
+    install_taint_observer(None)

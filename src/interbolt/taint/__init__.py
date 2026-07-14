@@ -55,6 +55,57 @@ def clear_run_ingress(run_id: str) -> None:
         _run_ingress_sources.pop(run_id, None)
 
 
+_taint_observer: Callable[[str, str, str], None] | None = None
+"""The taint()-time content observer, installed by runtime.configure(audit=True).
+
+A plain module-level hook: taint/ owns and exposes this extension point so
+runtime/ (the composition root) can wire an AuditRegistry observer without
+taint/ importing enforcement/ or runtime/ (spec section 3.2), the same
+dependency-inversion shape as `current_run_id`. Internal, not part of the
+public surface.
+"""
+
+
+def install_taint_observer(cb: Callable[[str, str, str], None] | None) -> None:
+    """Install, or clear with `None`, the taint()-time content observer.
+
+    Called only from `runtime.configure()`. `configure(audit=True)` installs
+    a closure that resolves the source's trust and registers untrusted
+    content with the `AuditRegistry`; `configure(audit=False)` installs
+    `None`, so re-`configure()` cleanly disables it.
+    """
+    global _taint_observer
+    _taint_observer = cb
+
+
+def _observe_ingress(value: Any, *, source: str, run_id: str, depth: int) -> None:  # noqa: ANN401
+    """Report every str/bytes leaf in a fresh-ingress `value` to the observer.
+
+    Mirrors `_taint_value`'s container/mapping traversal shape but only
+    reads leaves; it never reconstructs anything, so it needs none of Fix
+    8's defensive handling.
+    """
+    observer = _taint_observer
+    if observer is None:
+        return
+    if isinstance(value, str):
+        observer(value, source, run_id)
+        return
+    if isinstance(value, bytes):
+        observer(value.decode("utf-8", errors="ignore"), source, run_id)
+        return
+    if depth <= 0:
+        return
+    if isinstance(value, Mapping):
+        for k, v in value.items():
+            _observe_ingress(k, source=source, run_id=run_id, depth=depth - 1)
+            _observe_ingress(v, source=source, run_id=run_id, depth=depth - 1)
+        return
+    if isinstance(value, CONTAINER_TYPES):
+        for item in value:
+            _observe_ingress(item, source=source, run_id=run_id, depth=depth - 1)
+
+
 def taint(
     value: Any,  # noqa: ANN401 -- accepts any ingress shape
     *,
@@ -104,6 +155,12 @@ def taint(
     derived_items = None if derived_from is None else list(derived_from)
     if not derived_items:
         _record_ingress(source)
+        if _taint_observer is not None:
+            run_id = current_run_id.get()
+            if run_id is not None:
+                _observe_ingress(
+                    value, source=source, run_id=run_id, depth=RECURSION_DEPTH
+                )
         return _taint_value(
             value, depth=RECURSION_DEPTH, make_label=lambda: _fresh_label(source)
         )
@@ -122,6 +179,26 @@ def taint(
     )
 
 
+def _is_namedtuple(value: Any) -> bool:  # noqa: ANN401
+    """Duck-type check for a namedtuple: a tuple subclass with `_fields`."""
+    return isinstance(value, tuple) and hasattr(value, "_fields")
+
+
+def _rebuild_container(value: Any, items: list[Any]) -> Any:  # noqa: ANN401
+    """Reconstruct a CONTAINER_TYPES instance from `items`, namedtuple-safe.
+
+    A namedtuple subclasses tuple but its constructor takes positional
+    fields, not a single iterable, so `type(value)(items)` raises for it;
+    detect that shape and unpack instead. Callers wrap this in try/except,
+    since an exotic container subclass may still fail to reconstruct either
+    way, and the containment layer must never be the thing that crashes a
+    guarded call.
+    """
+    if _is_namedtuple(value):
+        return type(value)(*items)
+    return type(value)(items)
+
+
 def _taint_value(
     value: Any,  # noqa: ANN401
     *,
@@ -133,10 +210,19 @@ def _taint_value(
     if isinstance(value, bytes):
         return TaintedBytes(value, label=make_label())
     if depth > 0 and isinstance(value, CONTAINER_TYPES):
-        items = (
+        items = [
             _taint_value(item, depth=depth - 1, make_label=make_label) for item in value
-        )
-        return type(value)(items)
+        ]
+        try:
+            return _rebuild_container(value, items)
+        except Exception:  # noqa: BLE001 -- containment must never crash the guard
+            _logger.debug(
+                "taint(): could not reconstruct container type %s; "
+                "returning the value unlabeled",
+                type(value).__name__,
+                exc_info=True,
+            )
+            return value
     if depth > 0 and isinstance(value, Mapping):
         return {
             _taint_value(k, depth=depth - 1, make_label=make_label): _taint_value(
@@ -261,5 +347,15 @@ def unwrap(value: Any) -> Any:  # noqa: ANN401 -- accepts and returns any shape
     if isinstance(value, Mapping):
         return {unwrap(k): unwrap(v) for k, v in value.items()}
     if isinstance(value, CONTAINER_TYPES):
-        return type(value)(unwrap(item) for item in value)
+        items = [unwrap(item) for item in value]
+        try:
+            return _rebuild_container(value, items)
+        except Exception:  # noqa: BLE001 -- containment must never crash the guard
+            _logger.debug(
+                "unwrap(): could not reconstruct container type %s; "
+                "returning the original value untraversed",
+                type(value).__name__,
+                exc_info=True,
+            )
+            return value
     return value

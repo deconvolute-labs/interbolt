@@ -38,15 +38,28 @@ to `configure()`, as an environment escape hatch.
 
 ## Mechanism
 
-When `audit` is enabled, the runtime keeps a per-run registry of the string
-content of values that passed through `taint()` and resolve to an untrusted
-source. At each guarded sink, every argument that arrives as a **plain
-`str`** (recursing into containers, to the same bounded depth as label
-collection) is scanned for substrings matching content in that run's
-registry, above a minimum length
-(`interbolt.constants.AUDIT_MIN_MATCH_LENGTH`, 12 characters by default). A
-match means untrusted content reached the sink with no label: a laundering
-point. The registry is cleared when the owning `agent_context` exits.
+When `audit` is enabled, `configure()` installs an observer on `taint()`
+itself, so content is registered the moment a value is tainted and resolves
+to an untrusted source, attributed to the run active at that moment, not
+only when a labeled value later reaches a sink. This is what catches the
+common case where an f-string or `.format()` call launders the label away
+before the value ever reaches a guarded call in labeled form. Sink-side
+registration (from labeled arguments actually reaching a guard) still
+happens too, as a complementary path, covering content whose label was
+attached via a `derived_from` merge at the sink rather than at raw ingress.
+
+At each guarded sink, every argument that arrives as a **plain `str`**
+(recursing into containers, to the same bounded depth as label collection)
+is scanned for substrings matching content in that run's registry, above a
+minimum length (`interbolt.constants.AUDIT_MIN_MATCH_LENGTH`, 12 characters
+by default). A match means untrusted content reached the sink with no
+label: a laundering point. The registry is cleared when the owning
+`agent_context` exits.
+
+**A `taint()` call made with no active `agent_context` cannot be attributed
+to a run and is invisible to the audit**, the same limitation `run.tainted`
+has (see
+[Policies: run-level gating](../concepts/policies.md#run-level-gating-run-tainted)).
 
 Each `Finding` names the source that leaked and the argument it leaked
 into:
@@ -77,6 +90,9 @@ class Finding(BaseModel, frozen=True):
 - **Emitted through the existing `Reporter` seam.** No separate delivery
   mechanism, no separate CLI command. Assert on findings in a test with
   `InMemoryReporter`; route them to logs with `LoggingReporter`.
+- **Deduplicated per run.** At most one `Finding` is emitted per
+  `(source, tool, argument)` combination per run; repeated identical calls
+  in the same run do not produce repeated findings.
 
 ## What it catches
 

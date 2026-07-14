@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import lark
 import pytest
 
 from interbolt.models.core import Action, Label, TrustLevel
 from interbolt.policy.engine import (
+    _ENV,
     CompiledRule,
     CompiledSink,
     _rewrite_any_to_exists,
@@ -51,19 +53,127 @@ def _simple_doc(
 
 
 class TestRewriteAnyToExists:
+    def _method_tokens(self, tree: lark.Tree[lark.Token]) -> list[str]:
+        tokens: list[str] = []
+        for t in tree.iter_subtrees():
+            if t.data != "member_dot_arg":
+                continue
+            method_token = t.children[1]
+            assert isinstance(method_token, lark.Token)
+            tokens.append(method_token.value)
+        return tokens
+
     def test_replaces_any_with_exists(self) -> None:
-        result = _rewrite_any_to_exists("taint.any(t, true)")
-        assert result == "taint.exists(t, true)"
+        tree = _ENV.compile("taint.any(t, true)")
+        _rewrite_any_to_exists(tree)
+        assert self._method_tokens(tree) == ["exists"]
 
     def test_no_any_unchanged(self) -> None:
-        expr = 'args.x == "y"'
-        assert _rewrite_any_to_exists(expr) == expr
+        tree = _ENV.compile('args.x == "y"')
+        before = tree.pretty()
+        _rewrite_any_to_exists(tree)
+        assert tree.pretty() == before
 
     def test_multiple_occurrences_all_replaced(self) -> None:
-        expr = "taint.any(t, t.trust == 'x') && taint.any(t, true)"
-        result = _rewrite_any_to_exists(expr)
-        assert ".any(" not in result
-        assert result.count(".exists(") == 2
+        tree = _ENV.compile("taint.any(t, t.trust == 'x') && taint.any(t, true)")
+        _rewrite_any_to_exists(tree)
+        assert self._method_tokens(tree) == ["exists", "exists"]
+
+    def test_any_inside_literal_only_is_untouched(self) -> None:
+        tree = _ENV.compile('args.path.contains("backup.any(x)")')
+        before = tree.pretty()
+        _rewrite_any_to_exists(tree)
+        assert tree.pretty() == before
+
+
+class TestAnyRewriteLiteralPreservation:
+    def _eval(
+        self,
+        expr: str,
+        path: str,
+        labels: tuple[Label, ...] = (),
+        sources_table: dict[str, TrustLevel] | None = None,
+    ) -> bool:
+        runner = compile_cel_expression(expr)
+        ctx = build_context(
+            tool="t",
+            args={"path": path},
+            labels=labels,
+            trifecta=frozenset(),
+            sources_table=sources_table or {},
+            run_tainted=False,
+        )
+        return bool(runner.evaluate(ctx))
+
+    def test_double_quoted_literal_preserved_and_real_call_rewritten(self) -> None:
+        expr = (
+            'args.path.contains("backup.any(x)") || '
+            'taint.any(t, t.trust == "untrusted")'
+        )
+        assert self._eval(expr, "prefix backup.any(x) suffix") is True
+        assert (
+            self._eval(
+                expr,
+                "no match here",
+                labels=(_label("web"),),
+                sources_table={"web": TrustLevel.UNTRUSTED},
+            )
+            is True
+        )
+        assert self._eval(expr, "no match") is False
+
+    def test_single_quoted_literal_with_any_preserved(self) -> None:
+        expr = "args.path.contains('backup.any(x)')"
+        assert self._eval(expr, "has backup.any(x) inside") is True
+        assert self._eval(expr, "nothing here") is False
+
+    def test_escaped_quote_inside_literal_preserved(self) -> None:
+        expr = r'args.path.contains("backup.any(\"x\")")'
+        assert self._eval(expr, 'has backup.any("x") inside') is True
+
+    def test_raw_string_literal_with_any_preserved(self) -> None:
+        expr = r'args.path.contains(r"backup.any(\d)")'
+        assert self._eval(expr, "backup.any(\\d)") is True
+
+    def test_end_to_end_policy_rule_matches_literal_substring(self) -> None:
+        doc = _simple_doc(
+            sinks={
+                "default.tool": [
+                    {
+                        "name": "r",
+                        "when": 'args.path.contains("backup.any(")',
+                        "action": "block",
+                    },
+                    {"name": "default", "action": "allow"},
+                ]
+            }
+        )
+        compiled = compile_policy(doc)
+        ctx_match = build_context(
+            tool="default.tool",
+            args={"path": "a backup.any( file"},
+            labels=(),
+            trifecta=frozenset(),
+            sources_table={},
+            run_tainted=False,
+        )
+        _, action, _ = evaluate_sink(
+            compiled["default.tool"], ctx_match, default_action=Action.ALLOW
+        )
+        assert action is Action.BLOCK
+
+        ctx_no_match = build_context(
+            tool="default.tool",
+            args={"path": "clean"},
+            labels=(),
+            trifecta=frozenset(),
+            sources_table={},
+            run_tainted=False,
+        )
+        _, action2, _ = evaluate_sink(
+            compiled["default.tool"], ctx_no_match, default_action=Action.ALLOW
+        )
+        assert action2 is Action.ALLOW
 
 
 class TestCompileCelExpression:

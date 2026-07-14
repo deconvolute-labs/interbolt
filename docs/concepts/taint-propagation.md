@@ -59,7 +59,10 @@ fact determines the entire contract below.
   **template** (the receiver / left operand) is `Tainted`. Any `Tainted`
   value passed as a substitution argument is also inspected and its label
   merged in, so a tainted argument's provenance is captured too, not only
-  the template's.
+  the template's. When the substitution argument is a mapping
+  (`template % {"k": tainted_value}`), each value in the mapping is
+  inspected the same way and merged in; only keys are not, since
+  `%`-formatting only ever substitutes values.
 - The bare single-field f-string `f"{x}"` (no surrounding literal text)
   preserves taint, because `__format__` is overridden. This case is
   salvageable but narrow; see below.
@@ -217,6 +220,14 @@ guarded-call hot path. The honest edge: a label buried below the resolved
 depth is not seen, and the call is evaluated as if that leaf were untainted.
 Only builtin containers are traversed; arbitrary objects are not
 introspected.
+
+A namedtuple is handled correctly: it is a `tuple` subclass whose
+constructor takes positional fields, so both `taint()` and `unwrap()`
+reconstruct it by unpacking rather than passing a single iterable. If
+reconstructing an exotic container subclass ever fails, `taint()`/`unwrap()`
+degrade to passing the value through unlabeled/untraversed rather than
+raising, since the containment layer must never be the thing that crashes a
+guarded call.
 
 ## Merge rule
 
