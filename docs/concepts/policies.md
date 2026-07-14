@@ -66,9 +66,21 @@ A `when:` expression can reference:
 - `taint`: a CEL list of per-label objects, one per label collected from the
   call's arguments. Each entry exposes `t.trust` (resolved at evaluation
   time by checking every name in the label's `lineage` against the policy's
-  `sources` table, untrusted-wins) and `t.source` (the label's recorded
-  `source` field). Quantify over it with `taint.any(t, <expr>)` or
-  `taint.all(t, <expr>)`.
+  `sources` table, untrusted-wins), `t.source` (the label's recorded
+  `source` field), `t.lineage` (a CEL list of every source name that
+  contributed to the label), and `t.endorsements` (a CEL list of the kind
+  strings the label carries; see
+  [Auditing: endorsement](../guides/auditing.md)). Quantify over it with
+  `taint.any(t, <expr>)` or `taint.all(t, <expr>)`.
+
+  **`t.source` after a merge.** A merged label's `source` is only its
+  *first* contributor (in insertion order); `taint.any(t, t.source ==
+  "web_search")` silently misses a value formed by merging `web_search`
+  content with something else that contributed first, even though trust
+  resolution itself is correct (it always checks the full `lineage`). Write
+  `taint.any(t, t.lineage.exists(s, s == "web_search"))` instead, which
+  checks every contributor. `interbolt validate` flags a `t.source ==`/`!=`
+  comparison with a warning pointing here.
 - `sources`: a CEL list, the de-duplicated set of every source name
   contributing to any argument's label across the call.
 - `max_trust`: a CEL string, `"untrusted"` if any contributing label
@@ -219,6 +231,44 @@ call does not evade it.
 `interbolt validate` rejects any `run.<field>` reference outside the single
 computable field, `tainted`.
 
+## Endorsement-aware rules (`t.endorsements`, `require_endorsement`)
+
+A sink can require that untrusted data carry a specific
+[endorsement](../guides/auditing.md#endorsement) kind before it's let
+through, gating on `t.endorsements` instead of (or alongside) `t.trust`:
+
+```yaml
+sinks:
+  default.send_email:
+    - name: require_allowlist
+      when: >
+        taint.any(t, t.trust == "untrusted" &&
+          !t.endorsements.exists(k, k == "recipient_allowlisted"))
+      action: block
+    - name: default
+      action: allow
+```
+
+The rule field `require_endorsement: <kind>` is sugar for exactly this
+idiom, for the common case:
+
+```yaml
+sinks:
+  default.send_email:
+    - name: require_allowlist
+      require_endorsement: recipient_allowlisted
+      action: block
+    - name: default
+      action: allow
+```
+
+`require_endorsement` and `when` are mutually exclusive on one rule. Because
+`t.trust` is unchanged by endorsement, a policy already gating on
+`t.trust == "untrusted"` keeps gating endorsed values too; naming the kind a
+sink accepts is what lets a specific endorsement carve out an exception, and
+an endorsement for the *wrong* kind (the sanitizer-mismatch case) still
+blocks.
+
 ## Static validation
 
 `Policy.validate(path)` (and `interbolt validate policy.yaml` on the command
@@ -226,8 +276,12 @@ line) performs schema and CEL checks only, without executing an agent or
 observing live taint. It checks the file against the policy schema, compiles
 every CEL expression, flags dead rules (more than one unconditional
 catch-all within a sink, or any rule placed after one), and rejects
-references to trifecta legs outside the v1-computable set. It doesn't verify
-that every source name compared against `t.source` in a `when` expression is
-declared in `sources`; an undeclared source resolves untrusted under
-default-deny regardless, so this is safe to skip. See [CI](../guides/ci.md)
+references to trifecta legs outside the v1-computable set. A `t.source ==`/
+`!=` comparison produces a **warning**, not an error (prefixed
+`"warning: "`, pointing at `t.lineage` instead), so `interbolt validate`
+still exits 0 on a policy with only warnings and 1 if any error is present.
+It doesn't verify that every source name compared against `t.source` in a
+`when` expression is declared in `sources`; an undeclared source resolves
+untrusted under default-deny regardless, so this is safe to skip. See
+[CI](../guides/ci.md)
 for wiring it into a pipeline.

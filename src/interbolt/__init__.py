@@ -10,7 +10,11 @@ from __future__ import annotations
 
 __version__ = "0.1.0"
 
-from interbolt.constants import RECORD_TYPE_EVENT, RECORD_TYPE_FINDING
+from interbolt.constants import (
+    RECORD_TYPE_ENDORSEMENT,
+    RECORD_TYPE_EVENT,
+    RECORD_TYPE_FINDING,
+)
 from interbolt.errors import (
     ApprovalDenied,
     InterboltConfigError,
@@ -22,6 +26,7 @@ from interbolt.errors import (
 from interbolt.models.core import (
     Action,
     Decision,
+    Endorsement,
     Event,
     Finding,
     Label,
@@ -37,15 +42,24 @@ from interbolt.reporting import (
     LoggingReporter,
     NullReporter,
     describe_decision,
+    describe_endorsement,
     describe_event,
     describe_finding,
 )
 from interbolt.runtime import Runtime, agent, check, configure, get_runtime, guard
 from interbolt.runtime.guard import AgentHandle
-from interbolt.taint import LabeledValue, Tainted, TaintedBytes, taint, track_model_call
+from interbolt.taint import (
+    LabeledValue,
+    Tainted,
+    TaintedBytes,
+    endorse,
+    taint,
+    track_model_call,
+)
 
 __all__ = [
     "taint",
+    "endorse",
     "guard",
     "check",
     "configure",
@@ -59,6 +73,7 @@ __all__ = [
     "Decision",
     "Event",
     "Finding",
+    "Endorsement",
     "Action",
     "Mode",
     "Label",
@@ -73,8 +88,10 @@ __all__ = [
     "describe_decision",
     "describe_event",
     "describe_finding",
+    "describe_endorsement",
     "RECORD_TYPE_EVENT",
     "RECORD_TYPE_FINDING",
+    "RECORD_TYPE_ENDORSEMENT",
     "InterboltError",
     "PolicyViolation",
     "PolicyEvaluationError",

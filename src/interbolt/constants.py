@@ -13,13 +13,14 @@ ENV_RECURSION_DEPTH: str = "INTERBOLT_RECURSION_DEPTH"
 
 DEFAULT_RECURSION_DEPTH: int = 4
 RECURSION_DEPTH_MAX: int = 10
-EVENT_SCHEMA_VERSION: int = 4
+EVENT_SCHEMA_VERSION: int = 5
 AUDIT_MIN_MATCH_LENGTH: int = 12
 AUDIT_FINDINGS_MAX: int = 10_000
 AUDIT_MAX_TRACKED_RUNS: int = 1_000
 
 RECORD_TYPE_EVENT: str = "event"
 RECORD_TYPE_FINDING: str = "finding"
+RECORD_TYPE_ENDORSEMENT: str = "endorsement"
 
 # The builtin container types `taint()`, `collect_labels()`, and the audit
 # walk all recurse into identically; a single shared definition keeps the

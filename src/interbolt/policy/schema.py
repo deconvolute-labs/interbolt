@@ -3,7 +3,13 @@ from __future__ import annotations
 import re
 
 import yaml
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from interbolt.constants import RUN_COMPUTABLE_FIELDS, TRIFECTA_COMPUTABLE_LEGS
 from interbolt.errors import InterboltConfigError, PolicyEvaluationError
@@ -11,6 +17,7 @@ from interbolt.models.core import Action, Mode, TrustLevel, split_qualified_name
 
 _TRIFECTA_LEG_PATTERN = re.compile(r"trifecta\.contains\(\s*[\"']([^\"']+)[\"']\s*\)")
 _RUN_FIELD_PATTERN = re.compile(r"\brun\.(\w+)")
+_SOURCE_EQUALITY_PATTERN = re.compile(r"\bt\.source\s*(==|!=)")
 
 
 class SourceDeclaration(BaseModel):
@@ -33,13 +40,30 @@ class Defaults(BaseModel):
 
 
 class SinkRule(BaseModel):
-    """One ordered rule within a sink's rule list. First match wins."""
+    """One ordered rule within a sink's rule list. First match wins.
+
+    `require_endorsement` is sugar for the common "gate untrusted data
+    lacking this endorsement kind" shape: setting it compiles to the
+    equivalent `when:` CEL text (`policy/engine.py:_require_endorsement_when`),
+    so most rules needing this never hand-write CEL. Mutually exclusive with
+    `when`; a rule may set at most one of the two.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     name: str
     when: str | None = None
+    require_endorsement: str | None = None
     action: Action
+
+    @model_validator(mode="after")
+    def _validate_when_xor_require_endorsement(self) -> SinkRule:
+        if self.when is not None and self.require_endorsement is not None:
+            raise ValueError(
+                f"rule {self.name!r}: 'when' and 'require_endorsement' are "
+                "mutually exclusive; set at most one"
+            )
+        return self
 
 
 def _split_sink_key(key: str) -> tuple[str, str]:
@@ -111,7 +135,7 @@ def validate_policy(path: str) -> list[str]:
         A list of human-readable problem descriptions, empty if the policy
         is valid. Every error is captured here instead of raised.
     """
-    from interbolt.policy.engine import compile_cel_expression
+    from interbolt.policy.engine import _rule_when, compile_cel_expression
 
     problems: list[str] = []
     try:
@@ -136,7 +160,8 @@ def validate_policy(path: str) -> list[str]:
                     f"sink {sink_key!r}: rule {rule.name!r} is unreachable, "
                     "placed after an unconditional catch-all rule"
                 )
-            if rule.when is None:
+            when = _rule_when(rule)
+            if when is None:
                 if catch_all_seen:
                     problems.append(
                         f"sink {sink_key!r}: more than one unconditional catch-all rule"
@@ -144,13 +169,13 @@ def validate_policy(path: str) -> list[str]:
                 catch_all_seen = True
                 continue
             try:
-                compile_cel_expression(rule.when)
+                compile_cel_expression(when)
             except Exception as exc:  # noqa: BLE001 -- surfacing any compile failure
                 problems.append(
                     f"sink {sink_key!r}: rule {rule.name!r} "
                     f"has an invalid CEL expression: {exc}"
                 )
-            for leg in _TRIFECTA_LEG_PATTERN.findall(rule.when):
+            for leg in _TRIFECTA_LEG_PATTERN.findall(when):
                 if leg not in TRIFECTA_COMPUTABLE_LEGS:
                     problems.append(
                         f"sink {sink_key!r}: rule {rule.name!r} references "
@@ -158,12 +183,20 @@ def validate_policy(path: str) -> list[str]:
                         f"(trifecta.contains({leg!r}) always evaluates false); "
                         f"computable legs are {sorted(TRIFECTA_COMPUTABLE_LEGS)}"
                     )
-            for field in _RUN_FIELD_PATTERN.findall(rule.when):
+            for field in _RUN_FIELD_PATTERN.findall(when):
                 if field not in RUN_COMPUTABLE_FIELDS:
                     problems.append(
                         f"sink {sink_key!r}: rule {rule.name!r} references "
                         f"run.{field!r}, which does not exist; the only "
                         f"computable field is {sorted(RUN_COMPUTABLE_FIELDS)}"
                     )
+            if _SOURCE_EQUALITY_PATTERN.search(when):
+                problems.append(
+                    f"warning: sink {sink_key!r}: rule {rule.name!r} compares "
+                    "t.source directly; a merged label's source is only its "
+                    "first contributor, so this can silently miss a value "
+                    "formed by merging two differently-sourced inputs; use "
+                    "t.lineage.exists(s, s == ...) instead"
+                )
 
     return problems

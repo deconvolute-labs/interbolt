@@ -75,6 +75,13 @@ class Label(BaseModel):
             transformed, for the flow graph and audit trail.
         lineage: The de-duplicated set of source names that contributed to this
             value, in first-contributed order.
+        endorsements: The de-duplicated set of endorsement kinds this value
+            carries, in the order they were applied. Provenance-preserving
+            and trust-neutral: `endorse()` never changes `lineage` or how
+            `trust` resolves, it only adds a policy-visible fact a sink can
+            require. A merged label's endorsements are the intersection of
+            its contributors' (an endorsement survives a merge only if every
+            contributor carried it).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -82,6 +89,7 @@ class Label(BaseModel):
     source: str
     value_id: str
     lineage: tuple[str, ...]
+    endorsements: tuple[str, ...] = ()
 
 
 class Action(StrEnum):
@@ -170,6 +178,42 @@ class Finding(BaseModel):
     source: str
     tool: str
     argument: str
+    agent_id: str
+    run_id: str
+    session_id: str | None
+    timestamp: datetime
+
+
+class Endorsement(BaseModel):
+    """A record of one `endorse()` call: a value's restrictiveness was
+    reduced by explicit, code-driven validation, not by laundering it.
+
+    Attributes:
+        schema_version: The event schema version this record was emitted under.
+        kind: The machine-matchable endorsement category (for example
+            `"schema_validated"`, `"recipient_allowlisted"`).
+        note: An optional free-text audit annotation. Carried only on this
+            record, never on the endorsed value's label.
+        lineage: The endorsed label's source lineage, for traceability.
+        value_id: The endorsed value's fresh label id, minted for this
+            endorsement hop.
+        agent_id: The durable, integrator-supplied agent identity, or
+            `constants.DEFAULT_AGENT_ID` if no `agent_context` is active.
+        run_id: The active run's identity, or a freshly minted one if no
+            `agent_context` is active.
+        session_id: Always `None` in v1: there is no session-identity
+            context variable for `endorse()` to read, unlike `agent_id`/
+            `run_id`.
+        timestamp: When the endorsement was recorded.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    schema_version: int
+    kind: str
+    note: str | None
+    lineage: tuple[str, ...]
+    value_id: str
     agent_id: str
     run_id: str
     session_id: str | None

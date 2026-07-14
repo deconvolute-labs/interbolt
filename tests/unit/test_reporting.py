@@ -7,13 +7,14 @@ from datetime import UTC, datetime
 from pytest_mock import MockerFixture
 
 from interbolt.constants import EVENT_SCHEMA_VERSION
-from interbolt.models.core import Action, Decision, Event, Finding, Mode
+from interbolt.models.core import Action, Decision, Endorsement, Event, Finding, Mode
 from interbolt.reporting import (
     CompositeReporter,
     InMemoryReporter,
     LoggingReporter,
     NullReporter,
     describe_decision,
+    describe_endorsement,
     describe_event,
     describe_finding,
 )
@@ -74,12 +75,31 @@ def _finding() -> Finding:
     )
 
 
+def _endorsement(
+    *, kind: str = "recipient_allowlisted", note: str | None = None
+) -> Endorsement:
+    return Endorsement(
+        schema_version=EVENT_SCHEMA_VERSION,
+        kind=kind,
+        note=note,
+        lineage=("web_search",),
+        value_id=str(uuid.uuid4()),
+        agent_id="agent",
+        run_id="run",
+        session_id=None,
+        timestamp=datetime.now(UTC),
+    )
+
+
 class TestNullReporter:
     def test_export_does_not_raise_on_event(self) -> None:
         NullReporter().export(_event())
 
     def test_export_does_not_raise_on_finding(self) -> None:
         NullReporter().export(_finding())
+
+    def test_export_does_not_raise_on_endorsement(self) -> None:
+        NullReporter().export(_endorsement())
 
 
 class TestInMemoryReporter:
@@ -110,14 +130,29 @@ class TestInMemoryReporter:
         assert len(reporter.events) == 0
         assert len(reporter.decisions) == 0
 
+    def test_captures_endorsement(self) -> None:
+        reporter = InMemoryReporter()
+        e = _endorsement()
+        reporter.export(e)
+        assert len(reporter.endorsements) == 1
+        assert reporter.endorsements[0] is e
+
+    def test_endorsement_not_in_events_or_findings(self) -> None:
+        reporter = InMemoryReporter()
+        reporter.export(_endorsement())
+        assert reporter.events == []
+        assert reporter.findings == []
+
     def test_clear_empties_all_lists(self) -> None:
         reporter = InMemoryReporter()
         reporter.export(_event())
         reporter.export(_finding())
+        reporter.export(_endorsement())
         reporter.clear()
         assert reporter.events == []
         assert reporter.decisions == []
         assert reporter.findings == []
+        assert reporter.endorsements == []
 
     def test_multiple_events_accumulate(self) -> None:
         reporter = InMemoryReporter()
@@ -225,6 +260,21 @@ class TestDescribeFinding:
         assert "web" in text
         assert "default.tool" in text
         assert "cmd" in text
+
+
+class TestDescribeEndorsement:
+    def test_includes_kind_and_lineage(self) -> None:
+        text = describe_endorsement(_endorsement(kind="recipient_allowlisted"))
+        assert "recipient_allowlisted" in text
+        assert "web_search" in text
+
+    def test_includes_note_when_present(self) -> None:
+        text = describe_endorsement(_endorsement(note="verified by hand"))
+        assert "verified by hand" in text
+
+    def test_omits_note_field_when_absent(self) -> None:
+        text = describe_endorsement(_endorsement(note=None))
+        assert "note=" not in text
 
 
 class TestDescribeDecision:

@@ -6,9 +6,13 @@ import threading
 from collections.abc import Sequence
 from pathlib import Path
 
-from interbolt.constants import RECORD_TYPE_EVENT, RECORD_TYPE_FINDING
+from interbolt.constants import (
+    RECORD_TYPE_ENDORSEMENT,
+    RECORD_TYPE_EVENT,
+    RECORD_TYPE_FINDING,
+)
 from interbolt.errors import InterboltConfigError
-from interbolt.models.core import Action, Decision, Event, Finding
+from interbolt.models.core import Action, Decision, Endorsement, Event, Finding
 from interbolt.models.protocols import Reporter
 from interbolt.utils import get_logger
 
@@ -24,7 +28,7 @@ _ACTION_COLOR = {
 class NullReporter:
     """The default reporter: a no-op. Keeps the library fully local by default."""
 
-    def export(self, event: Event | Finding) -> None:
+    def export(self, event: Event | Finding | Endorsement) -> None:
         """Discard the record."""
         return None
 
@@ -36,26 +40,30 @@ class InMemoryReporter:
         self.events: list[Event] = []
         self.decisions: list[Decision] = []
         self.findings: list[Finding] = []
+        self.endorsements: list[Endorsement] = []
 
-    def export(self, event: Event | Finding) -> None:
+    def export(self, event: Event | Finding | Endorsement) -> None:
         """Capture the record."""
         if isinstance(event, Event):
             self.events.append(event)
             self.decisions.append(event.decision)
-        else:
+        elif isinstance(event, Finding):
             self.findings.append(event)
+        else:
+            self.endorsements.append(event)
 
     def clear(self) -> None:
         """Discard every captured record."""
         self.events.clear()
         self.decisions.clear()
         self.findings.clear()
+        self.endorsements.clear()
 
 
 class LoggingReporter:
     """Emits every record via the library logger, at DEBUG."""
 
-    def export(self, event: Event | Finding) -> None:
+    def export(self, event: Event | Finding | Endorsement) -> None:
         """Log the record."""
         _logger.debug("export: %r", event)
 
@@ -99,11 +107,14 @@ class JsonlReporter:
             ) from exc
         self._announced: bool = False
 
-    def export(self, event: Event | Finding) -> None:
+    def export(self, event: Event | Finding | Endorsement) -> None:
         """Append one JSON line for this record."""
-        record_type = (
-            RECORD_TYPE_EVENT if isinstance(event, Event) else RECORD_TYPE_FINDING
-        )
+        if isinstance(event, Event):
+            record_type = RECORD_TYPE_EVENT
+        elif isinstance(event, Finding):
+            record_type = RECORD_TYPE_FINDING
+        else:
+            record_type = RECORD_TYPE_ENDORSEMENT
         payload = {"record_type": record_type, **event.model_dump(mode="json")}
         line = json.dumps(payload, separators=(",", ":"))
         with self.path.open("a", encoding="utf-8") as fh:
@@ -150,7 +161,7 @@ class CompositeReporter:
         with self._lock:
             self._reporters.append(reporter)
 
-    def export(self, event: Event | Finding) -> None:
+    def export(self, event: Event | Finding | Endorsement) -> None:
         """Export the record to a snapshot of every wrapped reporter, in order."""
         with self._lock:
             snapshot = list(self._reporters)
@@ -231,4 +242,20 @@ def describe_finding(finding: Finding) -> str:
     return (
         f"[yellow]finding[/yellow]  source={finding.source}  "
         f"tool={finding.tool}  argument={finding.argument}"
+    )
+
+
+def describe_endorsement(endorsement: Endorsement) -> str:
+    """Build a one-line, rich-markup-tagged human summary of an `Endorsement`.
+
+    Args:
+        endorsement: The endorsement to describe.
+
+    Returns:
+        A rich-markup string summarizing the endorsement.
+    """
+    lineage = ", ".join(endorsement.lineage) or "-"
+    note = f"  note={endorsement.note!r}" if endorsement.note else ""
+    return (
+        f"[cyan]endorsement[/cyan]  kind={endorsement.kind}  lineage=({lineage}){note}"
     )

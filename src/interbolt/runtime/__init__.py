@@ -13,11 +13,10 @@ from interbolt.constants import DEFAULT_AGENT_ID, ENV_AUDIT, ENV_MODE
 from interbolt.enforcement import AuditRegistry
 from interbolt.enforcement import check as _enforcement_check
 from interbolt.errors import InterboltConfigError, InterboltUsageError
-from interbolt.models.core import Decision, Finding, Mode, TrustLevel
+from interbolt.models.core import Decision, Finding, Mode
 from interbolt.models.protocols import ApprovalResolver, Reporter, auto_deny
 from interbolt.policy import Policy
 from interbolt.policy import default_policy as _default_policy
-from interbolt.policy.engine import resolve_source_trust
 from interbolt.reporting import CompositeReporter, NullReporter
 from interbolt.runtime.guard import (
     AgentHandle,
@@ -25,7 +24,12 @@ from interbolt.runtime.guard import (
     current_agent_id,
     current_run_id,
 )
-from interbolt.taint import clear_run_ingress, install_taint_observer
+from interbolt.runtime.observers import make_audit_observer, make_endorsement_emitter
+from interbolt.taint import (
+    clear_run_ingress,
+    install_endorsement_emitter,
+    install_taint_observer,
+)
 from interbolt.utils import get_logger
 
 _logger = get_logger("runtime")
@@ -225,26 +229,6 @@ def _caller_location() -> tuple[str, int]:
         return "unknown", 0
 
 
-def _make_audit_observer(
-    policy: Policy, audit_registry: AuditRegistry
-) -> Callable[[str, str, str], None]:
-    """Build the taint()-time observer configure(audit=True) installs.
-
-    Resolves the source name against `policy`'s sources table (unknown
-    resolves untrusted) and registers only
-    untrusted-resolving content, since the audit exists to catch untrusted
-    data laundering, not trusted data moving around.
-    """
-    sources_table = policy.sources_table
-
-    def _observer(content: str, source: str, run_id: str) -> None:
-        if resolve_source_trust(source, sources_table) is not TrustLevel.UNTRUSTED:
-            return
-        audit_registry.register_content(content, source, run_id)
-
-    return _observer
-
-
 def configure(
     *,
     policy: Policy | None = None,
@@ -266,7 +250,10 @@ def configure(
     (effective mode, policy source, source/sink counts, and the caller's
     file:line), independent of any configured `Reporter`, so this is
     visible even without a `LoggingReporter`. Passing no `policy` logs a
-    separate WARNING pointing to `interbolt init`.
+    separate WARNING pointing to `interbolt init`. Every call also installs
+    the `endorse()`-time emitter that routes `Endorsement` records to this
+    runtime's reporter, unconditionally: unlike the audit instrument below,
+    endorsement auditing is not opt-in.
 
     Args:
         policy: The compiled policy to enforce. When ``None``, the built-in
@@ -328,9 +315,11 @@ def configure(
         _current_runtime = runtime
 
     if audit and runtime._audit_registry is not None:
-        install_taint_observer(_make_audit_observer(policy, runtime._audit_registry))
+        install_taint_observer(make_audit_observer(policy, runtime._audit_registry))
     else:
         install_taint_observer(None)
+
+    install_endorsement_emitter(make_endorsement_emitter(runtime))
 
     if not policy_was_given:
         _logger.warning(

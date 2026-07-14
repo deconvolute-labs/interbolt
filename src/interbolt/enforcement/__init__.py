@@ -31,9 +31,11 @@ from interbolt.models.core import (
 from interbolt.models.protocols import Reporter
 from interbolt.policy import Policy
 from interbolt.policy.engine import (
+    ResolvedLabel,
     build_context,
     evaluate_sink,
     resolve_label_trust,
+    resolve_labels,
     resolve_source_trust,
 )
 from interbolt.taint import (
@@ -95,8 +97,9 @@ def check(
     labels = collect_labels(args, max_depth=RECURSION_DEPTH)
     plain_args = unwrap(args)
     sources_table = policy.sources_table
-    trifecta = _compute_trifecta(labels, sources_table)
-    untrusted_sources = _compute_untrusted_sources(labels, sources_table)
+    resolved_labels = resolve_labels(labels, sources_table)
+    trifecta = _compute_trifecta(resolved_labels)
+    untrusted_sources = _compute_untrusted_sources(resolved_labels)
     compiled_sink = policy.compiled_sinks.get(tool)
     resolved_run_id = run_id or str(uuid.uuid4())
     run_tainted = _compute_run_tainted(resolved_run_id, sources_table)
@@ -106,15 +109,14 @@ def check(
     action: Action = policy.document.defaults.sink_action
     evaluation_error: CELEvalError | CELUnsupportedError | None = None
     try:
-        context = build_context(
-            tool=tool,
-            args=plain_args,
-            labels=labels,
-            trifecta=trifecta,
-            sources_table=sources_table,
-            run_tainted=run_tainted,
-        )
         if compiled_sink is not None:
+            context = build_context(
+                tool=tool,
+                args=plain_args,
+                resolved_labels=resolved_labels,
+                trifecta=trifecta,
+                run_tainted=run_tainted,
+            )
             matched_rule, action, matched_condition = evaluate_sink(
                 compiled_sink,
                 context,
@@ -210,38 +212,31 @@ def _emit(reporter: Reporter, event: Event | Finding) -> None:
         )
 
 
-def _compute_trifecta(
-    labels: tuple[Label, ...], sources_table: Mapping[str, TrustLevel]
-) -> frozenset[str]:
+def _compute_trifecta(resolved_labels: tuple[ResolvedLabel, ...]) -> frozenset[str]:
     """Compute the lethal-trifecta legs satisfied by this call.
 
     v1 computes only the `from_untrusted` leg (`reaches_external` and
     `reads_private` need the deferred capabilities declaration, spec §15.2).
     `trifecta.contains("reaches_external")` always evaluates false, so a
-    rule relying on trifecta size as a backstop fails open.
+    rule relying on trifecta size as a backstop fails open. Derived from
+    `resolved_labels` (resolved once in `check()`), not re-resolved here.
     """
-    if any(
-        resolve_label_trust(label, sources_table) is TrustLevel.UNTRUSTED
-        for label in labels
-    ):
+    if any(resolved.trust is TrustLevel.UNTRUSTED for resolved in resolved_labels):
         return frozenset({TRIFECTA_FROM_UNTRUSTED})
     return frozenset()
 
 
 def _compute_untrusted_sources(
-    labels: tuple[Label, ...], sources_table: Mapping[str, TrustLevel]
+    resolved_labels: tuple[ResolvedLabel, ...],
 ) -> frozenset[str]:
     """Resolve which of this call's contributing labels' source names are untrusted.
 
     Answers "which source caused this" so the reporter doesn't need its own
-    sources table to re-derive it. Reuses the same per-name resolution as
-    `_compute_trifecta`, keeping the names instead of collapsing to a boolean.
+    sources table to re-derive it. Derived from `resolved_labels` (resolved
+    once in `check()`), not re-resolved here.
     """
     return frozenset(
-        name
-        for label in labels
-        for name in label.lineage
-        if resolve_source_trust(name, sources_table) is TrustLevel.UNTRUSTED
+        name for resolved in resolved_labels for name in resolved.untrusted_lineage
     )
 
 

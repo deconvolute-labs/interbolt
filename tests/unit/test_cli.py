@@ -108,6 +108,34 @@ class TestValidateSubcommand:
         printed_text = str(mock_print.call_args)
         assert "policy.yaml" in printed_text
 
+    def test_warnings_only_exits_zero(self, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "interbolt.cli.Policy.validate",
+            return_value=["warning: rule 'r' compares t.source directly"],
+        )
+        result = main(["validate", "policy.yaml"])
+        assert result == 0
+
+    def test_warnings_only_still_prints_the_warning(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "interbolt.cli.Policy.validate",
+            return_value=["warning: rule 'r' compares t.source directly"],
+        )
+        mock_print = mocker.patch("interbolt.cli._console.print")
+        main(["validate", "policy.yaml"])
+        printed_text = str(mock_print.call_args_list)
+        assert "t.source" in printed_text
+
+    def test_warning_and_error_together_exits_one(self, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "interbolt.cli.Policy.validate",
+            return_value=["warning: t.source used", "real error"],
+        )
+        result = main(["validate", "policy.yaml"])
+        assert result == 1
+
 
 class TestNoSubcommand:
     def test_no_subcommand_exits_nonzero(self) -> None:

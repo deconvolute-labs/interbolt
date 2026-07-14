@@ -5,13 +5,13 @@ the public surface; anything not listed here is internal and may change
 without notice.
 
 ```
-taint, guard, check, configure, default_policy, agent, get_runtime, AgentHandle,
+taint, endorse, guard, check, configure, default_policy, agent, get_runtime, AgentHandle,
 track_model_call, Runtime, Policy,
-Decision, Event, Finding, Action, Mode, Label, TrustLevel,
+Decision, Event, Finding, Endorsement, Action, Mode, Label, TrustLevel,
 Reporter, ApprovalResolver,
 NullReporter, InMemoryReporter, LoggingReporter, JsonlReporter, CompositeReporter,
-describe_decision, describe_event, describe_finding,
-RECORD_TYPE_EVENT, RECORD_TYPE_FINDING,
+describe_decision, describe_event, describe_finding, describe_endorsement,
+RECORD_TYPE_EVENT, RECORD_TYPE_FINDING, RECORD_TYPE_ENDORSEMENT,
 InterboltError, PolicyViolation, PolicyEvaluationError, ApprovalDenied,
 InterboltConfigError, InterboltUsageError,
 Tainted, LabeledValue, TaintedBytes,
@@ -41,6 +41,30 @@ reached it directly. If no label is found among `derived_from` at all,
 `value` is returned completely unmarked. Does not record a run-level
 ingress event for `source` in this case. See
 [Taint propagation: model calls and derived values](../concepts/taint-propagation.md#model-calls-and-derived-values).
+
+## `endorse`
+
+```python
+def endorse(value: Any, *, kind: str, note: str | None = None) -> Any: ...
+```
+
+Reduces a value's restrictiveness after explicit, code-driven validation —
+the integrity dual of declassification. Accepts the same shapes as `taint()`
+(a `Tainted`/`TaintedBytes`/`LabeledValue` leaf, or a container recursing to
+the bounded depth) and adds `kind` to the label's `endorsements`, without
+touching `lineage` or how `t.trust` resolves. `kind` is required: it makes
+endorsement sink-specific, so a value endorsed for one purpose (a URL
+sanitizer) isn't thereby endorsed for another (an email allowlist). A value
+with no label anywhere in it passes through unchanged. Every call that
+endorses something emits an `Endorsement` record through the configured
+reporter (or logs at INFO if no runtime is configured yet). Needs no
+configured runtime to run, the same as `taint()`, though the emitted record
+only reaches a reporter once one is configured. `note` is a free-text
+annotation carried only on the `Endorsement` record, never on the label.
+Provenance-preserving, policy-visible, and meant to be called only by
+deterministic code after a real validation step, never conditioned on model
+output. See [Auditing: endorsement](../guides/auditing.md#endorsement) and
+[Policies: endorsement-aware rules](../concepts/policies.md#endorsement-aware-rules-tendorsements-require_endorsement).
 
 ## `track_model_call`
 
@@ -279,6 +303,26 @@ audit hit; see [Auditing](../guides/auditing.md). Both travel through the
 `Reporter` seam (below); `EVENT_SCHEMA_VERSION` (in `interbolt.constants`)
 versions both.
 
+## `Endorsement`
+
+```python
+class Endorsement(BaseModel, frozen=True):
+    schema_version: int
+    kind: str
+    note: str | None
+    lineage: tuple[str, ...]
+    value_id: str
+    agent_id: str
+    run_id: str
+    session_id: str | None       # always None in v1
+    timestamp: datetime
+```
+
+The audited record of one `endorse()` call. Travels the same `Reporter` seam
+as `Event`/`Finding`; `EVENT_SCHEMA_VERSION` versions it too (bumped to `5`
+for its introduction, alongside `Label` gaining `endorsements`). See
+[Auditing: endorsement](../guides/auditing.md#endorsement).
+
 ## `Action`, `Mode`, `TrustLevel`
 
 All `enum.StrEnum`, so the same value round-trips a policy YAML string, an
@@ -297,9 +341,11 @@ class Label(BaseModel, frozen=True):
     source: str
     value_id: str
     lineage: tuple[str, ...]
+    endorsements: tuple[str, ...]
 ```
 
-See [Taint propagation](../concepts/taint-propagation.md#the-trust-model-a-provenance-set-not-a-lattice).
+See [Taint propagation](../concepts/taint-propagation.md#the-trust-model-a-provenance-set-not-a-lattice)
+and [Auditing: endorsement](../guides/auditing.md#endorsement) for `endorsements`.
 
 ## `Tainted`, `TaintedBytes`, `LabeledValue`
 
@@ -307,25 +353,29 @@ See [Taint propagation](../concepts/taint-propagation.md#the-trust-model-a-prove
 `.label: Label` and propagate it through the operation subset described in
 [Taint propagation](../concepts/taint-propagation.md). `LabeledValue` wraps
 a non-string scalar, exposing `.value` and `.label`; transforming `.value`
-first produces a plain, unlabeled result.
+first produces a plain, unlabeled result. All three support `copy.copy`/
+`copy.deepcopy` (preserving the label) and pickling (degrading to the plain
+underlying value, dropping the label — a stated boundary reset, not an
+error).
 
 ## `Reporter`, `ApprovalResolver`
 
-Protocols in `interbolt.models.protocols`. See
-[Reporters](reporters.md) for `Reporter` and its five implementations
-(`NullReporter`, `InMemoryReporter`, `LoggingReporter`, `JsonlReporter`,
-`CompositeReporter`). `ApprovalResolver` is `Callable[[Decision], bool |
-Awaitable[bool]]`: invoked synchronously at a sync call site, awaited at an
-async call site. A sync call site needs a resolver that returns a plain
-`bool`; one that returns an awaitable raises `InterboltUsageError`. The
-default, `auto_deny`, denies every request.
+Protocols in `interbolt.models.protocols`. `Reporter.export` takes an
+`Event | Finding | Endorsement`. See [Reporters](reporters.md) for
+`Reporter` and its five implementations (`NullReporter`, `InMemoryReporter`,
+`LoggingReporter`, `JsonlReporter`, `CompositeReporter`). `ApprovalResolver`
+is `Callable[[Decision], bool | Awaitable[bool]]`: invoked synchronously at
+a sync call site, awaited at an async call site. A sync call site needs a
+resolver that returns a plain `bool`; one that returns an awaitable raises
+`InterboltUsageError`. The default, `auto_deny`, denies every request.
 
-## `describe_decision`, `describe_event`, `describe_finding`
+## `describe_decision`, `describe_event`, `describe_finding`, `describe_endorsement`
 
 ```python
 def describe_decision(decision: Decision) -> str: ...
 def describe_event(event: Event) -> str: ...
 def describe_finding(finding: Finding) -> str: ...
+def describe_endorsement(endorsement: Endorsement) -> str: ...
 ```
 
 Each turns its record into a one-line, rich-markup-tagged human summary,
@@ -335,16 +385,17 @@ is the one to reach for right where a `Decision` is already in hand
 (a caught `PolicyViolation`/`ApprovalDenied`, or `check()`'s direct return
 value): it shows the tool, action, matched rule, matched condition (if any),
 mode, and `untrusted_sources` without a trip through the reporter stream.
-`describe_event`/`describe_finding` cover the same ground for the emitted,
-versioned `Event`/`Finding` records, and are what `interbolt inspect` uses
-internally. See [Reporters](reporters.md).
+`describe_event`/`describe_finding`/`describe_endorsement` cover the same
+ground for the emitted, versioned `Event`/`Finding`/`Endorsement` records,
+and are what `interbolt inspect` uses internally. See [Reporters](reporters.md).
 
-## `RECORD_TYPE_EVENT`, `RECORD_TYPE_FINDING`
+## `RECORD_TYPE_EVENT`, `RECORD_TYPE_FINDING`, `RECORD_TYPE_ENDORSEMENT`
 
 The `"record_type"` string values `JsonlReporter` tags each line with, and
-`interbolt inspect` reads back to recover which model (`Event` or `Finding`)
-a line deserializes to. In `interbolt.constants`, re-exported at the top
-level for a consumer parsing a `JsonlReporter` log directly.
+`interbolt inspect` reads back to recover which model (`Event`, `Finding`,
+or `Endorsement`) a line deserializes to. In `interbolt.constants`,
+re-exported at the top level for a consumer parsing a `JsonlReporter` log
+directly.
 
 ## Errors
 

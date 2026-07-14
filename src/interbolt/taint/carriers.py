@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import copy
 import uuid
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 from interbolt.errors import InterboltUsageError
@@ -16,20 +17,51 @@ def _fresh_label(source: str) -> Label:
     return Label(source=source, value_id=_new_value_id(), lineage=(source,))
 
 
+def _identity(value: Any) -> Any:  # noqa: ANN401 -- pickle reconstruction target
+    """Return `value` unchanged; the `__reduce__` target for `LabeledValue`.
+
+    A plain, importable module-level function, since pickle needs a callable
+    it can reference by qualified name, and `type(value)` is not always a
+    valid single-argument reconstructor (`NoneType()` takes no arguments).
+    """
+    return value
+
+
+def _intersect_endorsements(labels: Sequence[Label]) -> tuple[str, ...]:
+    """Intersect every label's `endorsements`, order from the first label.
+
+    A merge is conservative: an endorsement kind survives only if every
+    contributing label carried it (spec §6.7).
+    """
+    common = set(labels[0].endorsements)
+    for label in labels[1:]:
+        common &= set(label.endorsements)
+    return tuple(kind for kind in labels[0].endorsements if kind in common)
+
+
 def _merge_labels(*labels: Label) -> Label:
     """Union the lineage of one or more labels and mint a fresh value_id.
 
-    Used both to retag a single-label transformation result (one label in,
-    fresh id out) and to merge two differently-sourced operands (lineage union).
+    Used both to retag a single-label transformation result and to merge
+    two or more differently-sourced operands (lineage union, endorsements
+    intersection). A single label is returned unchanged: it is frozen and
+    safe to share, and there is nothing to merge, so no new `value_id` is
+    minted for a single-parent derivation (spec §6.4, the propagation-path
+    fast path).
     """
     if not labels:
         raise InterboltUsageError("_merge_labels requires at least one label")
+    if len(labels) == 1:
+        return labels[0]
     seen: dict[str, None] = {}
     for label in labels:
         for name in label.lineage:
             seen.setdefault(name, None)
     return Label.model_construct(
-        source=labels[0].source, value_id=_new_value_id(), lineage=tuple(seen)
+        source=labels[0].source,
+        value_id=_new_value_id(),
+        lineage=tuple(seen),
+        endorsements=_intersect_endorsements(labels),
     )
 
 
@@ -53,6 +85,13 @@ class Tainted(str):
     text, `str.format`/`format_map` on a plain template, and `join` on a
     plain separator produce a fresh, unlabeled string; re-`taint` the
     result in those cases.
+
+    `copy.copy`/`copy.deepcopy` preserve the label: both the string value and
+    the label are immutable, so a copy safely returns `self`. Pickling
+    (`__reduce__`) instead reduces to the plain underlying `str`, dropping
+    the label: this crosses the process/storage boundary, which the
+    propagation contract already treats as a taint reset (spec §6.3), so
+    dropping to plain here is the spec-consistent choice, not a gap.
     """
 
     __slots__ = ("label",)
@@ -62,6 +101,15 @@ class Tainted(str):
         obj = str.__new__(cls, value)
         obj.label = label
         return obj
+
+    def __copy__(self) -> Tainted:
+        return self
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> Tainted:
+        return self
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        return (str, (str(self),))
 
     def __add__(self, other: Any) -> Any:  # noqa: ANN401 -- binary operand, type-checked at runtime
         if not isinstance(other, str):
@@ -168,20 +216,71 @@ class Tainted(str):
         result = str.join(self, items)
         return _wrap(result, self.label, *_labels_of(*items))
 
+    def encode(self, encoding: str = "utf-8", errors: str = "strict") -> TaintedBytes:
+        # Narrows str's return type to TaintedBytes; the str-to-bytes I/O boundary.
+        return _wrap_bytes(str.encode(self, encoding, errors), self.label)
+
+    def casefold(self) -> Tainted:
+        return _wrap(str.casefold(self), self.label)
+
+    def capitalize(self) -> Tainted:
+        return _wrap(str.capitalize(self), self.label)
+
+    def title(self) -> Tainted:
+        return _wrap(str.title(self), self.label)
+
+    def swapcase(self) -> Tainted:
+        return _wrap(str.swapcase(self), self.label)
+
+    def removeprefix(self, prefix: str) -> Tainted:
+        return _wrap(str.removeprefix(self, prefix), self.label)
+
+    def removesuffix(self, suffix: str) -> Tainted:
+        return _wrap(str.removesuffix(self, suffix), self.label)
+
+    def center(self, width: int, fillchar: str = " ") -> Tainted:  # type: ignore[override]
+        # Narrows str's return type to Tainted; a covariant, intentional override.
+        return _wrap(str.center(self, width, fillchar), self.label)
+
+    def ljust(self, width: int, fillchar: str = " ") -> Tainted:  # type: ignore[override]
+        return _wrap(str.ljust(self, width, fillchar), self.label)
+
+    def rjust(self, width: int, fillchar: str = " ") -> Tainted:  # type: ignore[override]
+        return _wrap(str.rjust(self, width, fillchar), self.label)
+
+    def zfill(self, width: int) -> Tainted:  # type: ignore[override]
+        return _wrap(str.zfill(self, width), self.label)
+
+    def expandtabs(self, tabsize: int = 8) -> Tainted:  # type: ignore[override]
+        return _wrap(str.expandtabs(self, tabsize), self.label)
+
+    def format_map(self, mapping: Mapping[str, Any]) -> Tainted:  # type: ignore[override]
+        # Narrows str's return type to Tainted, mirroring format() above.
+        result = str.format_map(self, mapping)
+        return _wrap(result, self.label, *_labels_of(*mapping.values()))
+
 
 class TaintedBytes(bytes):
     """The `bytes` counterpart to `Tainted`.
 
     Covers binary `+`/`__radd__`, `%`-formatting (`__mod__`/`__rmod__`),
-    repetition (`__mul__`/`__rmul__`), slicing/indexing, `upper`/`lower`,
-    `strip`/`lstrip`/`rstrip`, `replace`, the part-returning family
+    repetition (`__mul__`/`__rmul__`), slicing/indexing, the case/padding
+    family (`upper`/`lower`/`capitalize`/`title`/`swapcase`), `strip`/
+    `lstrip`/`rstrip`, `removeprefix`/`removesuffix`, `center`/`ljust`/
+    `rjust`/`zfill`/`expandtabs`, `replace`, `decode` (the bytes-to-str I/O
+    boundary), the part-returning family
     (`split`/`rsplit`/`partition`/`rpartition`/`splitlines`), and `join`, the
     same subset `Tainted` covers minus the string-formatting methods that
-    have no `bytes` analog: `bytes` has no `.format()`/`str.format_map`
-    equivalent, so there is nothing to override there.
+    have no `bytes` analog: `bytes` has no `.format()`/`str.format_map`/
+    `casefold` equivalent, so there is nothing to override there.
 
     Stores `label` as a plain attribute rather than via `__slots__`, since
     CPython bytes subclasses can't add nonempty slots.
+
+    `copy.copy`/`copy.deepcopy` preserve the label by returning `self` (both
+    the bytes value and the label are immutable). Pickling reduces to the
+    plain underlying `bytes`, dropping the label, the same documented
+    boundary-reset choice `Tainted` makes (spec §6.3).
     """
 
     label: Label
@@ -190,6 +289,15 @@ class TaintedBytes(bytes):
         obj = bytes.__new__(cls, value)
         obj.label = label
         return obj
+
+    def __copy__(self) -> TaintedBytes:
+        return self
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> TaintedBytes:
+        return self
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        return (bytes, (bytes(self),))
 
     def __add__(self, other: Any) -> Any:  # noqa: ANN401
         if not isinstance(other, bytes):
@@ -303,6 +411,46 @@ class TaintedBytes(bytes):
         result = bytes.join(self, items)
         return _wrap_bytes(result, self.label, *_labels_of(*items))
 
+    def decode(self, encoding: str = "utf-8", errors: str = "strict") -> Tainted:
+        # Narrows bytes's return type to Tainted; the bytes-to-str I/O boundary.
+        return _wrap(bytes.decode(self, encoding, errors), self.label)
+
+    def capitalize(self) -> TaintedBytes:
+        return _wrap_bytes(bytes.capitalize(self), self.label)
+
+    def title(self) -> TaintedBytes:
+        return _wrap_bytes(bytes.title(self), self.label)
+
+    def swapcase(self) -> TaintedBytes:
+        return _wrap_bytes(bytes.swapcase(self), self.label)
+
+    def removeprefix(self, prefix: bytes) -> TaintedBytes:  # type: ignore[override]
+        return _wrap_bytes(bytes.removeprefix(self, prefix), self.label)
+
+    def removesuffix(self, suffix: bytes) -> TaintedBytes:  # type: ignore[override]
+        return _wrap_bytes(bytes.removesuffix(self, suffix), self.label)
+
+    def center(  # type: ignore[override]
+        self, width: int, fillchar: bytes = b" "
+    ) -> TaintedBytes:
+        return _wrap_bytes(bytes.center(self, width, fillchar), self.label)
+
+    def ljust(  # type: ignore[override]
+        self, width: int, fillchar: bytes = b" "
+    ) -> TaintedBytes:
+        return _wrap_bytes(bytes.ljust(self, width, fillchar), self.label)
+
+    def rjust(  # type: ignore[override]
+        self, width: int, fillchar: bytes = b" "
+    ) -> TaintedBytes:
+        return _wrap_bytes(bytes.rjust(self, width, fillchar), self.label)
+
+    def zfill(self, width: int) -> TaintedBytes:  # type: ignore[override]
+        return _wrap_bytes(bytes.zfill(self, width), self.label)
+
+    def expandtabs(self, tabsize: int = 8) -> TaintedBytes:  # type: ignore[override]
+        return _wrap_bytes(bytes.expandtabs(self, tabsize), self.label)
+
 
 class LabeledValue:
     """A non-string, non-bytes value labeled at ingress.
@@ -310,6 +458,11 @@ class LabeledValue:
     Preserves the label on a number, `bool`, or `None` (types that can't be
     subclassed the way `str`/`bytes` are) for direct use as a sink argument.
     Transforming `.value` first produces a plain, unlabeled result.
+
+    `copy.copy` shares `.value`; `copy.deepcopy` deep-copies `.value` and
+    shares the label (frozen, safe to share either way). Pickling reduces to
+    the plain `.value`, dropping the label, the same boundary-reset choice
+    `Tainted`/`TaintedBytes` make (spec §6.3).
     """
 
     __slots__ = ("value", "label")
@@ -331,3 +484,12 @@ class LabeledValue:
 
     def __bool__(self) -> bool:
         return bool(self.value)
+
+    def __copy__(self) -> LabeledValue:
+        return LabeledValue(value=self.value, label=self.label)
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> LabeledValue:
+        return LabeledValue(value=copy.deepcopy(self.value, memo), label=self.label)
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        return (_identity, (self.value,))

@@ -3,14 +3,14 @@ from __future__ import annotations
 from collections.abc import Awaitable
 from typing import Protocol
 
-from interbolt.models.core import Decision, Event, Finding
+from interbolt.models.core import Decision, Endorsement, Event, Finding
 
 
 class Reporter(Protocol):
     """The interface `enforcement` emits decision events and audit findings through."""
 
-    def export(self, event: Event | Finding) -> None:
-        """Emit a decision event or audit finding.
+    def export(self, event: Event | Finding | Endorsement) -> None:
+        """Emit a decision event, audit finding, or endorsement record.
 
         Args:
             event: The record to emit.

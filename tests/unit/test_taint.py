@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import copy
+import pickle
 from collections import UserDict, namedtuple
 
 import pytest
 from pytest_mock import MockerFixture
 
 from interbolt.errors import InterboltUsageError
-from interbolt.models.core import Label
+from interbolt.models.core import Endorsement, Label
 from interbolt.taint import (
     LabeledValue,
     Tainted,
@@ -15,6 +17,8 @@ from interbolt.taint import (
     _fresh_label,
     _merge_labels,
     collect_labels,
+    endorse,
+    install_endorsement_emitter,
     taint,
     track_model_call,
     unwrap,
@@ -43,12 +47,14 @@ class TestFreshLabelAndMerge:
         assert lbl.lineage == ("my_source",)
         assert len(lbl.value_id) == 36  # UUID4
 
-    def test_merge_labels_single_mints_new_value_id(self) -> None:
+    def test_merge_labels_single_reuses_label_and_value_id(self) -> None:
+        # Change 6 fast path: a single-label "merge" (every single-parent
+        # string-op derivation) returns the same Label object, minting no
+        # fresh value_id, since there is nothing to merge.
         lbl = _label("s")
         merged = _merge_labels(lbl)
-        assert merged.source == lbl.source
-        assert merged.lineage == lbl.lineage
-        assert merged.value_id != lbl.value_id
+        assert merged is lbl
+        assert merged.value_id == lbl.value_id
 
     def test_merge_labels_two_unions_lineage(self) -> None:
         a = _label("src_a")
@@ -66,6 +72,18 @@ class TestFreshLabelAndMerge:
     def test_merge_labels_zero_args_raises(self) -> None:
         with pytest.raises(InterboltUsageError):
             _merge_labels()
+
+    def test_merge_endorsements_intersects(self) -> None:
+        a = Label(source="a", value_id="1", lineage=("a",), endorsements=("k1", "k2"))
+        b = Label(source="b", value_id="2", lineage=("b",), endorsements=("k2",))
+        merged = _merge_labels(a, b)
+        assert merged.endorsements == ("k2",)
+
+    def test_merge_with_unendorsed_label_empties_endorsements(self) -> None:
+        endorsed = Label(source="a", value_id="1", lineage=("a",), endorsements=("k1",))
+        fresh = Label(source="b", value_id="2", lineage=("b",), endorsements=())
+        merged = _merge_labels(endorsed, fresh)
+        assert merged.endorsements == ()
 
 
 # ---------------------------------------------------------------------------
@@ -447,6 +465,278 @@ class TestLabeledValue:
 
 
 # ---------------------------------------------------------------------------
+# Change 3: copy, deepcopy, and pickle semantics for the carriers
+# ---------------------------------------------------------------------------
+
+
+class TestCopyDeepcopyPickle:
+    def test_tainted_copy_preserves_label(self) -> None:
+        original = taint("hello", source="web")
+        copied = copy.copy(original)
+        assert copied.label == original.label
+
+    def test_tainted_deepcopy_preserves_label_and_lineage(self) -> None:
+        original = taint("hello", source="web")
+        copied = copy.deepcopy(original)
+        assert copied.label.lineage == original.label.lineage
+        assert copied.label.value_id == original.label.value_id
+
+    def test_tainted_pickle_roundtrip_returns_plain_str_no_label(self) -> None:
+        original = taint("hello", source="web")
+        restored = pickle.loads(pickle.dumps(original))  # noqa: S301
+        assert restored == "hello"
+        assert type(restored) is str
+        assert not hasattr(restored, "label")
+
+    def test_tainted_bytes_copy_preserves_label(self) -> None:
+        original = taint(b"hello", source="web")
+        copied = copy.copy(original)
+        assert copied.label == original.label
+
+    def test_tainted_bytes_deepcopy_preserves_lineage(self) -> None:
+        original = taint(b"hello", source="web")
+        copied = copy.deepcopy(original)
+        assert copied.label.lineage == original.label.lineage
+
+    def test_tainted_bytes_pickle_roundtrip_returns_plain_bytes_no_label(self) -> None:
+        original = taint(b"hello", source="web")
+        restored = pickle.loads(pickle.dumps(original))  # noqa: S301
+        assert restored == b"hello"
+        assert type(restored) is bytes
+        assert not hasattr(restored, "label")
+
+    def test_labeled_value_copy_shares_value(self) -> None:
+        original = LabeledValue(value=42, label=_label())
+        copied = copy.copy(original)
+        assert copied.value == 42
+        assert copied.label == original.label
+
+    def test_labeled_value_deepcopy_preserves_label(self) -> None:
+        original = LabeledValue(value=[1, 2], label=_label())
+        copied = copy.deepcopy(original)
+        assert copied.value == [1, 2]
+        assert copied.value is not original.value
+        assert copied.label == original.label
+
+    def test_labeled_value_pickle_roundtrip_returns_plain_value(self) -> None:
+        original = LabeledValue(value=42, label=_label())
+        restored = pickle.loads(pickle.dumps(original))  # noqa: S301
+        assert restored == 42
+        assert not isinstance(restored, LabeledValue)
+
+    def test_deepcopy_of_container_of_tainted_values_keeps_every_label(self) -> None:
+        original = {"a": taint("x", source="s1"), "b": [taint("y", source="s2")]}
+        copied = copy.deepcopy(original)
+        assert copied["a"].label.source == "s1"
+        assert copied["b"][0].label.source == "s2"
+
+
+# ---------------------------------------------------------------------------
+# Change 4: widened propagation contract
+# ---------------------------------------------------------------------------
+
+
+class TestTaintedWidenedPropagation:
+    def test_encode_returns_tainted_bytes_same_label(self) -> None:
+        result = taint("hello", source="s").encode()
+        assert isinstance(result, TaintedBytes)
+        assert result.label.source == "s"
+
+    def test_casefold_preserves_label(self) -> None:
+        assert taint("HELLO", source="s").casefold().label.source == "s"
+
+    def test_capitalize_preserves_label(self) -> None:
+        assert taint("hello", source="s").capitalize().label.source == "s"
+
+    def test_title_preserves_label(self) -> None:
+        assert taint("hello world", source="s").title().label.source == "s"
+
+    def test_swapcase_preserves_label(self) -> None:
+        assert taint("Hello", source="s").swapcase().label.source == "s"
+
+    def test_removeprefix_preserves_label(self) -> None:
+        assert (
+            taint("hello_world", source="s").removeprefix("hello_").label.source == "s"
+        )
+
+    def test_removesuffix_preserves_label(self) -> None:
+        assert (
+            taint("hello_world", source="s").removesuffix("_world").label.source == "s"
+        )
+
+    def test_center_preserves_label(self) -> None:
+        assert taint("hi", source="s").center(10).label.source == "s"
+
+    def test_ljust_preserves_label(self) -> None:
+        assert taint("hi", source="s").ljust(10).label.source == "s"
+
+    def test_rjust_preserves_label(self) -> None:
+        assert taint("hi", source="s").rjust(10).label.source == "s"
+
+    def test_zfill_preserves_label(self) -> None:
+        assert taint("7", source="s").zfill(3).label.source == "s"
+
+    def test_expandtabs_preserves_label(self) -> None:
+        assert taint("a\tb", source="s").expandtabs().label.source == "s"
+
+    def test_format_map_merges_tainted_mapping_value_label(self) -> None:
+        template = taint("hello {name}", source="template_src")
+        result = template.format_map({"name": taint("alice", source="name_src")})
+        assert set(result.label.lineage) == {"template_src", "name_src"}
+
+    def test_encode_decode_roundtrip_preserves_lineage(self) -> None:
+        original = taint("hello", source="s")
+        roundtripped = original.encode().decode()
+        assert roundtripped.label.lineage == original.label.lineage
+
+
+class TestTaintedBytesWidenedPropagation:
+    def test_decode_returns_tainted_same_label(self) -> None:
+        result = taint(b"hello", source="s").decode()
+        assert isinstance(result, Tainted)
+        assert result.label.source == "s"
+
+    def test_capitalize_preserves_label(self) -> None:
+        assert taint(b"hello", source="s").capitalize().label.source == "s"
+
+    def test_title_preserves_label(self) -> None:
+        assert taint(b"hello world", source="s").title().label.source == "s"
+
+    def test_swapcase_preserves_label(self) -> None:
+        assert taint(b"Hello", source="s").swapcase().label.source == "s"
+
+    def test_removeprefix_preserves_label(self) -> None:
+        result = taint(b"hello_world", source="s").removeprefix(b"hello_")
+        assert result.label.source == "s"
+
+    def test_removesuffix_preserves_label(self) -> None:
+        result = taint(b"hello_world", source="s").removesuffix(b"_world")
+        assert result.label.source == "s"
+
+    def test_center_preserves_label(self) -> None:
+        assert taint(b"hi", source="s").center(10).label.source == "s"
+
+    def test_ljust_preserves_label(self) -> None:
+        assert taint(b"hi", source="s").ljust(10).label.source == "s"
+
+    def test_rjust_preserves_label(self) -> None:
+        assert taint(b"hi", source="s").rjust(10).label.source == "s"
+
+    def test_zfill_preserves_label(self) -> None:
+        assert taint(b"7", source="s").zfill(3).label.source == "s"
+
+    def test_expandtabs_preserves_label(self) -> None:
+        assert taint(b"a\tb", source="s").expandtabs().label.source == "s"
+
+
+# ---------------------------------------------------------------------------
+# Change 6: single-label fast path
+# ---------------------------------------------------------------------------
+
+
+class TestSingleLabelFastPath:
+    def test_single_parent_derivation_shares_parent_value_id(self) -> None:
+        original = taint("hello world", source="s")
+        upper = original.upper()
+        assert upper.label.value_id == original.label.value_id
+
+    def test_split_parts_all_share_parent_value_id(self) -> None:
+        original = taint("a b c", source="s")
+        parts = original.split()
+        assert all(part.label.value_id == original.label.value_id for part in parts)
+
+    def test_two_parent_merge_mints_fresh_value_id(self) -> None:
+        a = taint("hello ", source="s1")
+        b = taint("world", source="s2")
+        merged = a + b
+        assert merged.label.value_id != a.label.value_id
+        assert merged.label.value_id != b.label.value_id
+
+
+# ---------------------------------------------------------------------------
+# Change 5: endorse()
+# ---------------------------------------------------------------------------
+
+
+class TestEndorse:
+    def test_preserves_lineage(self) -> None:
+        original = taint("attacker@external.com", source="web_search")
+        endorsed = endorse(original, kind="recipient_allowlisted")
+        assert endorsed.label.lineage == original.label.lineage
+
+    def test_adds_kind_to_endorsements(self) -> None:
+        original = taint("x", source="web_search")
+        endorsed = endorse(original, kind="recipient_allowlisted")
+        assert endorsed.label.endorsements == ("recipient_allowlisted",)
+
+    def test_mints_fresh_value_id(self) -> None:
+        original = taint("x", source="web_search")
+        endorsed = endorse(original, kind="k")
+        assert endorsed.label.value_id != original.label.value_id
+
+    def test_repeated_endorsement_accumulates_kinds(self) -> None:
+        original = taint("x", source="web_search")
+        once = endorse(original, kind="k1")
+        twice = endorse(once, kind="k2")
+        assert twice.label.endorsements == ("k1", "k2")
+
+    def test_repeated_endorsement_same_kind_deduplicates(self) -> None:
+        original = taint("x", source="web_search")
+        once = endorse(original, kind="k1")
+        twice = endorse(once, kind="k1")
+        assert twice.label.endorsements == ("k1",)
+
+    def test_plain_value_is_noop(self) -> None:
+        result = endorse("plain string", kind="k")
+        assert result == "plain string"
+        assert not isinstance(result, Tainted)
+
+    def test_labeled_value_endorsement(self) -> None:
+        original = taint(42, source="s")
+        endorsed = endorse(original, kind="k")
+        assert isinstance(endorsed, LabeledValue)
+        assert endorsed.label.endorsements == ("k",)
+        assert endorsed.value == 42
+
+    def test_container_endorsement_endorses_every_labeled_leaf(self) -> None:
+        original = taint({"to": "a@b.com", "cc": "c@d.com"}, source="web_search")
+        endorsed = endorse(original, kind="recipient_allowlisted")
+        assert endorsed["to"].label.endorsements == ("recipient_allowlisted",)
+        assert endorsed["cc"].label.endorsements == ("recipient_allowlisted",)
+
+    def test_container_endorsement_skips_unlabeled_leaves(self) -> None:
+        original = taint({"to": "a@b.com", "count": 3}, source="web_search")
+        endorsed = endorse(original, kind="k")
+        assert endorsed["count"] == 3
+
+    def test_bytes_endorsement(self) -> None:
+        original = taint(b"payload", source="web_search")
+        endorsed = endorse(original, kind="k")
+        assert isinstance(endorsed, TaintedBytes)
+        assert endorsed.label.endorsements == ("k",)
+
+    def test_endorsement_emitted_through_installed_emitter(self) -> None:
+        captured: list[Endorsement] = []
+        install_endorsement_emitter(captured.append)
+        original = taint("x", source="web_search")
+        endorse(original, kind="recipient_allowlisted", note="verified by hand")
+        assert len(captured) == 1
+        assert captured[0].kind == "recipient_allowlisted"
+        assert captured[0].note == "verified by hand"
+
+    def test_no_emission_when_nothing_endorsed(self) -> None:
+        captured: list[Endorsement] = []
+        install_endorsement_emitter(captured.append)
+        endorse("plain string", kind="k")
+        assert captured == []
+
+    def test_no_emitter_installed_does_not_raise(self) -> None:
+        install_endorsement_emitter(None)
+        result = endorse(taint("x", source="web_search"), kind="k")
+        assert result.label.endorsements == ("k",)
+
+
+# ---------------------------------------------------------------------------
 # taint()
 # ---------------------------------------------------------------------------
 
@@ -512,6 +802,56 @@ class TestTaintFunction:
         assert isinstance(result, Tainted)
         assert result.label.source == "my_source"
         assert result.label.lineage == ("my_source",)
+
+
+# ---------------------------------------------------------------------------
+# Change 1: container recursion labels only string leaves; the depth cutoff
+# never shape-shifts a sub-container into a LabeledValue.
+# ---------------------------------------------------------------------------
+
+
+class TestContainerRecursionStringLeavesOnly:
+    def test_numeric_leaf_inside_dict_survives_arithmetic(self) -> None:
+        result = taint({"count": 3}, source="api")
+        assert result["count"] + 1 == 4
+
+    def test_bool_and_none_leaves_pass_through_unwrapped(self) -> None:
+        result = taint({"flag": True, "missing": None}, source="api")
+        assert result["flag"] is True
+        assert result["missing"] is None
+
+    def test_string_leaf_still_labeled_in_mixed_container(self) -> None:
+        result = taint({"count": 3, "name": "alice"}, source="api")
+        assert isinstance(result["name"], Tainted)
+        assert not isinstance(result["count"], LabeledValue)
+
+    def test_list_of_mixed_types_labels_only_strings(self) -> None:
+        result = taint(["a", 1, None, True], source="api")
+        assert isinstance(result[0], Tainted)
+        assert result[1] == 1
+        assert result[2] is None
+        assert result[3] is True
+
+    def test_deep_cutoff_indexing_does_not_crash(self) -> None:
+        deep = {"a": {"b": {"c": {"d": {"e": {"f": "x"}}}}}}
+        result = taint(deep, source="web")
+        # Depth default is 4; the sub-dict beyond the cutoff passes through
+        # unchanged and unlabeled, so it stays a plain, subscriptable dict.
+        sub = result["a"]["b"]["c"]["d"]
+        assert sub == {"e": {"f": "x"}}
+
+    def test_below_cutoff_strings_are_plain_and_unlabeled(self) -> None:
+        deep = {"a": {"b": {"c": {"d": {"e": "x"}}}}}
+        result = taint(deep, source="web", derived_from=None)
+        below = result["a"]["b"]["c"]["d"]
+        assert below == {"e": "x"}
+        assert not isinstance(below["e"], Tainted)
+        assert collect_labels(below, max_depth=10) == ()
+
+    def test_top_level_scalar_still_returns_labeled_value(self) -> None:
+        result = taint(3, source="api")
+        assert isinstance(result, LabeledValue)
+        assert result.value == 3
 
 
 # ---------------------------------------------------------------------------

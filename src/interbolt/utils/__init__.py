@@ -16,6 +16,17 @@ importing the other: `taint()` reads it to attribute run-scoped ingress
 guard wrappers.
 """
 
+current_agent_id: ContextVar[str | None] = ContextVar(
+    "interbolt_agent_id", default=None
+)
+"""The active agent's identity, bound by `Runtime.agent_context`/guard wrappers.
+
+A leaf-level primitive, the same shape as `current_run_id` above and for the
+same reason: `taint/endorse.py` reads it to attribute an `Endorsement`
+record's `agent_id` without importing `runtime/`; `runtime/guard.py`
+re-exports this same `ContextVar` rather than defining its own.
+"""
+
 
 def get_logger(name: str | None = None) -> logging.Logger:
     """Return the library logger, or a child of it.
