@@ -108,6 +108,20 @@ def test_fs_write_trusted_only_is_allowed_without_approval_call(
     fake_resolver.assert_not_called()
 
 
+def test_guarded_call_with_namedtuple_argument_completes(runtime: Runtime) -> None:
+    """Fix 8: a namedtuple anywhere in a guarded call's arguments must not crash."""
+    from collections import namedtuple
+
+    Point = namedtuple("Point", "x y")
+    agent = runtime.agent("research-agent")
+
+    @agent.guard(tool="fs_write")
+    def write_file(path: str, content: object) -> None:
+        pass
+
+    write_file(path="/data/out.txt", content=Point("a", "b"))
+
+
 def test_run_shell_blocked_when_untrusted_data_is_merged_into_command(
     runtime: Runtime,
 ) -> None:

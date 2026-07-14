@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from interbolt.errors import InterboltUsageError
@@ -77,6 +77,8 @@ class Tainted(str):
 
     def __mod__(self, other: Any) -> Any:  # noqa: ANN401
         result = str.__mod__(self, other)
+        if isinstance(other, Mapping):
+            return _wrap(result, self.label, *_labels_of(*other.values()))
         values = other if isinstance(other, tuple) else (other,)
         return _wrap(result, self.label, *_labels_of(*values))
 
@@ -203,6 +205,8 @@ class TaintedBytes(bytes):
 
     def __mod__(self, other: Any) -> Any:  # noqa: ANN401
         result = bytes.__mod__(self, other)
+        if isinstance(other, Mapping):
+            return _wrap_bytes(result, self.label, *_labels_of(*other.values()))
         values = other if isinstance(other, tuple) else (other,)
         return _wrap_bytes(result, self.label, *_labels_of(*values))
 

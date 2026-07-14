@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections import UserDict
+from collections import UserDict, namedtuple
 
 import pytest
 from pytest_mock import MockerFixture
@@ -19,6 +19,8 @@ from interbolt.taint import (
     track_model_call,
     unwrap,
 )
+
+Point = namedtuple("Point", "x y")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -108,6 +110,20 @@ class TestTainted:
         result = t % "world"
         assert isinstance(result, Tainted)
         assert "a" in result.label.lineage
+
+    def test_mod_merges_mapping_operand_tainted_value_label(self) -> None:
+        t = Tainted("Hello %(name)s", label=_label("template_src"))
+        other = Tainted("world", label=_label("other_src"))
+        result = t % {"name": other}
+        assert isinstance(result, Tainted)
+        assert "template_src" in result.label.lineage
+        assert "other_src" in result.label.lineage
+
+    def test_mod_plain_dict_operand_unchanged(self) -> None:
+        t = Tainted("Hello %(name)s", label=_label("template_src"))
+        result = t % {"name": "plain"}
+        assert isinstance(result, Tainted)
+        assert result.label.lineage == ("template_src",)
 
     def test_rmod_plain_format_string(self) -> None:
         t = Tainted("world", label=_label("a"))
@@ -299,6 +315,19 @@ class TestTaintedBytes:
         result = tb % (arg,)
         assert "a" in result.label.lineage
         assert "b" in result.label.lineage
+
+    def test_mod_merges_mapping_operand_tainted_value_label(self) -> None:
+        tb = TaintedBytes(b"Hello %(name)s", label=_label("template_src"))
+        other = TaintedBytes(b"world", label=_label("other_src"))
+        result = tb % {b"name": other}
+        assert isinstance(result, TaintedBytes)
+        assert "template_src" in result.label.lineage
+        assert "other_src" in result.label.lineage
+
+    def test_mod_plain_dict_operand_unchanged(self) -> None:
+        tb = TaintedBytes(b"Hello %(name)s", label=_label("template_src"))
+        result = tb % {b"name": b"plain"}
+        assert result.label.lineage == ("template_src",)
 
     def test_rmod_plain_template_keeps_self_label(self) -> None:
         tb = TaintedBytes(b"world", label=_label("a"))
@@ -720,3 +749,58 @@ class TestUnwrap:
         assert unwrap("plain") == "plain"
         assert unwrap(42) == 42
         assert unwrap(None) is None
+
+
+class TestNamedtupleContainerHandling:
+    def test_taint_labels_namedtuple_fields_and_preserves_type(self) -> None:
+        result = taint(Point("a", "b"), source="s")
+        assert isinstance(result, Point)
+        assert isinstance(result.x, Tainted)
+        assert isinstance(result.y, Tainted)
+
+    def test_unwrap_round_trips_namedtuple(self) -> None:
+        tainted = taint(Point("a", "b"), source="s")
+        result = unwrap(tainted)
+        assert isinstance(result, Point)
+        assert result == Point("a", "b")
+
+    def test_collect_labels_finds_labels_inside_namedtuple(self) -> None:
+        tainted = taint(Point("a", "b"), source="s")
+        labels = collect_labels(tainted, max_depth=4)
+        assert len(labels) == 2
+
+    def test_unwrap_round_trips_namedtuple_nested_in_dict(self) -> None:
+        result = unwrap({"p": Point(1, 2)})
+        assert result == {"p": Point(1, 2)}
+
+    def test_container_subclass_with_incompatible_constructor_does_not_raise(
+        self,
+    ) -> None:
+        class UnreconstructableTuple(tuple):  # type: ignore[type-arg]
+            def __new__(cls, *args: object) -> UnreconstructableTuple:
+                raise TypeError("this container can never be reconstructed")
+
+        # Bypass the broken __new__ to build the initial instance directly.
+        instance = tuple.__new__(UnreconstructableTuple, (1, 2))
+
+        tainted_result = taint(instance, source="s")
+        assert tainted_result is instance
+
+        unwrapped_result = unwrap(instance)
+        assert unwrapped_result is instance
+
+
+class TestReadOnlyTraversalsHandleNamedtuplesWithoutChange:
+    """collect_labels/_walk_strings only iterate, never reconstruct, so a
+    namedtuple never triggers the TypeError Fix 8 guards against for them."""
+
+    def test_collect_labels_walks_namedtuple_without_reconstruction(self) -> None:
+        tainted = taint(Point("a", "b"), source="s")
+        assert len(collect_labels(tainted, max_depth=4)) == 2
+
+    def test_walk_strings_walks_namedtuple_without_reconstruction(self) -> None:
+        from interbolt.enforcement import _walk_strings
+
+        tainted = taint(Point("a", "b"), source="s")
+        found = list(_walk_strings(tainted, depth=4))
+        assert len(found) == 2

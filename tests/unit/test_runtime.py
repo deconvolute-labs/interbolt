@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -18,6 +19,18 @@ from interbolt.runtime.guard import AgentHandle, current_agent_id, current_run_i
 
 if TYPE_CHECKING:
     pass
+
+
+def _installed_taint_observer() -> object:
+    """The current `taint/`-level observer, or `None` if uninstalled.
+
+    Looked up via `sys.modules` rather than `import interbolt.taint as X`:
+    `interbolt/__init__.py` does `from interbolt.taint import taint`, which
+    overwrites the `taint` attribute on the `interbolt` package with the
+    function; `import a.b as x` resolves through that attribute chain, so it
+    would silently bind to the function instead of the submodule.
+    """
+    return getattr(sys.modules["interbolt.taint"], "_taint_observer")  # noqa: B009
 
 
 class TestConfigure:
@@ -123,7 +136,7 @@ class TestConfigure:
         rt = configure(policy=make_policy(), reporter=reporter)
         assert rt.reporter is reporter
 
-    def test_logs_summary_warning_for_file_loaded_policy(
+    def test_logs_summary_info_for_file_loaded_policy(
         self,
         make_policy: Callable[..., Policy],
         caplog: pytest.LogCaptureFixture,
@@ -133,12 +146,14 @@ class TestConfigure:
             sources=(),
             sinks={"default.t": (SinkRule(name="r", action=Action.ALLOW),)},
         )
-        with caplog.at_level("WARNING", logger="interbolt.runtime"):
+        with caplog.at_level("INFO", logger="interbolt.runtime"):
             configure(policy=policy, mode=Mode.MONITOR)
         messages = [r.message for r in caplog.records]
         assert any("mode=monitor" in m and "sinks=1" in m for m in messages)
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert warnings == []
 
-    def test_logs_summary_warning_for_default_policy(
+    def test_logs_summary_info_for_default_policy(
         self,
         caplog: pytest.LogCaptureFixture,
         reset_runtime: None,
@@ -150,10 +165,67 @@ class TestConfigure:
         # their own programmatically-built Policy hits the same source=None
         # case and deserves the same honest wording, not a false claim that
         # it's the built-in default.
-        with caplog.at_level("WARNING", logger="interbolt.runtime"):
+        with caplog.at_level("INFO", logger="interbolt.runtime"):
             configure()
         messages = [r.message for r in caplog.records]
         assert any("programmatic" in m and "no file" in m for m in messages)
+
+    def test_logs_default_policy_warning_when_no_policy_given(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        reset_runtime: None,
+    ) -> None:
+        with caplog.at_level("WARNING", logger="interbolt.runtime"):
+            configure()
+        warnings = [r.message for r in caplog.records if r.levelname == "WARNING"]
+        assert any("interbolt init" in m for m in warnings)
+
+    def test_no_default_policy_warning_when_policy_given(
+        self,
+        make_policy: Callable[..., Policy],
+        caplog: pytest.LogCaptureFixture,
+        reset_runtime: None,
+    ) -> None:
+        with caplog.at_level("WARNING", logger="interbolt.runtime"):
+            configure(policy=make_policy())
+        warnings = [r.message for r in caplog.records if r.levelname == "WARNING"]
+        assert not any("interbolt init" in m for m in warnings)
+
+    def test_configure_logs_caller_file_and_line(
+        self,
+        make_policy: Callable[..., Policy],
+        caplog: pytest.LogCaptureFixture,
+        reset_runtime: None,
+    ) -> None:
+        with caplog.at_level("INFO", logger="interbolt.runtime"):
+            configure(policy=make_policy())
+        messages = [r.message for r in caplog.records]
+        assert any("caller=" in m and __file__ in m for m in messages)
+
+    def test_caller_location_falls_back_when_getframe_unavailable(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Tests _caller_location() directly rather than through configure():
+        # sys._getframe is also used internally by the stdlib logging module
+        # (findCaller), so patching it globally around a configure() call
+        # (which logs) would break logging's own frame introspection too.
+        def _raise(_depth: int) -> None:
+            raise AttributeError("no _getframe")
+
+        monkeypatch.setattr(sys, "_getframe", _raise)
+        assert _rt_module._caller_location() == ("unknown", 0)
+
+    def test_configure_audit_true_installs_taint_observer(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        configure(policy=make_policy(), audit=True)
+        assert _installed_taint_observer() is not None
+
+    def test_configure_audit_false_installs_no_observer(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        configure(policy=make_policy(), audit=False)
+        assert _installed_taint_observer() is None
 
 
 class TestCurrent:
@@ -168,6 +240,16 @@ class TestCurrent:
     ) -> None:
         rt = configure(policy=make_policy())
         assert _current() is rt
+
+    def test_current_resolves_correctly_across_threads_after_single_configure(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        rt = configure(policy=make_policy())
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            results = list(executor.map(lambda _: _current(), range(64)))
+        assert all(r is rt for r in results)
 
 
 class TestRuntime:
