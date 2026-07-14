@@ -1,9 +1,8 @@
 """The dependency-inversion observer/emitter factories `configure()` installs.
 
-Split out of `runtime/__init__.py` to keep that module under the project's
-line-count split threshold; these two factories are a self-contained wiring
-concern, distinct from the `Runtime` composition root and the module-level
-`configure`/`agent`/`guard`/`check` surface.
+These two factories are a self-contained wiring concern, distinct from the
+`Runtime` composition root and the module-level `configure`/`agent`/`guard`/
+`check` surface.
 """
 
 from __future__ import annotations
