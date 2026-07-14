@@ -121,9 +121,9 @@ class Decision(BaseModel):
             the reporter doesn't need its own sources table to re-derive it.
         run_tainted: Whether the active run has ingested untrusted data via
             `taint()` at any point before this call, regardless of whether
-            this call's own arguments carry a label (run-level gating, spec
-            §15.8). Catches a model-mediated handoff that launders
-            value-level taint away.
+            this call's own arguments carry a label (run-level gating).
+            Catches a model-mediated handoff that launders value-level
+            taint away.
         mode: The enforcement mode in effect when this decision was made.
         decision_id: A unique id for this decision, for the audit trail.
         agent_id: The durable, integrator-supplied agent identity.

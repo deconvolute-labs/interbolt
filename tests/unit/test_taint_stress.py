@@ -57,8 +57,7 @@ class TestDeepContainerRecursion:
         elapsed = time.monotonic() - start
         assert elapsed < _TIME_BUDGET_SECONDS
         # Buried far below the resolved depth: correctly invisible, not a
-        # crash. This is the documented, honest limit (spec Section 6.6),
-        # not a bug.
+        # crash. This is the documented, honest limit, not a bug.
         assert labels == ()
 
 

@@ -1,7 +1,7 @@
 """Benchmark: check() per-call overhead and the tainted splitlines() fast path.
 
-A plain script, not a pytest-discovered test (spec 9.2/14b.9: "the benchmark
-and its result are published," not a CI gate). Run with:
+A plain script, not a pytest-discovered test: its results are published, not
+a CI gate. Run with:
 
     uv run python dev/bench.py
 
@@ -9,7 +9,7 @@ Measures:
   - check() overhead for a small tainted arg and a 25KB tainted arg, against
     a one-rule sink policy.
   - Tainted.splitlines() on a 5000-line tainted string (the single-label
-    fast path in _merge_labels, PR 3 Change 6).
+    fast path in _merge_labels).
 """
 
 from __future__ import annotations

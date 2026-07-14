@@ -109,7 +109,7 @@ def test_fs_write_trusted_only_is_allowed_without_approval_call(
 
 
 def test_guarded_call_with_namedtuple_argument_completes(runtime: Runtime) -> None:
-    """Fix 8: a namedtuple anywhere in a guarded call's arguments must not crash."""
+    """A namedtuple anywhere in a guarded call's arguments must not crash."""
     from collections import namedtuple
 
     Point = namedtuple("Point", "x y")

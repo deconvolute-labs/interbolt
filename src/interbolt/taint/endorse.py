@@ -1,8 +1,7 @@
 """The `endorse()` primitive: the integrity dual of declassification.
 
-Kept in its own module rather than `taint/__init__.py` to keep that file
-under the 500-line split threshold; `endorse` and `install_endorsement_emitter`
-are re-exported from there.
+`endorse` and `install_endorsement_emitter` are re-exported from
+`taint/__init__.py`.
 """
 
 from __future__ import annotations

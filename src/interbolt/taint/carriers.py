@@ -31,7 +31,7 @@ def _intersect_endorsements(labels: Sequence[Label]) -> tuple[str, ...]:
     """Intersect every label's `endorsements`, order from the first label.
 
     A merge is conservative: an endorsement kind survives only if every
-    contributing label carried it (spec §6.7).
+    contributing label carried it.
     """
     common = set(labels[0].endorsements)
     for label in labels[1:]:
@@ -46,8 +46,8 @@ def _merge_labels(*labels: Label) -> Label:
     two or more differently-sourced operands (lineage union, endorsements
     intersection). A single label is returned unchanged: it is frozen and
     safe to share, and there is nothing to merge, so no new `value_id` is
-    minted for a single-parent derivation (spec §6.4, the propagation-path
-    fast path).
+    minted for a single-parent derivation: the fast path for the common
+    case of transforming one already-tainted value.
     """
     if not labels:
         raise InterboltUsageError("_merge_labels requires at least one label")
@@ -89,9 +89,9 @@ class Tainted(str):
     `copy.copy`/`copy.deepcopy` preserve the label: both the string value and
     the label are immutable, so a copy safely returns `self`. Pickling
     (`__reduce__`) instead reduces to the plain underlying `str`, dropping
-    the label: this crosses the process/storage boundary, which the
-    propagation contract already treats as a taint reset (spec §6.3), so
-    dropping to plain here is the spec-consistent choice, not a gap.
+    the label: pickling crosses the process/storage boundary, and taint
+    propagation does not survive that boundary by design, so dropping to
+    plain here is intentional, not a gap.
     """
 
     __slots__ = ("label",)
@@ -279,8 +279,8 @@ class TaintedBytes(bytes):
 
     `copy.copy`/`copy.deepcopy` preserve the label by returning `self` (both
     the bytes value and the label are immutable). Pickling reduces to the
-    plain underlying `bytes`, dropping the label, the same documented
-    boundary-reset choice `Tainted` makes (spec §6.3).
+    plain underlying `bytes`, dropping the label, the same boundary-reset
+    behavior `Tainted` documents above.
     """
 
     label: Label
@@ -461,8 +461,8 @@ class LabeledValue:
 
     `copy.copy` shares `.value`; `copy.deepcopy` deep-copies `.value` and
     shares the label (frozen, safe to share either way). Pickling reduces to
-    the plain `.value`, dropping the label, the same boundary-reset choice
-    `Tainted`/`TaintedBytes` make (spec §6.3).
+    the plain `.value`, dropping the label, the same boundary-reset behavior
+    `Tainted`/`TaintedBytes` document above.
     """
 
     __slots__ = ("value", "label")

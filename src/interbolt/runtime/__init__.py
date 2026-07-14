@@ -364,7 +364,7 @@ def _current() -> Runtime:
 def get_runtime() -> Runtime:
     """Return the process-current runtime.
 
-    The `get_tracer_provider()` analog.Use this to reach the live runtime
+    The `get_tracer_provider()` analog. Use this to reach the live runtime
     later, for example to call `Runtime.add_reporter`.
 
     Returns:

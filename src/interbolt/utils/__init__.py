@@ -11,9 +11,8 @@ current_run_id: ContextVar[str | None] = ContextVar("interbolt_run_id", default=
 """The active run's identity, bound by `Runtime.agent_context` for its duration.
 
 A leaf-level primitive shared by `taint/` and `runtime/` without either
-importing the other: `taint()` reads it to attribute run-scoped ingress
-(spec §15.8); `runtime/` sets it in `agent_context` and reads it in the
-guard wrappers.
+importing the other: `taint()` reads it to attribute run-scoped ingress;
+`runtime/` sets it in `agent_context` and reads it in the guard wrappers.
 """
 
 current_agent_id: ContextVar[str | None] = ContextVar(

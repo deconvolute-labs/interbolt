@@ -27,8 +27,8 @@ def _record_ingress(source: str) -> None:
 
     Records the bare source name, keyed by the ambient `current_run_id`, for
     `enforcement.check()` to resolve later against run-level gating
-    (`run.tainted`, spec §15.8). Trust itself is resolved at the sink, from
-    the policy's `sources` table.
+    (`run.tainted`). Trust itself is resolved at the sink, from the policy's
+    `sources` table.
     """
     run_id = current_run_id.get()
     if run_id is None:
@@ -60,9 +60,8 @@ _taint_observer: Callable[[str, str, str], None] | None = None
 
 A plain module-level hook: taint/ owns and exposes this extension point so
 runtime/ (the composition root) can wire an AuditRegistry observer without
-taint/ importing enforcement/ or runtime/ (spec section 3.2), the same
-dependency-inversion shape as `current_run_id`. Internal, not part of the
-public surface.
+taint/ importing enforcement/ or runtime/, the same dependency-inversion
+shape as `current_run_id`. Internal, not part of the public surface.
 """
 
 
@@ -82,8 +81,8 @@ def _observe_ingress(value: Any, *, source: str, run_id: str, depth: int) -> Non
     """Report every str/bytes leaf in a fresh-ingress `value` to the observer.
 
     Mirrors `_taint_value`'s container/mapping traversal shape but only
-    reads leaves; it never reconstructs anything, so it needs none of Fix
-    8's defensive handling.
+    reads leaves; since it never reconstructs a container, it needs none of
+    the reconstruction-failure handling `_taint_container` requires.
     """
     observer = _taint_observer
     if observer is None:
@@ -232,7 +231,7 @@ def _taint_container(
     At the depth cutoff, or when reconstruction fails, the value passes
     through unchanged and unlabeled rather than being wrapped: a buried
     sub-container must stay a drop-in substitute for the original, never a
-    `LabeledValue` shell around it (spec §6.6).
+    `LabeledValue` shell around it.
     """
     if depth <= 0:
         return value
