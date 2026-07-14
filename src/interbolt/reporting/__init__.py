@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -124,19 +125,36 @@ class CompositeReporter:
 
     One broken sub-reporter never prevents the record from reaching the
     others, mirroring the fire-and-forget contract `enforcement` already
-    applies to a single reporter.
-
-    Attributes:
-        reporters: The reporters to fan out to, in call order.
+    applies to a single reporter. The sequence is appendable at any time via
+    `add()`, thread-safe under a lock; `export()` fans out to a snapshot of
+    the list taken at call time, so an `add()` racing an `export()` is safe.
     """
 
     def __init__(self, reporters: Sequence[Reporter]) -> None:
-        """Wrap a fixed sequence of reporters."""
-        self.reporters = tuple(reporters)
+        """Wrap an initial sequence of reporters."""
+        self._lock = threading.Lock()
+        self._reporters: list[Reporter] = list(reporters)
+
+    @property
+    def reporters(self) -> tuple[Reporter, ...]:
+        """A snapshot of the wrapped reporters, in call order."""
+        with self._lock:
+            return tuple(self._reporters)
+
+    def add(self, reporter: Reporter) -> None:
+        """Append a reporter to the fan-out sequence.
+
+        Args:
+            reporter: The reporter to add.
+        """
+        with self._lock:
+            self._reporters.append(reporter)
 
     def export(self, event: Event | Finding) -> None:
-        """Export the record to every wrapped reporter, in order."""
-        for reporter in self.reporters:
+        """Export the record to a snapshot of every wrapped reporter, in order."""
+        with self._lock:
+            snapshot = list(self._reporters)
+        for reporter in snapshot:
             try:
                 reporter.export(event)
             except Exception:  # noqa: BLE001 -- one reporter's failure must not block another

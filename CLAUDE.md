@@ -53,6 +53,7 @@ spec governs; this file is the short enforcement checklist.
 - All async methods are `async def`. The decision core is pure and synchronous; only the reporter and approval resolver are colored. `asyncio.run()` is never called inside the library. Never block the event loop.
 - The library logger never configures the root logger and never emits at import. `DEBUG` is extensive; `INFO` is the verbose default. Never call logging configuration from library code.
 - Google-style docstrings on all public functions, methods, and classes (the set re-exported from the package `__init__`). Internal docstrings are optional but recommended and kept short (one-line summary preferred).
+- In docstrings, never reference the spec. Also do not explain what something is not doing. Keep the docstrings concise.
 - Type hints on every function and method signature including return types. No `Any` without an inline comment explaining why it is intentional.
 - No agent framework imports in the core (LangChain, LangGraph, CrewAI, etc.). Framework glue lives only in `integrations/`, behind optional extras. Core is plain Python.
 - Split a module into multiple files only when it exceeds 500 lines, or when a separate file is required to break a dependency cycle. Do not pre-split by sub-feature.

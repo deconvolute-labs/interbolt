@@ -5,7 +5,7 @@ the public surface; anything not listed here is internal and may change
 without notice.
 
 ```
-taint, guard, check, configure, default_policy, agent, AgentHandle,
+taint, guard, check, configure, default_policy, agent, get_runtime, AgentHandle,
 track_model_call, Runtime, Policy,
 Decision, Event, Finding, Action, Mode, Label, TrustLevel,
 Reporter, ApprovalResolver,
@@ -158,12 +158,28 @@ after a later `configure()` call, the same way bare `guard` does.
 `runtime.agent(agent_id)` (a method on the object `configure()` returns) is
 equivalent, kept for discoverability. See [Identity](../concepts/identity.md).
 
+## `get_runtime`
+
+```python
+def get_runtime() -> Runtime: ...
+```
+
+Returns the process-current runtime, the `get_tracer_provider()` analog: for
+code that didn't keep `configure()`'s return value (a different module, or
+reaching for `Runtime.add_reporter` later). Raises `InterboltUsageError` if
+`configure()` hasn't run yet.
+
 ## `AgentHandle`
 
 The type returned by `agent(...)`/`runtime.agent(...)`. Exposes `.guard`,
 usable bare (`@handle.guard`) or parameterized (`@handle.guard(tool=...)`),
 behaving identically to the module-level `guard` except that `agent_id`
-comes from the handle instead of the active `agent_context`.
+comes from the handle instead of the active `agent_context`. Also exposes
+`.track_model_call`, equivalent to the module-level `track_model_call`
+(above), provided for per-handle symmetry: `@support.guard` and
+`@support.track_model_call` are both reachable from one handle. The
+handle's agent identity plays no role in `.track_model_call`, since taint
+derivation is identity-free.
 
 ## `Runtime`
 
@@ -180,6 +196,15 @@ The composition root returned by `configure()`. One per process.
 - `runtime.check(*, tool, args, agent_id, run_id=None, session_id=None) -> Decision`:
   the same decision core as the module-level `check`, against this runtime
   explicitly.
+- `runtime.reporter -> Reporter`: the `CompositeReporter` every decision and
+  finding is emitted through (read-only; every `Runtime` holds one
+  internally, even for a single `reporter=` passed to `configure()`). See
+  [Reporters](reporters.md).
+- `runtime.add_reporter(reporter: Reporter) -> None`: attaches an
+  additional reporter to this live runtime without reconfiguring, modeled
+  on OpenTelemetry's `add_span_processor`. The same non-blocking contract
+  as any other reporter applies; there is no removal, only reconfiguring.
+  See [Reporters](reporters.md).
 - `runtime.audit_findings() -> list[Finding]`: the laundering-audit
   findings recorded so far (bounded; oldest evicted first once the cap is
   reached), or `[]` if `audit` was not enabled. See

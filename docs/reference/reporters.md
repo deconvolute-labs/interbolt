@@ -74,12 +74,39 @@ reporter = CompositeReporter([JsonlReporter("provenance.jsonl"), InMemoryReporte
 runtime = configure(policy=..., reporter=reporter)
 ```
 
-Fans a record out to a fixed sequence of reporters, calling `export` on
-each in order. One sub-reporter's failure is caught and logged the same
-way the engine isolates a single reporter's failure, so it never prevents
-the record from reaching the others. Use this to combine a durable sink
+Fans a record out to a sequence of reporters, calling `export` on each in
+order. One sub-reporter's failure is caught and logged the same way the
+engine isolates a single reporter's failure, so it never prevents the
+record from reaching the others. Use this to combine a durable sink
 (`JsonlReporter`) with a live one (a console reporter, below) or a test
 assertion surface (`InMemoryReporter`), instead of hand-writing the fan-out.
+
+The sequence is appendable at any time via `add(reporter)`, thread-safe
+under an internal lock; `export` fans out to a snapshot of the list, so an
+`add()` racing an `export()` never errors.
+
+### The runtime always holds a composite, extensible after `configure()`
+
+Every `Runtime` wraps its `reporter` in a `CompositeReporter` internally,
+even when `configure()` was given a single reporter (or none, which
+defaults to `NullReporter`). This is what makes `Runtime.add_reporter`
+possible: it appends to that internal composite without reconfiguring the
+runtime, the same shape as OpenTelemetry's `tracer_provider.add_span_processor(...)`.
+
+```python
+runtime = configure(policy=...)          # seeds the internal composite with NullReporter()
+
+# later, in a different module, from a debugging session:
+from interbolt import get_runtime
+
+get_runtime().add_reporter(InMemoryReporter())
+```
+
+The non-blocking contract above applies identically to an added reporter:
+a reporter that blocks in `export` blocks the decision that triggered it,
+regardless of whether it was passed to `configure()` or attached later
+with `add_reporter`. There is no `remove_reporter`; call `configure()`
+again to reset the reporter set.
 
 ## `describe_event` / `describe_finding` / `describe_decision`
 

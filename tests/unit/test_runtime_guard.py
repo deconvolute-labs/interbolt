@@ -24,6 +24,7 @@ from interbolt.runtime.guard import (
     _enforce_decision_sync,
     _qualify_tool_name,
 )
+from interbolt.taint import Tainted, taint
 
 if TYPE_CHECKING:
     pass
@@ -367,3 +368,42 @@ class TestAgentHandle:
 
         my_function("value")
         assert reporter.decisions[0].tool == "default.my_function"
+
+
+class TestAgentHandleTrackModelCall:
+    """Mirrors TestTrackModelCall in test_taint.py, but through a handle."""
+
+    def _handle(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> AgentHandle:
+        rt = configure(policy=make_policy())
+        return AgentHandle("agent", runtime_resolver=lambda: rt)
+
+    def test_bare_decorator_taints_return_value(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        handle = self._handle(make_policy, reset_runtime)
+
+        @handle.track_model_call
+        def call_model(prompt: str) -> str:
+            return "summary"
+
+        untrusted = taint("attacker text", source="web_search")
+        result = call_model(untrusted)
+        assert isinstance(result, Tainted)
+        assert result.label.source == "model"
+        assert result.label.lineage == ("web_search",)
+
+    def test_parameterized_decorator_uses_custom_source(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        handle = self._handle(make_policy, reset_runtime)
+
+        @handle.track_model_call(source="gpt-4")
+        def call_model(prompt: str) -> str:
+            return "summary"
+
+        untrusted = taint("attacker text", source="web_search")
+        result = call_model(untrusted)
+        assert isinstance(result, Tainted)
+        assert result.label.source == "gpt-4"

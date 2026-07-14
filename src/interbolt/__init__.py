@@ -40,7 +40,7 @@ from interbolt.reporting import (
     describe_event,
     describe_finding,
 )
-from interbolt.runtime import Runtime, agent, check, configure, guard
+from interbolt.runtime import Runtime, agent, check, configure, get_runtime, guard
 from interbolt.runtime.guard import AgentHandle
 from interbolt.taint import LabeledValue, Tainted, TaintedBytes, taint, track_model_call
 
@@ -51,6 +51,7 @@ __all__ = [
     "configure",
     "default_policy",
     "agent",
+    "get_runtime",
     "AgentHandle",
     "track_model_call",
     "Runtime",

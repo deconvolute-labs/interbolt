@@ -14,6 +14,7 @@ from interbolt.models.core import (
     split_qualified_name,
     validate_qualified_name_part,
 )
+from interbolt.taint import track_model_call as _track_model_call
 from interbolt.utils import bind_arguments
 from interbolt.utils import current_run_id as current_run_id
 
@@ -80,6 +81,29 @@ class AgentHandle:
         if func is not None:
             return decorator(func)
         return decorator
+
+    @overload
+    def track_model_call(self, fn: _F) -> _F: ...
+    @overload
+    def track_model_call(self, *, source: str = "model") -> Callable[[_F], _F]: ...
+    def track_model_call(self, fn: _F | None = None, *, source: str = "model") -> Any:  # noqa: ANN401
+        """Equivalent to the module-level `interbolt.taint.track_model_call`.
+
+        Delegates directly to it; this handle's agent identity plays no role,
+        since taint derivation is identity-free. Provided so one handle
+        offers the whole decorator vocabulary (`@support.guard`,
+        `@support.track_model_call`), for discoverability.
+
+        Args:
+            fn: The function to wrap, when used as a bare
+                `@handle.track_model_call`.
+            source: The name recorded as the derivation hop on the tainted
+                return value.
+
+        Returns:
+            The wrapped function, or a decorator if called with arguments.
+        """
+        return _track_model_call(fn, source=source)
 
 
 def _violation_message(decision: Decision) -> str:

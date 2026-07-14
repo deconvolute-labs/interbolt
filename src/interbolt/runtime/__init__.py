@@ -18,7 +18,7 @@ from interbolt.models.protocols import ApprovalResolver, Reporter, auto_deny
 from interbolt.policy import Policy
 from interbolt.policy import default_policy as _default_policy
 from interbolt.policy.engine import resolve_source_trust
-from interbolt.reporting import NullReporter
+from interbolt.reporting import CompositeReporter, NullReporter
 from interbolt.runtime.guard import (
     AgentHandle,
     _build_wrapper,
@@ -47,10 +47,36 @@ class Runtime:
         audit: bool,
     ) -> None:
         self.policy = policy
-        self.reporter = reporter
+        self._reporter = (
+            reporter
+            if isinstance(reporter, CompositeReporter)
+            else CompositeReporter([reporter])
+        )
         self.approval_resolver = approval_resolver
         self.mode = mode
         self._audit_registry = AuditRegistry() if audit else None
+
+    @property
+    def reporter(self) -> Reporter:
+        """The composite reporter every decision and finding is emitted through."""
+        return self._reporter
+
+    def add_reporter(self, reporter: Reporter) -> None:
+        """Attach an additional reporter to this live runtime.
+
+        The `add_span_processor` analog: every `Runtime` holds a
+        `CompositeReporter` internally, seeded from `configure(reporter=...)`,
+        and this appends to it without reconfiguring. The non-blocking
+        contract applies to an added reporter exactly as it does
+        to the one passed to `configure()`: a reporter that blocks in
+        `export` blocks the decision that triggered it, and owning that is
+        the reporter author's responsibility. There is no `remove_reporter`;
+        call `configure()` again to reset the reporter set.
+
+        Args:
+            reporter: The reporter to attach.
+        """
+        self._reporter.add(reporter)
 
     def agent(self, agent_id: str) -> AgentHandle:
         """Equivalent to the module-level `agent()`.
@@ -162,7 +188,7 @@ class Runtime:
             run_id=run_id,
             session_id=session_id,
             policy=self.policy,
-            reporter=self.reporter,
+            reporter=self._reporter,
             mode=self.mode,
             audit_registry=self._audit_registry,
         )
@@ -344,6 +370,21 @@ def _current() -> Runtime:
             "interbolt.configure() must be called before using the bare guard/check API"
         )
     return runtime
+
+
+def get_runtime() -> Runtime:
+    """Return the process-current runtime.
+
+    The `get_tracer_provider()` analog.Use this to reach the live runtime
+    later, for example to call `Runtime.add_reporter`.
+
+    Returns:
+        The process-current `Runtime`.
+
+    Raises:
+        InterboltUsageError: If `configure()` has not been called yet.
+    """
+    return _current()
 
 
 def agent(agent_id: str) -> AgentHandle:
