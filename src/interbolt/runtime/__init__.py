@@ -97,7 +97,7 @@ class Runtime:
         this block share one `run_id`; calls outside any `agent_context`
         fall back to `constants.DEFAULT_AGENT_ID` with a fresh `run_id`
         each. Any `taint()` call inside this block is attributed to this
-        run for run-level gating (`run.tainted`, spec §15.8); that
+        run for run-level gating (`run.tainted`); that
         attribution clears, along with the audit registry, when the block
         exits.
 
@@ -205,7 +205,7 @@ def _make_audit_observer(
     """Build the taint()-time observer configure(audit=True) installs.
 
     Resolves the source name against `policy`'s sources table (unknown
-    resolves untrusted, spec section 7.5) and registers only
+    resolves untrusted) and registers only
     untrusted-resolving content, since the audit exists to catch untrusted
     data laundering, not trusted data moving around.
     """
@@ -335,7 +335,7 @@ def _current() -> Runtime:
     Reads the module-global reference without the lock: in CPython a plain
     attribute read is atomic, and `_runtime_lock` only needs to serialize
     concurrent writers (`configure()`). Guarding this read would put lock
-    contention on every guarded call's hot path (spec section 9.2) for no
+    contention on every guarded call's hot path for no
     correctness benefit. Do not add the lock back here.
     """
     runtime = _current_runtime

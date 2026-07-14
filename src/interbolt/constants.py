@@ -43,7 +43,7 @@ def _resolve_recursion_depth() -> int:
 
     Reads `INTERBOLT_RECURSION_DEPTH`, falling back to `DEFAULT_RECURSION_DEPTH`.
     `taint()` and `check()`/`guard` both use the result to bound how deep
-    they recurse into containers (spec §6.6).
+    they recurse into containers.
 
     Raises:
         InterboltConfigError: If the env var is set but is not an integer in

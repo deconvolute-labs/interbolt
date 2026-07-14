@@ -36,7 +36,7 @@ def _configure(*, audit: bool) -> Runtime:
 
 
 class TestLaunderingAuditCanonicalCase:
-    """Fix 7: the audit must catch content laundered before any labeled sink."""
+    """The audit must catch content laundered before any labeled sink."""
 
     async def test_fstring_laundered_payload_caught_via_guard(self) -> None:
         rt = _configure(audit=True)
