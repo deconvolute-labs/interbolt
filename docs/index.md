@@ -32,8 +32,11 @@ together, or jump straight to the [quickstart](quickstart.md).
 ## Reference
 
 - [API reference](reference/api.md): every name re-exported from `interbolt`.
-- [Reporters](reference/reporters.md): the `Reporter` protocol and the five
+- [Reporters](reference/reporters.md): the `Reporter` protocol and the six
   shipped implementations.
+- [Events](reference/events.md): the stable, versioned JSON shape of
+  `Event`/`Finding`/`Endorsement`, the OpenTelemetry attribute mapping, and
+  the `EVENT_SCHEMA_VERSION` history.
 - [Performance](reference/performance.md): the published `check()` and
   propagation-path benchmark numbers.
 
@@ -47,6 +50,8 @@ together, or jump straight to the [quickstart](quickstart.md).
   or pre-commit.
 - [MCP](guides/mcp.md): the planned MCP client-session integration and its
   current status.
+- [OpenTelemetry](guides/otel.md): wiring `OTelReporter` next to an already-
+  instrumented app, and what appears in the trace.
 
 ## Design
 

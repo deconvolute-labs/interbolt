@@ -8,6 +8,8 @@ deterministic and local: no model in the loop, no network calls.
 
 from __future__ import annotations
 
+from typing import Any
+
 __version__ = "0.1.0"
 
 from interbolt.constants import (
@@ -101,5 +103,20 @@ __all__ = [
     "Tainted",
     "LabeledValue",
     "TaintedBytes",
+    "OTelReporter",
     "__version__",
 ]
+
+
+def __getattr__(name: str) -> Any:  # noqa: ANN401 -- PEP 562 lazy export
+    """Lazily import `OTelReporter` on first access (PEP 562).
+
+    Keeps `opentelemetry` out of `import interbolt`'s dependency graph: the
+    `[otel]` extra is only ever imported when a caller actually reaches for
+    `OTelReporter`.
+    """
+    if name == "OTelReporter":
+        from interbolt.reporting.otel import OTelReporter
+
+        return OTelReporter
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

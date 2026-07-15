@@ -43,13 +43,14 @@ the predicate by hand, as in every example in
 
 ## Additional reporters
 
-An OpenTelemetry reporter and a hosted buffering reporter (a crash-durable
-local buffer drained by a non-blocking background worker, for self-hosted
-persistence and platform sync) are deferred. The shipped reporters are
-`NullReporter`, `InMemoryReporter`, and `LoggingReporter`; see
-[Reporters](../reference/reporters.md). Any of these would arrive as a
-drop-in implementation of the existing `Reporter` protocol, with no change
-to `taint`, `policy`, `enforcement`, or `runtime`.
+A hosted buffering reporter (a crash-durable local buffer drained by a
+non-blocking background worker, for self-hosted persistence and platform
+sync) is deferred. `OTelReporter` has shipped: see
+[OpenTelemetry](../guides/otel.md) and
+[Reporters: OTelReporter](../reference/reporters.md#otelreporter). Any
+future reporter, including the hosted one, arrives as a drop-in
+implementation of the existing `Reporter` protocol, with no change to
+`taint`, `policy`, `enforcement`, or `runtime`.
 
 ## Additional framework integrations
 

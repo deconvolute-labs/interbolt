@@ -3,7 +3,12 @@ from __future__ import annotations
 import inspect
 import logging
 
-from interbolt.utils import bind_arguments, get_logger
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+
+from interbolt.utils import bind_arguments, current_trace_context, get_logger
+
+_tracer = TracerProvider().get_tracer("test_utils")
 
 
 class TestGetLogger:
@@ -51,3 +56,20 @@ class TestBindArguments:
         sig = inspect.signature(fn)
         result = bind_arguments(sig, (), {"x": "a", "y": "b"})
         assert result == {"x": "a", "y": "b"}
+
+
+class TestCurrentTraceContext:
+    def test_no_active_span_returns_none(self) -> None:
+        assert trace.get_current_span() is trace.INVALID_SPAN
+        assert current_trace_context() is None
+
+    def test_active_span_returns_hex_trace_and_span_ids(self) -> None:
+        with _tracer.start_as_current_span("s") as span:
+            result = current_trace_context()
+            ctx = span.get_span_context()
+        assert result is not None
+        trace_id, span_id = result
+        assert trace_id == format(ctx.trace_id, "032x")
+        assert span_id == format(ctx.span_id, "016x")
+        assert len(trace_id) == 32
+        assert len(span_id) == 16

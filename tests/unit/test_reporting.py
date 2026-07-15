@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import json
 import threading
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
 from pytest_mock import MockerFixture
 
-from interbolt.constants import EVENT_SCHEMA_VERSION
+from interbolt.constants import EVENT_SCHEMA_VERSION, RECORD_TYPE_EVENT
 from interbolt.models.core import Action, Decision, Endorsement, Event, Finding, Mode
 from interbolt.reporting import (
     CompositeReporter,
     InMemoryReporter,
+    JsonlReporter,
     LoggingReporter,
     NullReporter,
     describe_decision,
@@ -171,6 +174,47 @@ class TestLoggingReporter:
         mock_debug.assert_called_once()
         call_args = mock_debug.call_args
         assert ev in call_args.args or ev in call_args.kwargs.values()
+
+
+class TestJsonlReporter:
+    def test_round_trips_trace_id_and_span_id(self, tmp_path: Path) -> None:
+        path = tmp_path / "log.jsonl"
+        ev = Event(
+            schema_version=EVENT_SCHEMA_VERSION,
+            decision=_decision(),
+            agent_id="agent",
+            run_id="run",
+            session_id=None,
+            sources=frozenset(),
+            lineage=(),
+            matched_rule=None,
+            trifecta=frozenset(),
+            untrusted_sources=frozenset(),
+            run_tainted=False,
+            mode=Mode.ENFORCE,
+            outcome="allow",
+            trace_id="a" * 32,
+            span_id="b" * 16,
+            timestamp=datetime.now(UTC),
+        )
+        JsonlReporter(path).export(ev)
+        line = path.read_text(encoding="utf-8").strip()
+        payload = json.loads(line)
+        assert payload["record_type"] == RECORD_TYPE_EVENT
+        assert payload["trace_id"] == "a" * 32
+        assert payload["span_id"] == "b" * 16
+        payload.pop("record_type")
+        round_tripped = Event.model_validate(payload)
+        assert round_tripped.trace_id == "a" * 32
+        assert round_tripped.span_id == "b" * 16
+
+    def test_trace_id_and_span_id_absent_when_none(self, tmp_path: Path) -> None:
+        path = tmp_path / "log.jsonl"
+        JsonlReporter(path).export(_event())
+        line = path.read_text(encoding="utf-8").strip()
+        payload = json.loads(line)
+        assert payload["trace_id"] is None
+        assert payload["span_id"] is None
 
 
 class TestCompositeReporter:

@@ -735,6 +735,25 @@ class TestEndorse:
         result = endorse(taint("x", source="web_search"), kind="k")
         assert result.label.endorsements == ("k",)
 
+    def test_endorsement_has_none_trace_ids_outside_a_span(self) -> None:
+        captured: list[Endorsement] = []
+        install_endorsement_emitter(captured.append)
+        endorse(taint("x", source="web_search"), kind="k")
+        assert captured[0].trace_id is None
+        assert captured[0].span_id is None
+
+    def test_endorsement_carries_trace_ids_inside_an_active_span(self) -> None:
+        from opentelemetry.sdk.trace import TracerProvider
+
+        tracer = TracerProvider().get_tracer("test_taint")
+        captured: list[Endorsement] = []
+        install_endorsement_emitter(captured.append)
+        with tracer.start_as_current_span("s") as span:
+            ctx = span.get_span_context()
+            endorse(taint("x", source="web_search"), kind="k")
+        assert captured[0].trace_id == format(ctx.trace_id, "032x")
+        assert captured[0].span_id == format(ctx.span_id, "016x")
+
 
 # ---------------------------------------------------------------------------
 # taint()

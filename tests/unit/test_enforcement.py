@@ -587,6 +587,55 @@ class TestCheckFunction:
 
 
 # ---------------------------------------------------------------------------
+# trace-context join keys (trace_id/span_id)
+# ---------------------------------------------------------------------------
+
+
+class TestTraceContext:
+    def test_event_has_none_trace_ids_outside_a_span(
+        self, make_policy: Callable[..., Policy]
+    ) -> None:
+        reporter = InMemoryReporter()
+        policy = make_policy()
+        check(
+            tool="default.test_tool",
+            args={},
+            agent_id="agent",
+            run_id="run",
+            session_id=None,
+            policy=policy,
+            reporter=reporter,
+            mode=Mode.ENFORCE,
+        )
+        assert reporter.events[0].trace_id is None
+        assert reporter.events[0].span_id is None
+
+    def test_event_carries_trace_ids_inside_an_active_span(
+        self, make_policy: Callable[..., Policy]
+    ) -> None:
+        from opentelemetry.sdk.trace import TracerProvider
+
+        tracer = TracerProvider().get_tracer("test_enforcement")
+        reporter = InMemoryReporter()
+        policy = make_policy()
+        with tracer.start_as_current_span("s") as span:
+            ctx = span.get_span_context()
+            check(
+                tool="default.test_tool",
+                args={},
+                agent_id="agent",
+                run_id="run",
+                session_id=None,
+                policy=policy,
+                reporter=reporter,
+                mode=Mode.ENFORCE,
+            )
+        event = reporter.events[0]
+        assert event.trace_id == format(ctx.trace_id, "032x")
+        assert event.span_id == format(ctx.span_id, "016x")
+
+
+# ---------------------------------------------------------------------------
 # Change 6: split-then-sink contributing_labels collapses to length 1
 # ---------------------------------------------------------------------------
 

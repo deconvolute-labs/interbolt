@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import inspect
 import logging
+from collections.abc import Callable
 from contextvars import ContextVar
+from functools import lru_cache
 from typing import Any
 
 logger = logging.getLogger("interbolt")
@@ -39,6 +41,43 @@ def get_logger(name: str | None = None) -> logging.Logger:
     if name is None:
         return logger
     return logger.getChild(name)
+
+
+@lru_cache(maxsize=1)
+def _trace_reader() -> Callable[[], tuple[str, str] | None] | None:
+    """Resolve, once, the OpenTelemetry trace-context reader, or `None`.
+
+    Soft-imports `opentelemetry.trace`; when the package is absent, this
+    resolves to `None` forever (the `lru_cache` makes the ImportError check
+    happen exactly once per process, not on every `current_trace_context()`
+    call).
+    """
+    try:
+        from opentelemetry import trace
+    except ImportError:
+        return None
+
+    def _read() -> tuple[str, str] | None:
+        span = trace.get_current_span()
+        ctx = span.get_span_context()
+        if not ctx.is_valid or not (ctx.trace_flags.sampled or span.is_recording()):
+            return None
+        return format(ctx.trace_id, "032x"), format(ctx.span_id, "016x")
+
+    return _read
+
+
+def current_trace_context() -> tuple[str, str] | None:
+    """Return the active span's `(trace_id, span_id)` as W3C hex strings.
+
+    `None` when OpenTelemetry is absent, no span is active, or the active
+    context is neither sampled nor recording. `enforcement.check()` and the
+    `endorse()` emitter call this to stamp `trace_id`/`span_id` on emitted
+    records without `taint/`, `policy/`, or `enforcement/` ever importing
+    OpenTelemetry directly.
+    """
+    reader = _trace_reader()
+    return None if reader is None else reader()
 
 
 def bind_arguments(
