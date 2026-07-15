@@ -50,6 +50,10 @@ together, or jump straight to the [quickstart](quickstart.md).
   or pre-commit.
 - [MCP](guides/mcp.md): the planned MCP client-session integration and its
   current status.
+- [For Phoenix / OpenTelemetry users](guides/for-otel-users.md): mapping
+  Interbolt's setup, factory, and decorator patterns onto the vocabulary
+  you already know, and where enforcement intentionally diverges from
+  observability.
 - [OpenTelemetry](guides/otel.md): wiring `OTelReporter` next to an already-
   instrumented app, and what appears in the trace.
 
