@@ -35,6 +35,9 @@ dependencies = [
   "rich",
 ]
 
+[project.optional-dependencies]
+otel = ["opentelemetry-api>=1.20"]
+
 [project.urls]
 Homepage = "https://deconvolutelabs.com"
 Issues = "https://github.com/deconvolute-labs/interbolt/issues"
@@ -50,6 +53,7 @@ dev = [
   "pre-commit",
   "types-pyyaml",
   "git-cliff>=2.13.1",
+  "opentelemetry-sdk",
 ]
 
 [project.scripts]
@@ -94,6 +98,15 @@ ignore_missing_imports = true # Prevents errors if a 3rd party lib has no types
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+# opentelemetry is an optional, soft-imported dependency (utils.current_trace_context,
+# reporting/otel.py). `follow_imports = "skip"` makes every symbol from it resolve to
+# `Any` unconditionally, so type checking here never depends on whether the package
+# (or which version of it) happens to be installed in the environment running mypy.
+module = ["opentelemetry", "opentelemetry.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

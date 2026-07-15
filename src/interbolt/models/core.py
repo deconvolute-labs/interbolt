@@ -149,7 +149,12 @@ class Decision(BaseModel):
 
 
 class Event(BaseModel):
-    """The versioned, emitted record of a `Decision`."""
+    """The versioned, emitted record of a `Decision`.
+
+    `trace_id`/`span_id` are the active OpenTelemetry span's W3C hex
+    identifiers at construction time, or `None` if OpenTelemetry is absent
+    or no span was active.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -166,11 +171,16 @@ class Event(BaseModel):
     run_tainted: bool
     mode: Mode
     outcome: str
+    trace_id: str | None = None
+    span_id: str | None = None
     timestamp: datetime
 
 
 class Finding(BaseModel):
-    """A laundering-audit record: untrusted content reached a sink without a label."""
+    """A laundering-audit record: untrusted content reached a sink without a label.
+
+    `trace_id`/`span_id` are captured the same way as on `Event`.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -181,6 +191,8 @@ class Finding(BaseModel):
     agent_id: str
     run_id: str
     session_id: str | None
+    trace_id: str | None = None
+    span_id: str | None = None
     timestamp: datetime
 
 
@@ -204,6 +216,10 @@ class Endorsement(BaseModel):
         session_id: Always `None` in v1: there is no session-identity
             context variable for `endorse()` to read, unlike `agent_id`/
             `run_id`.
+        trace_id: The active OpenTelemetry trace id (W3C hex), or `None` if
+            OpenTelemetry is absent or no span was active at construction.
+        span_id: The active OpenTelemetry span id (W3C hex), or `None` under
+            the same conditions as `trace_id`.
         timestamp: When the endorsement was recorded.
     """
 
@@ -217,4 +233,6 @@ class Endorsement(BaseModel):
     agent_id: str
     run_id: str
     session_id: str | None
+    trace_id: str | None = None
+    span_id: str | None = None
     timestamp: datetime

@@ -45,7 +45,7 @@ from interbolt.taint import (
     run_ingress_sources,
     unwrap,
 )
-from interbolt.utils import get_logger
+from interbolt.utils import current_trace_context, get_logger
 
 _logger = get_logger("enforcement")
 
@@ -160,6 +160,7 @@ def check(
         session_id=session_id,
     )
 
+    trace_id, span_id = current_trace_context() or (None, None)
     all_sources = frozenset(name for label in labels for name in label.lineage)
     event = Event(
         schema_version=EVENT_SCHEMA_VERSION,
@@ -175,6 +176,8 @@ def check(
         run_tainted=run_tainted,
         mode=mode,
         outcome=outcome,
+        trace_id=trace_id,
+        span_id=span_id,
         timestamp=datetime.now(UTC),
     )
     _emit(reporter, event)
@@ -384,6 +387,7 @@ class AuditRegistry:
         way a decision is, so the longer lock hold is an acceptable trade
         for race-free dedup.
         """
+        trace_id, span_id = current_trace_context() or (None, None)
         with self._lock:
             registered = list(self._by_run.get(run_id, ()))
             if not registered:
@@ -409,6 +413,8 @@ class AuditRegistry:
                                     agent_id=agent_id,
                                     run_id=run_id,
                                     session_id=session_id,
+                                    trace_id=trace_id,
+                                    span_id=span_id,
                                     timestamp=datetime.now(UTC),
                                 )
                             )

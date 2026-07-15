@@ -277,6 +277,25 @@ class TestLoadRecords:
         records = _load_records(log)
         assert len(records) == 1
 
+    def test_loads_schema_version_5_shaped_event_missing_trace_fields(
+        self, tmp_path: Path
+    ) -> None:
+        """A record written before trace_id/span_id existed (schema_version 5)
+        has no trace_id/span_id keys at all; it must still parse, with both
+        fields defaulting to None."""
+        payload = json.loads(_event_line())
+        payload["schema_version"] = 5
+        del payload["trace_id"]
+        del payload["span_id"]
+        log = tmp_path / "log.jsonl"
+        log.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        records = _load_records(log)
+        assert len(records) == 1
+        event = records[0]
+        assert isinstance(event, Event)
+        assert event.trace_id is None
+        assert event.span_id is None
+
 
 class TestBuildTree:
     def test_groups_by_run_then_agent(self) -> None:

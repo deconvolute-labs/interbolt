@@ -9,7 +9,7 @@ taint, endorse, guard, check, configure, default_policy, agent, get_runtime, Age
 track_model_call, Runtime, Policy,
 Decision, Event, Finding, Endorsement, Action, Mode, Label, TrustLevel,
 Reporter, ApprovalResolver,
-NullReporter, InMemoryReporter, LoggingReporter, JsonlReporter, CompositeReporter,
+NullReporter, InMemoryReporter, LoggingReporter, JsonlReporter, CompositeReporter, OTelReporter,
 describe_decision, describe_event, describe_finding, describe_endorsement,
 RECORD_TYPE_EVENT, RECORD_TYPE_FINDING, RECORD_TYPE_ENDORSEMENT,
 InterboltError, PolicyViolation, PolicyEvaluationError, ApprovalDenied,
@@ -358,16 +358,32 @@ first produces a plain, unlabeled result. All three support `copy.copy`/
 underlying value, dropping the label — a stated boundary reset, not an
 error).
 
+## `OTelReporter`
+
+```python
+class OTelReporter:
+    def __init__(self) -> None: ...
+```
+
+Maps `Event`/`Finding`/`Endorsement` onto OpenTelemetry spans at the edge;
+requires the `interbolt[otel]` extra. Exported lazily via a module
+`__getattr__` in `interbolt/__init__.py` (PEP 562): `import interbolt` never
+requires `opentelemetry` to be installed, and `from interbolt import
+OTelReporter` raises `InterboltConfigError` with an install hint if the
+extra is missing. See [Reporters: OTelReporter](reporters.md#otelreporter)
+and [the OTel guide](../guides/otel.md).
+
 ## `Reporter`, `ApprovalResolver`
 
 Protocols in `interbolt.models.protocols`. `Reporter.export` takes an
 `Event | Finding | Endorsement`. See [Reporters](reporters.md) for
-`Reporter` and its five implementations (`NullReporter`, `InMemoryReporter`,
-`LoggingReporter`, `JsonlReporter`, `CompositeReporter`). `ApprovalResolver`
-is `Callable[[Decision], bool | Awaitable[bool]]`: invoked synchronously at
-a sync call site, awaited at an async call site. A sync call site needs a
-resolver that returns a plain `bool`; one that returns an awaitable raises
-`InterboltUsageError`. The default, `auto_deny`, denies every request.
+`Reporter` and its six implementations (`NullReporter`, `InMemoryReporter`,
+`LoggingReporter`, `JsonlReporter`, `CompositeReporter`, `OTelReporter`).
+`ApprovalResolver` is `Callable[[Decision], bool | Awaitable[bool]]`:
+invoked synchronously at a sync call site, awaited at an async call site.
+A sync call site needs a resolver that returns a plain `bool`; one that
+returns an awaitable raises `InterboltUsageError`. The default, `auto_deny`,
+denies every request.
 
 ## `describe_decision`, `describe_event`, `describe_finding`, `describe_endorsement`
 

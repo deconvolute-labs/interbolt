@@ -85,6 +85,39 @@ The sequence is appendable at any time via `add(reporter)`, thread-safe
 under an internal lock; `export` fans out to a snapshot of the list, so an
 `add()` racing an `export()` never errors.
 
+### `OTelReporter`
+
+```python
+from interbolt import OTelReporter, configure
+
+runtime = configure(policy=...)
+runtime.add_reporter(OTelReporter())   # decisions appear inside existing traces
+```
+
+Requires the `interbolt[otel]` extra (`opentelemetry-api` only, never the
+SDK). Maps `Event`/`Finding`/`Endorsement` onto OpenTelemetry at the edge,
+never as the native format: Interbolt's own versioned records (see
+[Events](events.md)) stay the source of truth.
+
+Two emission paths: when the current span is recording (the tool call
+happens inside a span your own instrumentation already opened), the record
+is added as a span event; otherwise a small fallback span is opened and
+immediately closed, so the decision is still exported as a span rather than
+silently dropped. With no `TracerProvider` configured at all, this is a
+no-op by OpenTelemetry's own design. See [the OTel guide](../guides/otel.md)
+for the full walkthrough and [Events](events.md#opentelemetry-attribute-mapping)
+for the attribute mapping table.
+
+`OTelReporter` is exported lazily: `interbolt/__init__.py` never imports it
+at module load, so `import interbolt` never requires `opentelemetry` to be
+installed. `from interbolt import OTelReporter` imports
+`interbolt.reporting.otel` on first access, raising `InterboltConfigError`
+with an install hint if the extra is missing.
+
+Adding a span event (or opening the zero-work fallback span) is in-memory,
+not I/O, so `OTelReporter` is non-blocking by construction, satisfying the
+same contract as every other shipped reporter.
+
 ### The runtime always holds a composite, extensible after `configure()`
 
 Every `Runtime` wraps its `reporter` in a `CompositeReporter` internally,

@@ -142,6 +142,8 @@ Passing `summary` on to a guarded sink resolves trust from `lineage` exactly as 
 
 `Reporter` is the seam for decision output: blocked, approval required, allowed, and why (`Decision.untrusted_sources` names the specific source that drove a block). `NullReporter` (default), `InMemoryReporter`, `LoggingReporter`, `JsonlReporter`, and `CompositeReporter` (fan-out to more than one) ship out of the box; `describe_event`/`describe_finding`/`describe_decision` format a record for a human. See [reporters](docs/reference/reporters.md) for the full reference, including a recipe for a quiet-by-default console reporter for your own CLI.
 
+`pip install "interbolt[otel]"` adds `OTelReporter`, which drops Interbolt decisions into your existing OpenTelemetry traces (see the [OTel guide](docs/guides/otel.md)).
+
 ## MCP
 
 An `interbolt[mcp]` extra is planned to adapt an MCP client session directly. Until it ships, gate an MCP router today by calling `check()` (or `runtime.check()`) before each tool dispatch and `taint()`-ing tool results as they come back. See [MCP](docs/guides/mcp.md) for the pattern and the intended design.

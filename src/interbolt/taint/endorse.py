@@ -19,7 +19,12 @@ from interbolt.constants import (
 )
 from interbolt.models.core import Endorsement, Label
 from interbolt.taint.carriers import LabeledValue, Tainted, TaintedBytes, _new_value_id
-from interbolt.utils import current_agent_id, current_run_id, get_logger
+from interbolt.utils import (
+    current_agent_id,
+    current_run_id,
+    current_trace_context,
+    get_logger,
+)
 
 _logger = get_logger("taint.endorse")
 
@@ -64,6 +69,7 @@ def _add_endorsement(label: Label, kind: str) -> Label:
 
 
 def _record_endorsement(*, kind: str, note: str | None, label: Label) -> None:
+    trace_id, span_id = current_trace_context() or (None, None)
     endorsement = Endorsement(
         schema_version=EVENT_SCHEMA_VERSION,
         kind=kind,
@@ -73,6 +79,8 @@ def _record_endorsement(*, kind: str, note: str | None, label: Label) -> None:
         agent_id=current_agent_id.get() or DEFAULT_AGENT_ID,
         run_id=current_run_id.get() or str(uuid.uuid4()),
         session_id=None,
+        trace_id=trace_id,
+        span_id=span_id,
         timestamp=datetime.now(UTC),
     )
     emitter = _endorsement_emitter
