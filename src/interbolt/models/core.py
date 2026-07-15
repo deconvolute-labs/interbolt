@@ -1,11 +1,35 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
 
 from interbolt.errors import InterboltConfigError
+
+_ENDORSEMENT_KIND_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+def validate_endorsement_kind(value: str) -> None:
+    """Reject an endorsement kind with characters outside the safe identifier set.
+
+    `kind` is interpolated into compiled CEL source (`SinkRule.require_endorsement`
+    schema sugar), so an unconstrained character such as a quote could rewrite the
+    compiled predicate's semantics.
+
+    Args:
+        value: The candidate endorsement kind.
+
+    Raises:
+        InterboltConfigError: If `value` contains a character outside
+            `[A-Za-z0-9_.-]`, or is empty.
+    """
+    if not _ENDORSEMENT_KIND_PATTERN.match(value):
+        raise InterboltConfigError(
+            f"endorsement kind {value!r} must match "
+            f"{_ENDORSEMENT_KIND_PATTERN.pattern!r}"
+        )
 
 
 def validate_qualified_name_part(value: str, *, part: str) -> None:
