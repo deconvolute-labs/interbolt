@@ -13,7 +13,13 @@ from pydantic import (
 
 from interbolt.constants import RUN_COMPUTABLE_FIELDS, TRIFECTA_COMPUTABLE_LEGS
 from interbolt.errors import InterboltConfigError, PolicyEvaluationError
-from interbolt.models.core import Action, Mode, TrustLevel, split_qualified_name
+from interbolt.models.core import (
+    Action,
+    Mode,
+    TrustLevel,
+    split_qualified_name,
+    validate_endorsement_kind,
+)
 
 _TRIFECTA_LEG_PATTERN = re.compile(r"trifecta\.contains\(\s*[\"']([^\"']+)[\"']\s*\)")
 _RUN_FIELD_PATTERN = re.compile(r"\brun\.(\w+)")
@@ -55,6 +61,13 @@ class SinkRule(BaseModel):
     when: str | None = None
     require_endorsement: str | None = None
     action: Action
+
+    @field_validator("require_endorsement")
+    @classmethod
+    def _validate_require_endorsement_kind(cls, value: str | None) -> str | None:
+        if value is not None:
+            validate_endorsement_kind(value)
+        return value
 
     @model_validator(mode="after")
     def _validate_when_xor_require_endorsement(self) -> SinkRule:

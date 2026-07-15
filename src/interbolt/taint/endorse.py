@@ -17,7 +17,7 @@ from interbolt.constants import (
     EVENT_SCHEMA_VERSION,
     RECURSION_DEPTH,
 )
-from interbolt.models.core import Endorsement, Label
+from interbolt.models.core import Endorsement, Label, validate_endorsement_kind
 from interbolt.taint.carriers import LabeledValue, Tainted, TaintedBytes, _new_value_id
 from interbolt.utils import (
     current_agent_id,
@@ -201,7 +201,12 @@ def endorse(value: Any, *, kind: str, note: str | None = None) -> Any:  # noqa: 
 
     Returns:
         The endorsed value, or `value` unchanged if it carries no label.
+
+    Raises:
+        InterboltConfigError: If `kind` contains a character outside
+            `[A-Za-z0-9_.-]`, or is empty.
     """
+    validate_endorsement_kind(kind)
     # Local import: taint/__init__.py re-exports this module's `endorse`, so
     # a module-level import of `_rebuild_container` back from there would
     # form an import cycle. Same pattern policy/schema.py already uses.
