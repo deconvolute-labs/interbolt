@@ -49,8 +49,10 @@ class InMemoryReporter:
             self.decisions.append(event.decision)
         elif isinstance(event, Finding):
             self.findings.append(event)
-        else:
+        elif isinstance(event, Endorsement):
             self.endorsements.append(event)
+        else:
+            raise TypeError(f"Unexpected event type: {type(event)}")
 
     def clear(self) -> None:
         """Discard every captured record."""

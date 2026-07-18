@@ -132,7 +132,7 @@ def validate_policy(path: str) -> list[str]:
     """Statically analyze a policy file: schema, CEL compilation, dead rules.
 
     Performs schema and CEL checks only, so it is safe to run in CI without
-    executing the agent. See docs/concepts/policies.md for the full set of
+    executing the agent. See docs for the full set of
     checks and their limits.
 
     Args:

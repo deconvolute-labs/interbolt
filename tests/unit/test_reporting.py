@@ -6,6 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from pytest_mock import MockerFixture
 
 from interbolt.constants import EVENT_SCHEMA_VERSION, RECORD_TYPE_EVENT
@@ -138,6 +139,11 @@ class TestInMemoryReporter:
         reporter.export(e)
         assert len(reporter.endorsements) == 1
         assert reporter.endorsements[0] is e
+
+    def test_raises_error_on_unsupported_type(self) -> None:
+        reporter = InMemoryReporter()
+        with pytest.raises(TypeError):
+            reporter.export("invalid")  # type: ignore[arg-type] # noqa
 
     def test_endorsement_not_in_events_or_findings(self) -> None:
         reporter = InMemoryReporter()
