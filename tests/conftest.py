@@ -11,7 +11,7 @@ from pytest_mock import MockerFixture
 
 import interbolt.runtime as _rt_module
 from interbolt import InMemoryReporter, Policy, Runtime, configure
-from interbolt.models.core import Action, Decision, Label, Mode, TrustLevel
+from interbolt.models.core import Action, Decision, Label, Mode
 from interbolt.policy import Policy as _Policy
 from interbolt.policy.engine import compile_policy
 from interbolt.policy.schema import (
@@ -118,7 +118,6 @@ def make_policy() -> Callable[..., _Policy]:
         document = PolicyDocument(
             version="1.0",
             defaults=Defaults(
-                source_trust=TrustLevel.UNTRUSTED,
                 sink_action=sink_action,
                 fail_mode=fail_mode,
             ),

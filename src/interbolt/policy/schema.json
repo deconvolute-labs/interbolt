@@ -13,10 +13,6 @@
     "Defaults": {
       "description": "Default-deny posture for sources and sinks not otherwise declared.",
       "properties": {
-        "source_trust": {
-          "$ref": "#/$defs/TrustLevel",
-          "default": "untrusted"
-        },
         "sink_action": {
           "$ref": "#/$defs/Action",
           "default": "require_approval"

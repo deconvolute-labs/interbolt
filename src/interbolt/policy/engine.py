@@ -146,10 +146,11 @@ def resolve_source_trust(
 ) -> TrustLevel:
     """Resolve one bare source name against the policy's `sources` table.
 
-    A name not in the table defaults to untrusted (default-deny). This is
-    the single trust-resolution primitive; `resolve_label_trust` (per-label
-    lineage) and the run-level gating computation in `enforcement` (per-run
-    ingress sources) both reduce to repeated calls of this.
+    A name not in the table defaults to untrusted (default-deny); this
+    fallback is fixed and not configurable. This is the single
+    trust-resolution primitive; `resolve_label_trust` (per-label lineage)
+    and the run-level gating computation in `enforcement` (per-run ingress
+    sources) both reduce to repeated calls of this.
     """
     return sources_table.get(name, TrustLevel.UNTRUSTED)
 

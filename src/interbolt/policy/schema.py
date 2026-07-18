@@ -38,9 +38,8 @@ class SourceDeclaration(BaseModel):
 class Defaults(BaseModel):
     """Default-deny posture for sources and sinks not otherwise declared."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
-    source_trust: TrustLevel = TrustLevel.UNTRUSTED
     sink_action: Action = Action.REQUIRE_APPROVAL
     fail_mode: Mode | None = None
 
