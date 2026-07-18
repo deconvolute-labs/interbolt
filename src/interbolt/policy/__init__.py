@@ -73,11 +73,11 @@ class Policy:
 def default_policy() -> Policy:
     """Return the built-in default policy for programmatic use and testing.
 
-    The default policy declares no sources and no sinks, with
-    ``defaults.source_trust: untrusted`` and
-    ``defaults.sink_action: require_approval``. Every guarded call falls
-    through to ``require_approval`` under this policy. This is the posture
-    ``configure(policy=None)`` uses when no policy is supplied.
+    The default policy declares no sources and no sinks. Undeclared sources
+    always resolve to untrusted, and ``defaults.sink_action: require_approval``
+    means every guarded call falls through to ``require_approval`` under
+    this policy. This is the posture ``configure(policy=None)`` uses when no
+    policy is supplied.
 
     Returns:
         A compiled ``Policy`` representing the built-in default posture.

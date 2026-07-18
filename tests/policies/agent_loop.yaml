@@ -5,7 +5,6 @@
 version: "1.0"
 
 defaults:
-  source_trust: untrusted
   sink_action: require_approval
   fail_mode: enforce
 

@@ -6,8 +6,6 @@
 version: "1.0"
 
 defaults:
-  # Any source not listed below is untrusted.
-  source_trust: untrusted
   # A sink with no matching rule falls through to this action.
   sink_action: require_approval
   fail_mode: enforce

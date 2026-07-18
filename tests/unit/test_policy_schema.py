@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 from pytest_mock import MockerFixture
 
 from interbolt.errors import InterboltConfigError, PolicyEvaluationError
@@ -277,9 +278,9 @@ class TestDefaultsModel:
         d = Defaults(fail_mode=Mode.DRY_RUN)
         assert d.fail_mode == Mode.DRY_RUN
 
-    def test_source_trust_default(self) -> None:
-        d = Defaults()
-        assert d.source_trust == TrustLevel.UNTRUSTED
+    def test_source_trust_field_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            Defaults.model_validate({"source_trust": TrustLevel.UNTRUSTED})
 
     def test_sink_action_default(self) -> None:
         d = Defaults()
