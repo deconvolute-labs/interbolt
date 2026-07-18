@@ -1,3 +1,10 @@
+"""The taint carriers: `Tainted`, `TaintedBytes`, `LabeledValue`, and label merge.
+
+The bulk of this file is mechanically repetitive per-operation dunder
+overrides on `Tainted`/`TaintedBytes`, not independent concerns to split
+into separate files.
+"""
+
 from __future__ import annotations
 
 import copy

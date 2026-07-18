@@ -181,7 +181,7 @@ def test_dry_run_mode_downgrades_block_but_records_real_outcome(
 
     event = reporter.events[-1]
     assert event.outcome == "block"
-    assert event.matched_rule == "block_untrusted_exfil"
+    assert event.decision.matched_rule == "block_untrusted_exfil"
 
 
 async def test_async_guarded_sink_uses_async_approval_resolver(

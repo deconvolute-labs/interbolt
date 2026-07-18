@@ -16,7 +16,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 from pytest_mock import MockerFixture
 
 from interbolt.constants import EVENT_SCHEMA_VERSION
-from interbolt.enforcement import _emit
+from interbolt.enforcement.check import _emit
 from interbolt.errors import InterboltConfigError
 from interbolt.models.core import Action, Decision, Endorsement, Event, Finding, Mode
 from interbolt.reporting.otel import OTelReporter
@@ -60,16 +60,7 @@ def _make_event(*, decision: Decision | None = None, **overrides: object) -> Eve
     defaults: dict[str, object] = dict(
         schema_version=EVENT_SCHEMA_VERSION,
         decision=decision,
-        agent_id=decision.agent_id,
-        run_id=decision.run_id,
-        session_id=decision.session_id,
         sources=frozenset({"web_search"}),
-        lineage=("web_search",),
-        matched_rule=decision.matched_rule,
-        trifecta=decision.trifecta,
-        untrusted_sources=decision.untrusted_sources,
-        run_tainted=decision.run_tainted,
-        mode=decision.mode,
         outcome=decision.action.value,
         timestamp=datetime.now(UTC),
     )
@@ -187,7 +178,8 @@ class TestNoActiveSpan:
 class TestNoneFieldsOmitted:
     def test_event_session_id_none_is_absent(self) -> None:
         reporter = OTelReporter()
-        reporter.export(_make_event(session_id=None))
+        decision = _make_decision(session_id=None)
+        reporter.export(_make_event(decision=decision))
         attrs = _exporter.get_finished_spans()[0].attributes
         assert attrs is not None
         assert "interbolt.session_id" not in attrs
@@ -195,7 +187,7 @@ class TestNoneFieldsOmitted:
     def test_event_matched_rule_none_is_absent(self) -> None:
         reporter = OTelReporter()
         decision = _make_decision(matched_rule=None, matched_condition=None)
-        reporter.export(_make_event(decision=decision, matched_rule=None))
+        reporter.export(_make_event(decision=decision))
         attrs = _exporter.get_finished_spans()[0].attributes
         assert attrs is not None
         assert "interbolt.matched_rule" not in attrs

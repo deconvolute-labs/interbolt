@@ -188,15 +188,15 @@ def describe_event(event: Event) -> str:
         A rich-markup string summarizing the decision.
     """
     color = _ACTION_COLOR.get(event.decision.action, "white")
-    rule = event.matched_rule or "default"
-    untrusted = ", ".join(sorted(event.untrusted_sources)) or "-"
+    rule = event.decision.matched_rule or "default"
+    untrusted = ", ".join(sorted(event.decision.untrusted_sources)) or "-"
     sources = ", ".join(sorted(event.sources)) or "-"
-    lineage = ", ".join(event.lineage) or "-"
-    run_tainted = "[red bold]True[/red bold]" if event.run_tainted else "False"
+    lineage = ", ".join(sorted(event.sources)) or "-"
+    run_tainted = "[red bold]True[/red bold]" if event.decision.run_tainted else "False"
     return (
         f"{event.decision.tool}  "
         f"[{color}]{event.decision.action.value}[/{color}]  "
-        f"rule={rule}  mode={event.mode.value}  "
+        f"rule={rule}  mode={event.decision.mode.value}  "
         f"untrusted_sources={{{untrusted}}}  "
         f"run_tainted={run_tainted}  sources={{{sources}}}  lineage=({lineage})"
     )

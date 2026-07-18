@@ -8,13 +8,10 @@ import pytest
 from pytest_mock import MockerFixture
 
 from interbolt.constants import AUDIT_MIN_MATCH_LENGTH, EVENT_SCHEMA_VERSION
-from interbolt.enforcement import (
-    AuditRegistry,
-    _compute_trifecta,
-    _emit,
-    _walk_strings,
-    check,
-)
+from interbolt.enforcement import AuditRegistry, check
+from interbolt.enforcement.audit import _walk_strings
+from interbolt.enforcement.check import _emit
+from interbolt.enforcement.signals import _compute_trifecta
 from interbolt.models.core import Action, Label, Mode, TrustLevel
 from interbolt.models.protocols import Reporter
 from interbolt.policy import Policy
@@ -248,7 +245,7 @@ class TestCheckFunction:
             sinks={"default.t": (SinkRule(name="r", when="true", action=Action.BLOCK),)}
         )
         mocker.patch(
-            "interbolt.enforcement.evaluate_sink",
+            "interbolt.enforcement.check.evaluate_sink",
             side_effect=CELEvalError("oops"),
         )
         decision = check(
@@ -274,7 +271,7 @@ class TestCheckFunction:
             sinks={"default.t": (SinkRule(name="r", when="true", action=Action.BLOCK),)}
         )
         mocker.patch(
-            "interbolt.enforcement.evaluate_sink",
+            "interbolt.enforcement.check.evaluate_sink",
             side_effect=CELEvalError("oops"),
         )
         with pytest.raises(PolicyEvaluationError) as exc_info:
@@ -301,7 +298,7 @@ class TestCheckFunction:
             sinks={"default.t": (SinkRule(name="r", when="true", action=Action.ALLOW),)}
         )
         mocker.patch(
-            "interbolt.enforcement.evaluate_sink",
+            "interbolt.enforcement.check.evaluate_sink",
             side_effect=CELEvalError("oops"),
         )
         with pytest.raises(PolicyEvaluationError) as exc_info:
@@ -327,7 +324,7 @@ class TestCheckFunction:
             sinks={"default.t": (SinkRule(name="r", when="true", action=Action.BLOCK),)}
         )
         mocker.patch(
-            "interbolt.enforcement.evaluate_sink",
+            "interbolt.enforcement.check.evaluate_sink",
             side_effect=CELUnsupportedError("oops", 1, 1),
         )
         decision = check(
@@ -353,7 +350,7 @@ class TestCheckFunction:
             sinks={"default.t": (SinkRule(name="r", when="true", action=Action.BLOCK),)}
         )
         mocker.patch(
-            "interbolt.enforcement.evaluate_sink",
+            "interbolt.enforcement.check.evaluate_sink",
             side_effect=CELUnsupportedError("oops", 1, 1),
         )
         with pytest.raises(PolicyEvaluationError) as exc_info:
@@ -381,7 +378,7 @@ class TestCheckFunction:
             sinks={"default.t": (SinkRule(name="r", when="true", action=Action.BLOCK),)}
         )
         mocker.patch(
-            "interbolt.enforcement.evaluate_sink",
+            "interbolt.enforcement.check.evaluate_sink",
             side_effect=CELUnsupportedError("oops", 1, 1),
         )
         reporter = InMemoryReporter()
@@ -417,7 +414,7 @@ class TestCheckFunction:
         )
         assert decision.action is Action.ALLOW
         assert reporter.events[0].outcome == "block"
-        assert reporter.events[0].matched_rule == "block_all"
+        assert reporter.events[0].decision.matched_rule == "block_all"
 
     def test_dry_run_downgrades_require_approval_to_allow(
         self, make_policy: Callable[..., Policy]
@@ -528,7 +525,7 @@ class TestCheckFunction:
             mode=Mode.ENFORCE,
         )
         assert decision.matched_rule == "my_rule"
-        assert reporter.events[0].matched_rule == "my_rule"
+        assert reporter.events[0].decision.matched_rule == "my_rule"
 
     def test_audit_registry_none_no_findings(
         self, make_policy: Callable[..., Policy]
@@ -1083,7 +1080,7 @@ class TestEmit:
         from datetime import UTC, datetime
 
         from interbolt.constants import EVENT_SCHEMA_VERSION
-        from interbolt.models.core import Decision, Event, Mode
+        from interbolt.models.core import Decision, Event, Mode, Outcome
 
         mock_reporter = mocker.Mock(spec=Reporter)
         d = Decision(
@@ -1104,17 +1101,8 @@ class TestEmit:
         event = Event(
             schema_version=EVENT_SCHEMA_VERSION,
             decision=d,
-            agent_id="a",
-            run_id="r",
-            session_id=None,
             sources=frozenset(),
-            lineage=(),
-            matched_rule=None,
-            trifecta=frozenset(),
-            untrusted_sources=frozenset(),
-            run_tainted=False,
-            mode=Mode.ENFORCE,
-            outcome="allow",
+            outcome=Outcome.ALLOW,
             timestamp=datetime.now(UTC),
         )
         _emit(mock_reporter, event)
@@ -1124,7 +1112,7 @@ class TestEmit:
         from datetime import UTC, datetime
 
         from interbolt.constants import EVENT_SCHEMA_VERSION
-        from interbolt.models.core import Decision, Event, Mode
+        from interbolt.models.core import Decision, Event, Mode, Outcome
 
         bad_reporter = mocker.Mock(spec=Reporter)
         bad_reporter.export.side_effect = RuntimeError("crash")
@@ -1146,17 +1134,8 @@ class TestEmit:
         event = Event(
             schema_version=EVENT_SCHEMA_VERSION,
             decision=d,
-            agent_id="a",
-            run_id="r",
-            session_id=None,
             sources=frozenset(),
-            lineage=(),
-            matched_rule=None,
-            trifecta=frozenset(),
-            untrusted_sources=frozenset(),
-            run_tainted=False,
-            mode=Mode.ENFORCE,
-            outcome="allow",
+            outcome=Outcome.ALLOW,
             timestamp=datetime.now(UTC),
         )
         _emit(bad_reporter, event)  # must not raise

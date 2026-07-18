@@ -14,15 +14,15 @@ POLICY_PATH = Path(__file__).parent.parent / "policies" / "agent_loop.yaml"
 
 
 def _installed_taint_observer() -> object:
-    """The current `taint/`-level observer, or `None` if uninstalled.
+    """The current `taint/runstate`-level observer, or `None` if uninstalled.
 
-    Looked up via `sys.modules` rather than `import interbolt.taint as X`:
-    `interbolt/__init__.py` does `from interbolt.taint import taint`, which
-    overwrites the `taint` attribute on the `interbolt` package with the
-    function; `import a.b as x` resolves through that attribute chain, so it
-    would silently bind to the function instead of the submodule.
+    Looked up via `sys.modules` rather than `import interbolt.taint.runstate
+    as X`: `interbolt/__init__.py` does `from interbolt.taint import taint`,
+    which overwrites the `taint` attribute on the `interbolt` package with
+    the function; `import a.b as x` resolves through that attribute chain,
+    so it would silently bind to the function instead of the submodule.
     """
-    return getattr(sys.modules["interbolt.taint"], "_taint_observer")  # noqa: B009
+    return getattr(sys.modules["interbolt.taint.runstate"], "_taint_observer")  # noqa: B009
 
 
 def _configure(*, audit: bool) -> Runtime:

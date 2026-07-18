@@ -13,13 +13,8 @@ from pydantic import (
 
 from interbolt.constants import RUN_COMPUTABLE_FIELDS, TRIFECTA_COMPUTABLE_LEGS
 from interbolt.errors import InterboltConfigError, PolicyEvaluationError
-from interbolt.models.core import (
-    Action,
-    Mode,
-    TrustLevel,
-    split_qualified_name,
-    validate_endorsement_kind,
-)
+from interbolt.models.core import Action, Mode, TrustLevel
+from interbolt.utils.names import split_qualified_name, validate_endorsement_kind
 
 _TRIFECTA_LEG_PATTERN = re.compile(r"trifecta\.contains\(\s*[\"']([^\"']+)[\"']\s*\)")
 _RUN_FIELD_PATTERN = re.compile(r"\brun\.(\w+)")

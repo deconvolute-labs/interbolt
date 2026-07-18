@@ -2,24 +2,21 @@ from __future__ import annotations
 
 import functools
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, TypeVar, overload
 
-from interbolt.constants import DEFAULT_NAMESPACE
+from interbolt.constants import DEFAULT_AGENT_ID, DEFAULT_NAMESPACE
 from interbolt.errors import ApprovalDenied, InterboltUsageError, PolicyViolation
-from interbolt.models.core import (
-    Action,
-    Decision,
-    split_qualified_name,
-    validate_qualified_name_part,
-)
+from interbolt.models.core import Action, Decision
+from interbolt.runtime.current import _current
 from interbolt.taint import track_model_call as _track_model_call
 from interbolt.utils import bind_arguments
 from interbolt.utils import current_agent_id as current_agent_id
 from interbolt.utils import current_run_id as current_run_id
+from interbolt.utils.names import split_qualified_name, validate_qualified_name_part
 
 if TYPE_CHECKING:
-    from interbolt.runtime import Runtime
+    from interbolt.runtime.runtime import Runtime
 
 _F = TypeVar("_F", bound=Callable[..., Any])
 
@@ -187,3 +184,97 @@ def _build_wrapper[F: Callable[..., Any]](
         return fn(*args, **kwargs)
 
     return sync_wrapper  # type: ignore[return-value]
+
+
+def agent(agent_id: str) -> AgentHandle:
+    """Return a durable per-agent handle, a secondary pattern to bare `guard`.
+
+    Prefer `agent_context`/`agent_context_sync` and the bare `guard`/`check`
+    for most cases. Use this handle when a function needs a fixed `agent_id`
+    captured once at decoration time, or when guarded calls run on a thread
+    pool: `agent_id` here is a plain string carried explicitly, so it works
+    across threads where `agent_context`'s `ContextVar` would not.
+
+    Captures `agent_id` eagerly (a plain string, safe to call at import time,
+    before `configure()` has run) and resolves the current runtime lazily,
+    at call time, exactly like bare `guard` does: a module defining
+    `support = agent("support-agent")` at import time works regardless of
+    whether `configure()` has run yet, and rebinds automatically if
+    `configure()` is called again later (for example, between tests).
+
+    Args:
+        agent_id: The durable, integrator-supplied agent identity.
+
+    Returns:
+        An `AgentHandle` whose `.guard` decorates with this agent_id.
+    """
+    return AgentHandle(agent_id, runtime_resolver=_current)
+
+
+def guard[F: Callable[..., Any]](
+    func: F | None = None, *, tool: str | None = None
+) -> Any:  # noqa: ANN401
+    """Guard a function with the ambient agent identity. The primary pattern.
+
+    The recommended way to guard a tool call: decorate the function with a
+    bare `@guard` where it is defined, with no agent reference at decoration
+    time, and bind the acting agent's identity for the duration of a run
+    with `Runtime.agent_context` at the call site. Agent identity is read
+    from the `agent_context` contextvar, falling back to
+    `constants.DEFAULT_AGENT_ID` when no `agent_context` is active.
+
+    Resolves the current runtime lazily, at call time, so a module using
+    `@guard` can be imported before `configure()` has run.
+
+    Offloaded to a thread pool? Use `agent(...)` instead (see its docstring).
+
+    Args:
+        func: The function to guard, when used as a bare `@guard`.
+        tool: The tool name, when used as `@guard(tool=...)`.
+
+    Returns:
+        The guarded function, or a decorator if called with arguments.
+    """
+
+    def decorator(fn: F) -> F:
+        return _build_wrapper(
+            fn,
+            agent_id_source=lambda: current_agent_id.get() or DEFAULT_AGENT_ID,
+            tool=tool or fn.__name__,
+            runtime_resolver=_current,
+        )
+
+    if func is not None:
+        return decorator(func)
+    return decorator
+
+
+def check(
+    *,
+    tool: str,
+    args: Mapping[str, Any],
+    agent_id: str,
+    run_id: str | None = None,
+    session_id: str | None = None,
+) -> Decision:
+    """Evaluate policy for one call, against the current runtime.
+
+    The explicit, framework-agnostic counterpart to `guard`: `agent_id` is
+    always a required argument here, rather than read from the
+    `agent_context` contextvar. Use this directly for a custom dispatch
+    loop, an MCP router, or an existing tool registry; use `guard` to pick
+    up the ambient agent identity from `Runtime.agent_context` automatically.
+
+    Args:
+        tool: The dotted qualified tool name.
+        args: The call's bound arguments.
+        agent_id: The durable agent identity.
+        run_id: The per-run identity, or `None` to mint a fresh one.
+        session_id: The optional session identity.
+
+    Returns:
+        The computed `Decision`.
+    """
+    return _current().check(
+        tool=tool, args=args, agent_id=agent_id, run_id=run_id, session_id=session_id
+    )

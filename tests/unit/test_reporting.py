@@ -9,7 +9,15 @@ from pathlib import Path
 from pytest_mock import MockerFixture
 
 from interbolt.constants import EVENT_SCHEMA_VERSION, RECORD_TYPE_EVENT
-from interbolt.models.core import Action, Decision, Endorsement, Event, Finding, Mode
+from interbolt.models.core import (
+    Action,
+    Decision,
+    Endorsement,
+    Event,
+    Finding,
+    Mode,
+    Outcome,
+)
 from interbolt.reporting import (
     CompositeReporter,
     InMemoryReporter,
@@ -50,17 +58,8 @@ def _event() -> Event:
     return Event(
         schema_version=EVENT_SCHEMA_VERSION,
         decision=_decision(),
-        agent_id="agent",
-        run_id="run",
-        session_id=None,
         sources=frozenset(),
-        lineage=(),
-        matched_rule=None,
-        trifecta=frozenset(),
-        untrusted_sources=frozenset(),
-        run_tainted=False,
-        mode=Mode.ENFORCE,
-        outcome="allow",
+        outcome=Outcome.ALLOW,
         timestamp=datetime.now(UTC),
     )
 
@@ -182,17 +181,8 @@ class TestJsonlReporter:
         ev = Event(
             schema_version=EVENT_SCHEMA_VERSION,
             decision=_decision(),
-            agent_id="agent",
-            run_id="run",
-            session_id=None,
             sources=frozenset(),
-            lineage=(),
-            matched_rule=None,
-            trifecta=frozenset(),
-            untrusted_sources=frozenset(),
-            run_tainted=False,
-            mode=Mode.ENFORCE,
-            outcome="allow",
+            outcome=Outcome.ALLOW,
             trace_id="a" * 32,
             span_id="b" * 16,
             timestamp=datetime.now(UTC),
