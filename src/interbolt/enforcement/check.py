@@ -275,7 +275,7 @@ def _run_audit(
 def _emit(reporter: Reporter, event: Event | Finding) -> None:
     try:
         reporter.export(event)
-    except Exception:  # noqa: BLE001 -- a reporter failure must never affect a decision
+    except Exception:  # noqa: BLE001 - a reporter failure must never affect a decision
         _logger.warning(
             "reporter %r failed to export %r", reporter, type(event).__name__
         )

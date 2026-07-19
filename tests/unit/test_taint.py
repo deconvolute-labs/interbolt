@@ -1036,12 +1036,12 @@ class TestCollectLabels:
         assert labels == ()
 
     def test_deduplicates_by_value_id_not_source(self) -> None:
-        # Same object referenced twice → 1 label (same value_id)
+        # Same object referenced twice -> 1 label (same value_id)
         t = taint("hello", source="s")
         labels = collect_labels({"a": t, "b": t}, max_depth=2)
         assert len(labels) == 1
 
-        # Two separate taint() calls with same source → 2 distinct labels
+        # Two separate taint() calls with same source -> 2 distinct labels
         t1 = taint("hello", source="s")
         t2 = taint("world", source="s")
         labels2 = collect_labels([t1, t2], max_depth=2)
@@ -1055,9 +1055,9 @@ class TestCollectLabels:
         # With max_depth=2 we recurse into the outer list (depth 1)
         # and the inner list (depth 2), but t is at depth 3 — not found.
         # Actually: collect_labels([nested], max_depth=2)
-        # depth=2: iterate outer list → nested at depth=1
-        # depth=1: iterate inner list [[t]] → [t] at depth=0
-        # depth=0: stop → t not found
+        # depth=2: iterate outer list -> nested at depth=1
+        # depth=1: iterate inner list [[t]] -> [t] at depth=0
+        # depth=0: stop -> t not found
         assert len(labels) == 0
 
     def test_nested_mapping_walks_keys_and_values(self) -> None:
