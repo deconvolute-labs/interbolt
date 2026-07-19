@@ -130,7 +130,7 @@ def _endorse_recurse(
         ]
         try:
             return rebuild(value, items)
-        except Exception:  # noqa: BLE001 -- containment must never crash the caller
+        except Exception:  # noqa: BLE001 - containment must never crash the caller
             _logger.debug(
                 "endorse(): could not reconstruct container type %s; "
                 "returning the value unendorsed",

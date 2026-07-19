@@ -66,7 +66,7 @@ class TestFreshLabelAndMerge:
         assert len(lbl.value_id) == 36  # UUID4
 
     def test_merge_labels_single_reuses_label_and_value_id(self) -> None:
-        # Change 6 fast path: a single-label "merge" (every single-parent
+        # Fast path: a single-label "merge" (every single-parent
         # string-op derivation) returns the same Label object, minting no
         # fresh value_id, since there is nothing to merge.
         lbl = _label("s")
@@ -482,11 +482,6 @@ class TestLabeledValue:
         assert not bool(LabeledValue(value=None, label=_label()))
 
 
-# ---------------------------------------------------------------------------
-# Change 3: copy, deepcopy, and pickle semantics for the carriers
-# ---------------------------------------------------------------------------
-
-
 class TestCopyDeepcopyPickle:
     def test_tainted_copy_preserves_label(self) -> None:
         original = taint("hello", source="web")
@@ -547,11 +542,6 @@ class TestCopyDeepcopyPickle:
         copied = copy.deepcopy(original)
         assert copied["a"].label.source == "s1"
         assert copied["b"][0].label.source == "s2"
-
-
-# ---------------------------------------------------------------------------
-# Change 4: widened propagation contract
-# ---------------------------------------------------------------------------
 
 
 class TestTaintedWidenedPropagation:
@@ -647,11 +637,6 @@ class TestTaintedBytesWidenedPropagation:
         assert taint(b"a\tb", source="s").expandtabs().label.source == "s"
 
 
-# ---------------------------------------------------------------------------
-# Change 6: single-label fast path
-# ---------------------------------------------------------------------------
-
-
 class TestSingleLabelFastPath:
     def test_single_parent_derivation_shares_parent_value_id(self) -> None:
         original = taint("hello world", source="s")
@@ -669,11 +654,6 @@ class TestSingleLabelFastPath:
         merged = a + b
         assert merged.label.value_id != a.label.value_id
         assert merged.label.value_id != b.label.value_id
-
-
-# ---------------------------------------------------------------------------
-# Change 5: endorse()
-# ---------------------------------------------------------------------------
 
 
 class TestEndorse:
@@ -842,7 +822,7 @@ class TestTaintFunction:
 
 
 # ---------------------------------------------------------------------------
-# Change 1: container recursion labels only string leaves; the depth cutoff
+# Container recursion labels only string leaves; the depth cutoff
 # never shape-shifts a sub-container into a LabeledValue.
 # ---------------------------------------------------------------------------
 

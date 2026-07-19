@@ -173,7 +173,7 @@ class TestInMemoryReporter:
 
 class TestLoggingReporter:
     def test_calls_logger_debug(self, mocker: MockerFixture) -> None:
-        mock_debug = mocker.patch("interbolt.reporting._logger.debug")
+        mock_debug = mocker.patch("interbolt.reporting.reporters._logger.debug")
         ev = _event()
         LoggingReporter().export(ev)
         mock_debug.assert_called_once()

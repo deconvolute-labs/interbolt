@@ -24,7 +24,7 @@ def _fresh_label(source: str) -> Label:
     return Label(source=source, value_id=_new_value_id(), lineage=(source,))
 
 
-def _identity(value: Any) -> Any:  # noqa: ANN401 -- pickle reconstruction target
+def _identity(value: Any) -> Any:  # noqa: ANN401 - pickle reconstruction target
     """Return `value` unchanged; the `__reduce__` target for `LabeledValue`.
 
     A plain, importable module-level function, since pickle needs a callable
@@ -72,7 +72,7 @@ def _merge_labels(*labels: Label) -> Label:
     )
 
 
-def _labels_of(*values: Any) -> list[Label]:  # noqa: ANN401 -- operands are arbitrary by nature
+def _labels_of(*values: Any) -> list[Label]:  # noqa: ANN401 - operands are arbitrary by nature
     return [v.label for v in values if isinstance(v, (Tainted, TaintedBytes))]
 
 
@@ -118,7 +118,7 @@ class Tainted(str):
     def __reduce__(self) -> tuple[Any, ...]:
         return (str, (str(self),))
 
-    def __add__(self, other: Any) -> Any:  # noqa: ANN401 -- binary operand, type-checked at runtime
+    def __add__(self, other: Any) -> Any:  # noqa: ANN401 - binary operand, type-checked at runtime
         if not isinstance(other, str):
             return NotImplemented
         result = str.__add__(self, other)

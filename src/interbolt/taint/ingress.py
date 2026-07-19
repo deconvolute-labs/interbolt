@@ -36,11 +36,11 @@ def _observe_ingress(value: Any, *, source: str, run_id: str, depth: int) -> Non
 
 
 def taint(
-    value: Any,  # noqa: ANN401 -- accepts any ingress shape
+    value: Any,  # noqa: ANN401 - accepts any ingress shape
     *,
     source: str,
     derived_from: Iterable[Any] | None = None,
-) -> Any:  # noqa: ANN401 -- returns whatever shape it labeled
+) -> Any:  # noqa: ANN401 - returns whatever shape it labeled
     """Mark a value with its provenance at the point it enters the agent.
 
     For `str`/`bytes` this returns a `Tainted`/`TaintedBytes` carrier that
@@ -149,7 +149,7 @@ def _wrap_leaf(value: Any, make_label: Callable[[], Label]) -> Any:  # noqa: ANN
 
 def track_model_call[F: Callable[..., Any]](
     fn: F | None = None, *, source: str = "model"
-) -> Any:  # noqa: ANN401 -- returns a decorator or a wrapped callable
+) -> Any:  # noqa: ANN401 - returns a decorator or a wrapped callable
     """Taint a model/LLM call's return value, derived from its arguments.
 
     Wraps `fn` so its return value is tainted via `taint(result,
