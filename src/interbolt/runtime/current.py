@@ -32,7 +32,7 @@ def _current() -> Runtime:
     attribute read is atomic, and `_runtime_lock` only needs to serialize
     concurrent writers (`configure()`). Guarding this read would put lock
     contention on every guarded call's hot path for no
-    correctness benefit. Do not add the lock back here.
+    correctness benefit. Do not add a lock here.
     """
     runtime = _current_runtime
     if runtime is None:

@@ -50,8 +50,6 @@ class TestConfigure:
     def test_mode_arg_used_when_policy_omits_fail_mode(
         self, make_policy: Callable[..., Policy], reset_runtime: None
     ) -> None:
-        # After Bug 2 fix: policy with fail_mode=None means configure()'s
-        # mode= arg is used as the effective mode.
         policy = make_policy(fail_mode=None)
         rt = configure(policy=policy, mode=Mode.MONITOR)
         assert rt.mode is Mode.MONITOR
@@ -61,7 +59,7 @@ class TestConfigure:
     ) -> None:
         from interbolt.models.core import Mode
 
-        # Policy explicitly sets fail_mode=enforce; configure(mode=MONITOR) → ENFORCE
+        # Policy explicitly sets fail_mode=enforce; configure(mode=MONITOR) -> ENFORCE
         policy = make_policy(fail_mode=Mode.ENFORCE)
         rt = configure(policy=policy, mode=Mode.MONITOR)
         assert rt.mode is Mode.ENFORCE
@@ -172,7 +170,7 @@ class TestConfigure:
         # No policy= given: configure() falls back to the built-in default,
         # whose Policy has no file source. The log message says so
         # generically ("programmatic (no file...)") rather than claiming
-        # specifically "this is the built-in default" — a caller passing
+        # specifically "this is the built-in default". A caller passing
         # their own programmatically-built Policy hits the same source=None
         # case and deserves the same honest wording, not a false claim that
         # it's the built-in default.
