@@ -124,8 +124,8 @@ class TestSplitSinkKey:
             _split_sink_key("nodot")
 
     def test_dotted_namespace_raises(self) -> None:
-        # rpartition on "a.b.c" → namespace="a.b", tool="c"
-        # namespace "a.b" contains a dot → error
+        # rpartition on "a.b.c" -> namespace="a.b", tool="c"
+        # namespace "a.b" contains a dot -> error
         with pytest.raises(InterboltConfigError):
             _split_sink_key("a.b.c")
 

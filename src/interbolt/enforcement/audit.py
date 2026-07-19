@@ -24,7 +24,7 @@ from interbolt.utils import current_trace_context
 def _walk_strings(
     value: Any,
     *,
-    depth: int,  # noqa: ANN401 -- arbitrary bound-argument value
+    depth: int,  # noqa: ANN401 - arbitrary bound-argument value
 ) -> Generator[tuple[str, Label | None], None, None]:
     """Yield every string leaf in `value`: `(content, label)`.
 
