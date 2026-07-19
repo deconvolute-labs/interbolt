@@ -118,53 +118,67 @@ class Decision(BaseModel):
     session_id: str | None
 
 
-class Event(BaseModel):
+class RecordBase(BaseModel):
+    """The shared base for every emitted provenance record.
+
+    Attributes:
+        schema_version: The event schema version this record was emitted under.
+        trace_id: The active OpenTelemetry trace id (W3C hex), or `None` if
+            OpenTelemetry is absent or no span was active at construction.
+        span_id: The active OpenTelemetry span id (W3C hex), or `None` under
+            the same conditions as `trace_id`.
+        timestamp: When the record was constructed.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    schema_version: int
+    trace_id: str | None = None
+    span_id: str | None = None
+    timestamp: datetime
+
+
+class IdentifiedRecordBase(RecordBase):
+    """Adds the durable identity triple, for a record that carries it directly
+    rather than through an embedded `Decision`.
+
+    Attributes:
+        agent_id: The durable, integrator-supplied agent identity.
+        run_id: The per-run identity.
+        session_id: The optional, integrator-supplied session identity.
+    """
+
+    agent_id: str
+    run_id: str
+    session_id: str | None
+
+
+class Event(RecordBase):
     """The versioned, emitted record of a `Decision`.
 
     Identity, matched-rule, trifecta, and mode fields are not duplicated
     here: reach them via `decision`, the single source of truth for what was
-    decided. `trace_id`/`span_id` are the active OpenTelemetry span's W3C
-    hex identifiers at construction time, or `None` if OpenTelemetry is
-    absent or no span was active.
+    decided.
     """
 
-    model_config = ConfigDict(frozen=True)
-
-    schema_version: int
     decision: Decision
     sources: frozenset[str]
     outcome: Outcome
-    trace_id: str | None = None
-    span_id: str | None = None
-    timestamp: datetime
 
 
-class Finding(BaseModel):
-    """A laundering-audit record: untrusted content reached a sink without a label.
+class Finding(IdentifiedRecordBase):
+    """A laundering-audit record: untrusted content reached a sink without a label."""
 
-    `trace_id`/`span_id` are captured the same way as on `Event`.
-    """
-
-    model_config = ConfigDict(frozen=True)
-
-    schema_version: int
     source: str
     tool: str
     argument: str
-    agent_id: str
-    run_id: str
-    session_id: str | None
-    trace_id: str | None = None
-    span_id: str | None = None
-    timestamp: datetime
 
 
-class Endorsement(BaseModel):
+class Endorsement(IdentifiedRecordBase):
     """A record of one `endorse()` call: a value's restrictiveness was
     reduced by explicit, code-driven validation, not by laundering it.
 
     Attributes:
-        schema_version: The event schema version this record was emitted under.
         kind: The machine-matchable endorsement category (for example
             `"schema_validated"`, `"recipient_allowlisted"`).
         note: An optional free-text audit annotation. Carried only on this
@@ -172,30 +186,9 @@ class Endorsement(BaseModel):
         lineage: The endorsed label's source lineage, for traceability.
         value_id: The endorsed value's fresh label id, minted for this
             endorsement hop.
-        agent_id: The durable, integrator-supplied agent identity, or
-            `constants.DEFAULT_AGENT_ID` if no `agent_context` is active.
-        run_id: The active run's identity, or a freshly minted one if no
-            `agent_context` is active.
-        session_id: Always `None` in v1: there is no session-identity
-            context variable for `endorse()` to read, unlike `agent_id`/
-            `run_id`.
-        trace_id: The active OpenTelemetry trace id (W3C hex), or `None` if
-            OpenTelemetry is absent or no span was active at construction.
-        span_id: The active OpenTelemetry span id (W3C hex), or `None` under
-            the same conditions as `trace_id`.
-        timestamp: When the endorsement was recorded.
     """
 
-    model_config = ConfigDict(frozen=True)
-
-    schema_version: int
     kind: str
     note: str | None
     lineage: tuple[str, ...]
     value_id: str
-    agent_id: str
-    run_id: str
-    session_id: str | None
-    trace_id: str | None = None
-    span_id: str | None = None
-    timestamp: datetime
