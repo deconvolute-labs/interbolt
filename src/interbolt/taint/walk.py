@@ -160,7 +160,7 @@ def unwrap(value: Any) -> Any:  # noqa: ANN401 -- accepts and returns any shape
     are rebuilt with unwrapped elements, to unbounded depth.
 
     Used by `enforcement` to hand plain values to code that doesn't know
-    about taint carriers, such as the CEL context builder in `policy.engine`.
+    about taint carriers, such as the CEL context builder in `policy.evaluate`.
 
     Args:
         value: The value to strip.

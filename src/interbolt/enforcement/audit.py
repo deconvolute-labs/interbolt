@@ -15,7 +15,7 @@ from interbolt.constants import (
     EVENT_SCHEMA_VERSION,
 )
 from interbolt.models.core import Finding, Label, TrustLevel
-from interbolt.policy.engine import resolve_label_trust
+from interbolt.policy.evaluate import resolve_label_trust
 from interbolt.taint import Tainted, TaintedBytes
 from interbolt.taint.walk import leaf_text, walk_leaves
 from interbolt.utils import current_trace_context

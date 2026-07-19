@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 from interbolt.models.core import TrustLevel
-from interbolt.policy.engine import CompiledSink, compile_policy
+from interbolt.policy.compile import CompiledSink, compile_policy
+from interbolt.policy.evaluate import ResolvedLabel
 from interbolt.policy.schema import (
     Defaults,
     PolicyDocument,
     load_policy_document,
     validate_policy,
 )
+
+__all__ = [
+    "Policy",
+    "default_policy",
+    "CompiledSink",
+    "ResolvedLabel",
+    "compile_policy",
+]
 
 
 class Policy:

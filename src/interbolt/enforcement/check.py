@@ -28,13 +28,8 @@ from interbolt.models.core import (
     TrustLevel,
 )
 from interbolt.models.protocols import Reporter
-from interbolt.policy import Policy
-from interbolt.policy.engine import (
-    ResolvedLabel,
-    build_context,
-    evaluate_sink,
-    resolve_labels,
-)
+from interbolt.policy import Policy, ResolvedLabel
+from interbolt.policy.evaluate import build_context, evaluate_sink, resolve_labels
 from interbolt.taint import collect_labels, unwrap
 from interbolt.utils import current_trace_context, get_logger
 

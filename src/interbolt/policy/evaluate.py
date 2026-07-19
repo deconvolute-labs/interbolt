@@ -1,14 +1,6 @@
-"""CEL compilation: policy DSL rewrite, context building, and rule evaluation.
+"""Per-call policy evaluation: trust resolution, CEL context, sink evaluation.
 
-The policy DSL's `.any(` is retargeted to CEL's real `exists` macro via an
-AST-level transform on celpy's parsed `lark.Tree` (`_rewrite_any_to_exists`),
-not a text-level rewrite. A text substitution would also rewrite `.any(`
-occurrences that appear inside a CEL string literal, silently corrupting a
-security predicate's intended meaning. The transform only mutates
-`member_dot_arg` nodes, celpy's own method-call/macro-dispatch AST shape
-(see `celpy/evaluation.py:member_dot_arg`), so string, bytes, and
-triple-quoted literal tokens are structurally unreachable by it and are
-never touched, regardless of their contents.
+Everything here runs on every guarded call.
 """
 
 from __future__ import annotations
@@ -17,128 +9,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-import celpy
-import lark
 from celpy import celtypes
 from celpy.adapter import json_to_cel
 
 from interbolt.models.core import Action, Label, TrustLevel
-from interbolt.policy.schema import PolicyDocument, SinkRule
-
-_ENV = celpy.Environment()
-
-
-def _rewrite_any_to_exists(tree: lark.Tree[lark.Token]) -> lark.Tree[lark.Token]:
-    """Retarget every `.any(` method-call node to CEL's `exists` macro, in place.
-
-    CEL has no `any` macro; its set is `{map, filter, all, exists,
-    exists_one, reduce, min}`. `exists` ("at least one element satisfies the
-    predicate") means the same thing as the policy DSL's `.any(`.
-
-    Walks `tree`'s `member_dot_arg` nodes (the parse-tree shape celpy's own
-    evaluator dispatches macros from) and renames the method token from
-    `any` to `exists` wherever it appears. String, bytes, and triple-quoted
-    literal tokens live under a sibling `literal` grammar node and are never
-    visited by this walk, so a `.any(` occurring inside any CEL string form
-    is never touched.
-
-    Args:
-        tree: The parsed CEL AST from `Environment.compile()`.
-
-    Returns:
-        The same tree object, mutated in place.
-    """
-    for subtree in tree.iter_subtrees():
-        if subtree.data != "member_dot_arg":
-            continue
-        method_token = subtree.children[1]
-        if isinstance(method_token, lark.Token) and method_token.value == "any":
-            subtree.children[1] = method_token.update(value="exists")
-    return tree
-
-
-def compile_cel_expression(source: str) -> celpy.Runner:
-    """Compile one CEL `when` expression into a reusable, evaluate-many program.
-
-    Args:
-        source: The CEL expression text, as written in the policy YAML.
-
-    Returns:
-        A compiled celpy program, ready for repeated `evaluate()` calls.
-
-    Raises:
-        celpy.CELParseError: If the expression is not valid CEL.
-    """
-    tree = _rewrite_any_to_exists(_ENV.compile(source))
-    return _ENV.program(tree)
-
-
-@dataclass(frozen=True)
-class CompiledRule:
-    """One compiled rule. `program is None` marks the unconditional catch-all."""
-
-    name: str
-    action: Action
-    program: celpy.Runner | None
-    when: str | None = None
-
-
-@dataclass(frozen=True)
-class CompiledSink:
-    """A sink's ordered, compiled rule list."""
-
-    rules: tuple[CompiledRule, ...]
-
-
-def _require_endorsement_when(kind: str) -> str:
-    """Synthesize the `when:` text for a `require_endorsement: <kind>` rule.
-
-    Compiles to exactly the kind-matching idiom: gate untrusted data that
-    lacks the endorsement this sink requires, matching a source endorsed for
-    one kind but not this one (the sanitizer-mismatch case).
-    """
-    return (
-        'taint.any(t, t.trust == "untrusted" && '
-        f'!t.endorsements.exists(k, k == "{kind}"))'
-    )
-
-
-def _rule_when(rule: SinkRule) -> str | None:
-    if rule.require_endorsement is not None:
-        return _require_endorsement_when(rule.require_endorsement)
-    return rule.when
-
-
-def compile_policy(document: PolicyDocument) -> dict[str, CompiledSink]:
-    """Compile every sink's rule list once, at policy load time.
-
-    A rule's `require_endorsement: <kind>` field (mutually exclusive with
-    `when`, enforced at schema validation) is sugar that compiles to the
-    equivalent `when:` CEL text, so `CompiledRule.when`/`matched_condition`
-    always show real, human-readable CEL regardless of which field the
-    policy author wrote.
-
-    Args:
-        document: The validated policy document.
-
-    Returns:
-        A mapping of dotted sink key to its compiled rule list.
-    """
-    compiled: dict[str, CompiledSink] = {}
-    for sink_key, rules in document.sinks.items():
-        compiled_rules = []
-        for rule in rules:
-            when = _rule_when(rule)
-            compiled_rules.append(
-                CompiledRule(
-                    name=rule.name,
-                    action=rule.action,
-                    program=compile_cel_expression(when) if when is not None else None,
-                    when=when,
-                )
-            )
-        compiled[sink_key] = CompiledSink(rules=tuple(compiled_rules))
-    return compiled
+from interbolt.policy.compile import CompiledSink
 
 
 def resolve_source_trust(

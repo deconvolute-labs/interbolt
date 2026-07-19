@@ -44,7 +44,7 @@ class SinkRule(BaseModel):
 
     `require_endorsement` is sugar for the common "gate untrusted data
     lacking this endorsement kind" shape: setting it compiles to the
-    equivalent `when:` CEL text (`policy/engine.py:_require_endorsement_when`),
+    equivalent `when:` CEL text (`policy/compile.py:_require_endorsement_when`),
     so most rules needing this never hand-write CEL. Mutually exclusive with
     `when`; a rule may set at most one of the two.
     """
@@ -142,7 +142,7 @@ def validate_policy(path: str) -> list[str]:
         A list of human-readable problem descriptions, empty if the policy
         is valid. Every error is captured here instead of raised.
     """
-    from interbolt.policy.engine import _rule_when, compile_cel_expression
+    from interbolt.policy.compile import _rule_when, compile_cel_expression
 
     problems: list[str] = []
     try:

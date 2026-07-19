@@ -13,7 +13,7 @@ import interbolt.runtime.current as _current_module
 from interbolt import InMemoryReporter, Policy, Runtime, configure
 from interbolt.models.core import Action, Decision, Label, Mode
 from interbolt.policy import Policy as _Policy
-from interbolt.policy.engine import compile_policy
+from interbolt.policy.compile import compile_policy
 from interbolt.policy.schema import (
     Defaults,
     PolicyDocument,

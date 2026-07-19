@@ -15,7 +15,7 @@ from interbolt.enforcement.signals import _compute_trifecta
 from interbolt.models.core import Action, Label, Mode, TrustLevel
 from interbolt.models.protocols import Reporter
 from interbolt.policy import Policy
-from interbolt.policy.engine import resolve_labels
+from interbolt.policy.evaluate import resolve_labels
 from interbolt.policy.schema import SinkRule, SourceDeclaration
 from interbolt.reporting import InMemoryReporter, NullReporter
 from interbolt.taint import _fresh_label, taint

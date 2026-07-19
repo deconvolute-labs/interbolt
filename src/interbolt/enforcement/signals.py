@@ -6,7 +6,8 @@ from collections.abc import Mapping
 
 from interbolt.constants import TRIFECTA_FROM_UNTRUSTED
 from interbolt.models.core import TrustLevel
-from interbolt.policy.engine import ResolvedLabel, resolve_source_trust
+from interbolt.policy import ResolvedLabel
+from interbolt.policy.evaluate import resolve_source_trust
 from interbolt.taint import run_ingress_sources
 
 

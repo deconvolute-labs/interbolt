@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from interbolt.enforcement import AuditRegistry
 from interbolt.models.core import Endorsement, TrustLevel
 from interbolt.policy import Policy
-from interbolt.policy.engine import resolve_source_trust
+from interbolt.policy.evaluate import resolve_source_trust
 from interbolt.utils import get_logger
 
 if TYPE_CHECKING:

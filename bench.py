@@ -20,7 +20,7 @@ import time
 from collections.abc import Callable
 
 from interbolt import Action, InMemoryReporter, Policy, TrustLevel, configure, taint
-from interbolt.policy.engine import compile_policy
+from interbolt.policy.compile import compile_policy
 from interbolt.policy.schema import (
     Defaults,
     PolicyDocument,
