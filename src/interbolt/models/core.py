@@ -1,72 +1,9 @@
 from __future__ import annotations
 
-import re
 from datetime import datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
-
-from interbolt.errors import InterboltConfigError
-
-_ENDORSEMENT_KIND_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
-
-
-def validate_endorsement_kind(value: str) -> None:
-    """Reject an endorsement kind with characters outside the safe identifier set.
-
-    `kind` is interpolated into compiled CEL source (`SinkRule.require_endorsement`
-    schema sugar), so an unconstrained character such as a quote could rewrite the
-    compiled predicate's semantics.
-
-    Args:
-        value: The candidate endorsement kind.
-
-    Raises:
-        InterboltConfigError: If `value` contains a character outside
-            `[A-Za-z0-9_.-]`, or is empty.
-    """
-    if not _ENDORSEMENT_KIND_PATTERN.match(value):
-        raise InterboltConfigError(
-            f"endorsement kind {value!r} must match "
-            f"{_ENDORSEMENT_KIND_PATTERN.pattern!r}"
-        )
-
-
-def validate_qualified_name_part(value: str, *, part: str) -> None:
-    """Reject a namespace or tool name that contains a dot.
-
-    A dot in either half would make the dotted `namespace.tool` surface
-    ambiguous to parse back apart.
-
-    Args:
-        value: The candidate namespace or tool name.
-        part: Which part this is, for the error message ("namespace" or "tool").
-
-    Raises:
-        InterboltConfigError: If `value` contains a dot.
-    """
-    if "." in value:
-        raise InterboltConfigError(f"{part} {value!r} may not contain a dot")
-
-
-def split_qualified_name(value: str) -> tuple[str, str] | None:
-    """Split a dotted `namespace.tool` name into its validated halves.
-
-    Args:
-        value: The candidate qualified name.
-
-    Returns:
-        The `(namespace, tool)` pair, or `None` if `value` has no dot.
-
-    Raises:
-        InterboltConfigError: If the namespace or tool half itself contains a dot.
-    """
-    namespace, separator, tool = value.rpartition(".")
-    if not separator:
-        return None
-    validate_qualified_name_part(namespace, part="namespace")
-    validate_qualified_name_part(tool, part="tool")
-    return namespace, tool
 
 
 class Mode(StrEnum):
@@ -124,6 +61,15 @@ class Action(StrEnum):
     REQUIRE_APPROVAL = "require_approval"
 
 
+class Outcome(StrEnum):
+    """What `check()` actually computed, before any mode-based downgrade."""
+
+    ALLOW = "allow"
+    BLOCK = "block"
+    REQUIRE_APPROVAL = "require_approval"
+    EVALUATION_ERROR = "evaluation_error"
+
+
 class Decision(BaseModel):
     """The outcome of evaluating a policy against a guarded call.
 
@@ -172,60 +118,67 @@ class Decision(BaseModel):
     session_id: str | None
 
 
-class Event(BaseModel):
-    """The versioned, emitted record of a `Decision`.
+class RecordBase(BaseModel):
+    """The shared base for every emitted provenance record.
 
-    `trace_id`/`span_id` are the active OpenTelemetry span's W3C hex
-    identifiers at construction time, or `None` if OpenTelemetry is absent
-    or no span was active.
+    Attributes:
+        schema_version: The event schema version this record was emitted under.
+        trace_id: The active OpenTelemetry trace id (W3C hex), or `None` if
+            OpenTelemetry is absent or no span was active at construction.
+        span_id: The active OpenTelemetry span id (W3C hex), or `None` under
+            the same conditions as `trace_id`.
+        timestamp: When the record was constructed.
     """
 
     model_config = ConfigDict(frozen=True)
 
     schema_version: int
-    decision: Decision
-    agent_id: str
-    run_id: str
-    session_id: str | None
-    sources: frozenset[str]
-    lineage: tuple[str, ...]
-    matched_rule: str | None
-    trifecta: frozenset[str]
-    untrusted_sources: frozenset[str]
-    run_tainted: bool
-    mode: Mode
-    outcome: str
     trace_id: str | None = None
     span_id: str | None = None
     timestamp: datetime
 
 
-class Finding(BaseModel):
-    """A laundering-audit record: untrusted content reached a sink without a label.
+class IdentifiedRecordBase(RecordBase):
+    """Adds the durable identity triple, for a record that carries it directly
+    rather than through an embedded `Decision`.
 
-    `trace_id`/`span_id` are captured the same way as on `Event`.
+    Attributes:
+        agent_id: The durable, integrator-supplied agent identity.
+        run_id: The per-run identity.
+        session_id: The optional, integrator-supplied session identity.
     """
 
-    model_config = ConfigDict(frozen=True)
+    agent_id: str
+    run_id: str
+    session_id: str | None
 
-    schema_version: int
+
+class Event(RecordBase):
+    """The versioned, emitted record of a `Decision`.
+
+    Identity, matched-rule, trifecta, and mode fields are not duplicated
+    here: reach them via `decision`, the single source of truth for what was
+    decided.
+    """
+
+    decision: Decision
+    sources: frozenset[str]
+    outcome: Outcome
+
+
+class Finding(IdentifiedRecordBase):
+    """A laundering-audit record: untrusted content reached a sink without a label."""
+
     source: str
     tool: str
     argument: str
-    agent_id: str
-    run_id: str
-    session_id: str | None
-    trace_id: str | None = None
-    span_id: str | None = None
-    timestamp: datetime
 
 
-class Endorsement(BaseModel):
+class Endorsement(IdentifiedRecordBase):
     """A record of one `endorse()` call: a value's restrictiveness was
     reduced by explicit, code-driven validation, not by laundering it.
 
     Attributes:
-        schema_version: The event schema version this record was emitted under.
         kind: The machine-matchable endorsement category (for example
             `"schema_validated"`, `"recipient_allowlisted"`).
         note: An optional free-text audit annotation. Carried only on this
@@ -233,30 +186,9 @@ class Endorsement(BaseModel):
         lineage: The endorsed label's source lineage, for traceability.
         value_id: The endorsed value's fresh label id, minted for this
             endorsement hop.
-        agent_id: The durable, integrator-supplied agent identity, or
-            `constants.DEFAULT_AGENT_ID` if no `agent_context` is active.
-        run_id: The active run's identity, or a freshly minted one if no
-            `agent_context` is active.
-        session_id: Always `None` in v1: there is no session-identity
-            context variable for `endorse()` to read, unlike `agent_id`/
-            `run_id`.
-        trace_id: The active OpenTelemetry trace id (W3C hex), or `None` if
-            OpenTelemetry is absent or no span was active at construction.
-        span_id: The active OpenTelemetry span id (W3C hex), or `None` under
-            the same conditions as `trace_id`.
-        timestamp: When the endorsement was recorded.
     """
 
-    model_config = ConfigDict(frozen=True)
-
-    schema_version: int
     kind: str
     note: str | None
     lineage: tuple[str, ...]
     value_id: str
-    agent_id: str
-    run_id: str
-    session_id: str | None
-    trace_id: str | None = None
-    span_id: str | None = None
-    timestamp: datetime

@@ -14,10 +14,15 @@ from interbolt.constants import (
     RECORD_TYPE_EVENT,
     RECORD_TYPE_FINDING,
 )
-from interbolt.models.core import Action, Decision, Event, Finding, Mode
+from interbolt.models.core import Action, Decision, Event, Finding, Mode, Outcome
 
 
-def _decision(action: Action = Action.ALLOW, tool: str = "default.tool") -> Decision:
+def _decision(
+    action: Action = Action.ALLOW,
+    tool: str = "default.tool",
+    run_id: str = "run-1",
+    agent_id: str = "agent-a",
+) -> Decision:
     return Decision(
         action=action,
         matched_rule=None,
@@ -29,28 +34,19 @@ def _decision(action: Action = Action.ALLOW, tool: str = "default.tool") -> Deci
         run_tainted=False,
         mode=Mode.ENFORCE,
         decision_id=str(uuid.uuid4()),
-        agent_id="agent-a",
-        run_id="run-1",
+        agent_id=agent_id,
+        run_id=run_id,
         session_id=None,
     )
 
 
 def _event(*, run_id: str = "run-1", agent_id: str = "agent-a") -> Event:
-    decision = _decision()
+    decision = _decision(run_id=run_id, agent_id=agent_id)
     return Event(
         schema_version=EVENT_SCHEMA_VERSION,
         decision=decision,
-        agent_id=agent_id,
-        run_id=run_id,
-        session_id=None,
         sources=frozenset(),
-        lineage=(),
-        matched_rule=None,
-        trifecta=frozenset(),
-        untrusted_sources=frozenset(),
-        run_tainted=False,
-        mode=Mode.ENFORCE,
-        outcome="allow",
+        outcome=Outcome.ALLOW,
         timestamp=datetime.now(UTC),
     )
 

@@ -38,7 +38,7 @@ class TestQualifyToolName:
         assert _qualify_tool_name("ns.tool") == "ns.tool"
 
     def test_dotted_namespace_raises(self) -> None:
-        # "a.b.c" → rpartition → namespace="a.b", tool="c" → "a.b" has a dot → error
+        # "a.b.c" -> rpartition -> namespace="a.b", tool="c" -> "a.b" has a dot -> error
         with pytest.raises(InterboltConfigError):
             _qualify_tool_name("a.b.c")
 
@@ -115,7 +115,7 @@ class TestEnforceDecisionSync:
     ) -> None:
         rt = configure(policy=make_policy(), approval_resolver=lambda _: True)
         decision = self._make_decision(make_decision, Action.REQUIRE_APPROVAL)
-        _enforce_decision_sync(rt, decision)  # resolver returns True → no raise
+        _enforce_decision_sync(rt, decision)  # resolver returns True -> no raise
 
     def test_require_approval_resolver_false_raises_approval_denied(
         self,

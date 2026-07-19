@@ -4,10 +4,12 @@ import asyncio
 import copy
 import pickle
 from collections import UserDict, namedtuple
+from typing import Any
 
 import pytest
 from pytest_mock import MockerFixture
 
+from interbolt.constants import RECURSION_DEPTH
 from interbolt.errors import InterboltUsageError
 from interbolt.models.core import Endorsement, Label
 from interbolt.taint import (
@@ -35,6 +37,22 @@ def _label(source: str = "src") -> Label:
     return _fresh_label(source)
 
 
+def _nest(depth: int, leaf: Any) -> Any:  # noqa: ANN401
+    """Wrap `leaf` in `depth` nested single-key dicts (`depth` container hops)."""
+    value: Any = leaf
+    for i in range(depth):
+        value = {f"k{i}": value}
+    return value
+
+
+def _dig(nested: Any, depth: int) -> Any:  # noqa: ANN401
+    """Undo `_nest`: walk back down to the leaf `_nest(depth, ...)` wrapped."""
+    value = nested
+    for i in reversed(range(depth)):
+        value = value[f"k{i}"]
+    return value
+
+
 # ---------------------------------------------------------------------------
 # _fresh_label / _merge_labels
 # ---------------------------------------------------------------------------
@@ -48,7 +66,7 @@ class TestFreshLabelAndMerge:
         assert len(lbl.value_id) == 36  # UUID4
 
     def test_merge_labels_single_reuses_label_and_value_id(self) -> None:
-        # Change 6 fast path: a single-label "merge" (every single-parent
+        # Fast path: a single-label "merge" (every single-parent
         # string-op derivation) returns the same Label object, minting no
         # fresh value_id, since there is nothing to merge.
         lbl = _label("s")
@@ -464,11 +482,6 @@ class TestLabeledValue:
         assert not bool(LabeledValue(value=None, label=_label()))
 
 
-# ---------------------------------------------------------------------------
-# Change 3: copy, deepcopy, and pickle semantics for the carriers
-# ---------------------------------------------------------------------------
-
-
 class TestCopyDeepcopyPickle:
     def test_tainted_copy_preserves_label(self) -> None:
         original = taint("hello", source="web")
@@ -529,11 +542,6 @@ class TestCopyDeepcopyPickle:
         copied = copy.deepcopy(original)
         assert copied["a"].label.source == "s1"
         assert copied["b"][0].label.source == "s2"
-
-
-# ---------------------------------------------------------------------------
-# Change 4: widened propagation contract
-# ---------------------------------------------------------------------------
 
 
 class TestTaintedWidenedPropagation:
@@ -629,11 +637,6 @@ class TestTaintedBytesWidenedPropagation:
         assert taint(b"a\tb", source="s").expandtabs().label.source == "s"
 
 
-# ---------------------------------------------------------------------------
-# Change 6: single-label fast path
-# ---------------------------------------------------------------------------
-
-
 class TestSingleLabelFastPath:
     def test_single_parent_derivation_shares_parent_value_id(self) -> None:
         original = taint("hello world", source="s")
@@ -651,11 +654,6 @@ class TestSingleLabelFastPath:
         merged = a + b
         assert merged.label.value_id != a.label.value_id
         assert merged.label.value_id != b.label.value_id
-
-
-# ---------------------------------------------------------------------------
-# Change 5: endorse()
-# ---------------------------------------------------------------------------
 
 
 class TestEndorse:
@@ -824,7 +822,7 @@ class TestTaintFunction:
 
 
 # ---------------------------------------------------------------------------
-# Change 1: container recursion labels only string leaves; the depth cutoff
+# Container recursion labels only string leaves; the depth cutoff
 # never shape-shifts a sub-container into a LabeledValue.
 # ---------------------------------------------------------------------------
 
@@ -872,6 +870,15 @@ class TestContainerRecursionStringLeavesOnly:
         assert isinstance(result, LabeledValue)
         assert result.value == 3
 
+    def test_leaf_at_recursion_depth_is_labeled_one_deeper_is_not(self) -> None:
+        at_depth = taint(_nest(RECURSION_DEPTH, "x"), source="web")
+        assert isinstance(_dig(at_depth, RECURSION_DEPTH), Tainted)
+
+        one_deeper = taint(_nest(RECURSION_DEPTH + 1, "x"), source="web")
+        leaf = _dig(one_deeper, RECURSION_DEPTH + 1)
+        assert leaf == "x"
+        assert not isinstance(leaf, Tainted)
+
 
 # ---------------------------------------------------------------------------
 # taint(derived_from=...) — "model as a new source"
@@ -880,14 +887,14 @@ class TestContainerRecursionStringLeavesOnly:
 
 class TestTaintDerivedFrom:
     def test_none_behaves_like_plain_taint(self, mocker: MockerFixture) -> None:
-        spy = mocker.patch("interbolt.taint._record_ingress")
+        spy = mocker.patch("interbolt.taint.ingress._record_ingress")
         result = taint("out", source="model", derived_from=None)
         assert isinstance(result, Tainted)
         assert result.label.lineage == ("model",)
         spy.assert_called_once_with("model")
 
     def test_empty_list_behaves_like_plain_taint(self, mocker: MockerFixture) -> None:
-        spy = mocker.patch("interbolt.taint._record_ingress")
+        spy = mocker.patch("interbolt.taint.ingress._record_ingress")
         result = taint("out", source="model", derived_from=[])
         assert isinstance(result, Tainted)
         assert result.label.lineage == ("model",)
@@ -896,7 +903,7 @@ class TestTaintDerivedFrom:
     def test_all_plain_inputs_returns_value_unwrapped(
         self, mocker: MockerFixture
     ) -> None:
-        spy = mocker.patch("interbolt.taint._record_ingress")
+        spy = mocker.patch("interbolt.taint.ingress._record_ingress")
         value = "out"
         result = taint(value, source="model", derived_from=["plain prompt", 42])
         assert result is value
@@ -919,7 +926,7 @@ class TestTaintDerivedFrom:
     def test_does_not_record_ingress_for_derivation_hop(
         self, mocker: MockerFixture
     ) -> None:
-        spy = mocker.patch("interbolt.taint._record_ingress")
+        spy = mocker.patch("interbolt.taint.ingress._record_ingress")
         untrusted = taint("attacker text", source="web_search")
         spy.reset_mock()  # drop the call recorded by the taint() call above
         taint("summary", source="model", derived_from=[untrusted])
@@ -1109,6 +1116,12 @@ class TestUnwrap:
         assert unwrap(42) == 42
         assert unwrap(None) is None
 
+    def test_unwrap_reaches_labeled_value_far_below_recursion_depth(self) -> None:
+        lv = LabeledValue(value=42, label=_label())
+        nested = _nest(RECURSION_DEPTH + 5, lv)
+        result = unwrap(nested)
+        assert _dig(result, RECURSION_DEPTH + 5) == 42
+
 
 class TestNamedtupleContainerHandling:
     def test_taint_labels_namedtuple_fields_and_preserves_type(self) -> None:
@@ -1159,7 +1172,7 @@ class TestReadOnlyTraversalsHandleNamedtuplesWithoutChange:
         assert len(collect_labels(tainted, max_depth=4)) == 2
 
     def test_walk_strings_walks_namedtuple_without_reconstruction(self) -> None:
-        from interbolt.enforcement import _walk_strings
+        from interbolt.enforcement.audit import _walk_strings
 
         tainted = taint(Point("a", "b"), source="s")
         found = list(_walk_strings(tainted, depth=4))

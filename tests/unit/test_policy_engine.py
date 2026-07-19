@@ -4,14 +4,16 @@ import lark
 import pytest
 
 from interbolt.models.core import Action, Label, TrustLevel
-from interbolt.policy.engine import (
+from interbolt.policy.compile import (
     _ENV,
     CompiledRule,
     CompiledSink,
     _rewrite_any_to_exists,
-    build_context,
     compile_cel_expression,
     compile_policy,
+)
+from interbolt.policy.evaluate import (
+    build_context,
     evaluate_sink,
     resolve_label_trust,
     resolve_labels,
@@ -254,8 +256,8 @@ class TestResolveLabelTrust:
         assert resolve_label_trust(lbl, {}) is TrustLevel.UNTRUSTED
 
     def test_empty_lineage_returns_trusted(self) -> None:
-        # Vacuous truth: no sources in lineage → the loop never marks anything
-        # untrusted → returns TRUSTED.
+        # No sources in lineage -> the loop never marks anything
+        # untrusted -> returns TRUSTED.
         lbl = Label(source="s", value_id="x", lineage=())
         assert resolve_label_trust(lbl, {}) is TrustLevel.TRUSTED
 

@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-import interbolt.runtime as _rt_module
+import interbolt.runtime.config as _config_module
+import interbolt.runtime.current as _current_module
 from interbolt.constants import DEFAULT_AGENT_ID, ENV_AUDIT, ENV_MODE
 from interbolt.errors import InterboltConfigError, InterboltUsageError
 from interbolt.models.core import Action, Mode
@@ -22,15 +23,15 @@ if TYPE_CHECKING:
 
 
 def _installed_taint_observer() -> object:
-    """The current `taint/`-level observer, or `None` if uninstalled.
+    """The current `taint/runstate`-level observer, or `None` if uninstalled.
 
-    Looked up via `sys.modules` rather than `import interbolt.taint as X`:
-    `interbolt/__init__.py` does `from interbolt.taint import taint`, which
-    overwrites the `taint` attribute on the `interbolt` package with the
-    function; `import a.b as x` resolves through that attribute chain, so it
-    would silently bind to the function instead of the submodule.
+    Looked up via `sys.modules` rather than `import interbolt.taint.runstate
+    as X`: `interbolt/__init__.py` does `from interbolt.taint import taint`,
+    which overwrites the `taint` attribute on the `interbolt` package with
+    the function; `import a.b as x` resolves through that attribute chain,
+    so it would silently bind to the function instead of the submodule.
     """
-    return getattr(sys.modules["interbolt.taint"], "_taint_observer")  # noqa: B009
+    return getattr(sys.modules["interbolt.taint.runstate"], "_taint_observer")  # noqa: B009
 
 
 class TestConfigure:
@@ -44,13 +45,11 @@ class TestConfigure:
         self, make_policy: Callable[..., Policy], reset_runtime: None
     ) -> None:
         rt = configure(policy=make_policy())
-        assert _rt_module._current_runtime is rt
+        assert _current_module._current_runtime is rt
 
     def test_mode_arg_used_when_policy_omits_fail_mode(
         self, make_policy: Callable[..., Policy], reset_runtime: None
     ) -> None:
-        # After Bug 2 fix: policy with fail_mode=None means configure()'s
-        # mode= arg is used as the effective mode.
         policy = make_policy(fail_mode=None)
         rt = configure(policy=policy, mode=Mode.MONITOR)
         assert rt.mode is Mode.MONITOR
@@ -60,7 +59,7 @@ class TestConfigure:
     ) -> None:
         from interbolt.models.core import Mode
 
-        # Policy explicitly sets fail_mode=enforce; configure(mode=MONITOR) → ENFORCE
+        # Policy explicitly sets fail_mode=enforce; configure(mode=MONITOR) -> ENFORCE
         policy = make_policy(fail_mode=Mode.ENFORCE)
         rt = configure(policy=policy, mode=Mode.MONITOR)
         assert rt.mode is Mode.ENFORCE
@@ -171,7 +170,7 @@ class TestConfigure:
         # No policy= given: configure() falls back to the built-in default,
         # whose Policy has no file source. The log message says so
         # generically ("programmatic (no file...)") rather than claiming
-        # specifically "this is the built-in default" — a caller passing
+        # specifically "this is the built-in default". A caller passing
         # their own programmatically-built Policy hits the same source=None
         # case and deserves the same honest wording, not a false claim that
         # it's the built-in default.
@@ -223,7 +222,7 @@ class TestConfigure:
             raise AttributeError("no _getframe")
 
         monkeypatch.setattr(sys, "_getframe", _raise)
-        assert _rt_module._caller_location() == ("unknown", 0)
+        assert _config_module._caller_location() == ("unknown", 0)
 
     def test_configure_audit_true_installs_taint_observer(
         self, make_policy: Callable[..., Policy], reset_runtime: None

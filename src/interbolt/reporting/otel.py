@@ -43,21 +43,21 @@ def _event_attributes(event: Event) -> dict[str, _AttributeValue]:
     attrs: dict[str, _AttributeValue] = {
         "interbolt.schema_version": event.schema_version,
         "gen_ai.tool.name": decision.tool,
-        "interbolt.outcome": event.outcome,
+        "interbolt.outcome": event.outcome.value,
         "interbolt.decision.action": decision.action.value,
         "interbolt.decision.id": decision.decision_id,
-        "interbolt.mode": event.mode.value,
-        "interbolt.agent_id": event.agent_id,
-        "interbolt.run_id": event.run_id,
-        "interbolt.run_tainted": event.run_tainted,
+        "interbolt.mode": decision.mode.value,
+        "interbolt.agent_id": decision.agent_id,
+        "interbolt.run_id": decision.run_id,
+        "interbolt.run_tainted": decision.run_tainted,
         "interbolt.sources": sorted(event.sources),
-        "interbolt.untrusted_sources": sorted(event.untrusted_sources),
-        "interbolt.trifecta": sorted(event.trifecta),
+        "interbolt.untrusted_sources": sorted(decision.untrusted_sources),
+        "interbolt.trifecta": sorted(decision.trifecta),
     }
-    if event.matched_rule is not None:
-        attrs["interbolt.matched_rule"] = event.matched_rule
-    if event.session_id is not None:
-        attrs["interbolt.session_id"] = event.session_id
+    if decision.matched_rule is not None:
+        attrs["interbolt.matched_rule"] = decision.matched_rule
+    if decision.session_id is not None:
+        attrs["interbolt.session_id"] = decision.session_id
     return attrs
 
 

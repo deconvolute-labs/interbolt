@@ -144,6 +144,16 @@ def _load_records(path: Path) -> list[Event | Finding | Endorsement]:
     return records
 
 
+def _run_id_of(record: Event | Finding | Endorsement) -> str:
+    """The record's run id: an `Event` carries it on `decision`, the others directly."""
+    return record.decision.run_id if isinstance(record, Event) else record.run_id
+
+
+def _agent_id_of(record: Event | Finding | Endorsement) -> str:
+    """The record's agent id: an `Event` carries it on `decision`, others directly."""
+    return record.decision.agent_id if isinstance(record, Event) else record.agent_id
+
+
 def _build_tree(records: Sequence[Event | Finding | Endorsement]) -> Tree:
     """Render records as a console tree grouped by run, then by agent.
 
@@ -157,7 +167,7 @@ def _build_tree(records: Sequence[Event | Finding | Endorsement]) -> Tree:
         lambda: defaultdict(list)
     )
     for record in records:
-        by_run[record.run_id][record.agent_id].append(record)
+        by_run[_run_id_of(record)][_agent_id_of(record)].append(record)
 
     root = Tree("provenance log")
     for run_id, by_agent in by_run.items():
@@ -189,7 +199,7 @@ def _inspect(path_str: str, run_id: str | None) -> int:
 
     records = _load_records(path)
     if run_id is not None:
-        records = [r for r in records if r.run_id == run_id]
+        records = [r for r in records if _run_id_of(r) == run_id]
     if not records:
         _console.print(f"[red]✗[/red] no records found in {path}")
         return 1

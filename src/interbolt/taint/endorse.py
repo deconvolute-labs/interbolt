@@ -1,7 +1,6 @@
 """The `endorse()` primitive: the integrity dual of declassification.
 
-`endorse` and `install_endorsement_emitter` are re-exported from
-`taint/__init__.py`.
+`endorse` is re-exported from `taint/__init__.py`.
 """
 
 from __future__ import annotations
@@ -17,36 +16,19 @@ from interbolt.constants import (
     EVENT_SCHEMA_VERSION,
     RECURSION_DEPTH,
 )
-from interbolt.models.core import Endorsement, Label, validate_endorsement_kind
+from interbolt.models.core import Endorsement, Label
 from interbolt.taint.carriers import LabeledValue, Tainted, TaintedBytes, _new_value_id
+from interbolt.taint.runstate import get_endorsement_emitter
+from interbolt.taint.walk import _rebuild_container
 from interbolt.utils import (
     current_agent_id,
     current_run_id,
     current_trace_context,
     get_logger,
 )
+from interbolt.utils.names import validate_endorsement_kind
 
 _logger = get_logger("taint.endorse")
-
-_endorsement_emitter: Callable[[Endorsement], None] | None = None
-"""The endorse()-time emitter hook, installed by runtime.configure().
-
-Unlike the taint()-time audit observer (`install_taint_observer`, gated
-behind `audit=True`), this hook is installed unconditionally on every
-`configure()` call: endorsement auditing is not optional whenever a
-runtime (and therefore a reporter, even the default `NullReporter`) exists.
-Internal, not part of the public surface.
-"""
-
-
-def install_endorsement_emitter(cb: Callable[[Endorsement], None] | None) -> None:
-    """Install, or clear with `None`, the endorse()-time emitter hook.
-
-    Called only from `runtime.configure()`, every call, regardless of the
-    `audit` flag.
-    """
-    global _endorsement_emitter
-    _endorsement_emitter = cb
 
 
 def _add_endorsement(label: Label, kind: str) -> Label:
@@ -83,7 +65,7 @@ def _record_endorsement(*, kind: str, note: str | None, label: Label) -> None:
         span_id=span_id,
         timestamp=datetime.now(UTC),
     )
-    emitter = _endorsement_emitter
+    emitter = get_endorsement_emitter()
     if emitter is None:
         _logger.info(
             "endorse(): kind=%s value_id=%s lineage=%s "
@@ -148,7 +130,7 @@ def _endorse_recurse(
         ]
         try:
             return rebuild(value, items)
-        except Exception:  # noqa: BLE001 -- containment must never crash the caller
+        except Exception:  # noqa: BLE001 - containment must never crash the caller
             _logger.debug(
                 "endorse(): could not reconstruct container type %s; "
                 "returning the value unendorsed",
@@ -207,11 +189,6 @@ def endorse(value: Any, *, kind: str, note: str | None = None) -> Any:  # noqa: 
             `[A-Za-z0-9_.-]`, or is empty.
     """
     validate_endorsement_kind(kind)
-    # Local import: taint/__init__.py re-exports this module's `endorse`, so
-    # a module-level import of `_rebuild_container` back from there would
-    # form an import cycle. Same pattern policy/schema.py already uses.
-    from interbolt.taint import _rebuild_container
-
     endorsed_labels: list[Label] = []
     result = _endorse_recurse(
         value,

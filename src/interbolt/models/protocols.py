@@ -39,15 +39,3 @@ class ApprovalResolver(Protocol):
             awaitable when called from an async call site.
         """
         ...
-
-
-def auto_deny(decision: Decision) -> bool:
-    """The default `ApprovalResolver`: deny every approval request.
-
-    Args:
-        decision: The decision that requires approval.
-
-    Returns:
-        Always `False`.
-    """
-    return False

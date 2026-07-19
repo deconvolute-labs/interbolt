@@ -9,11 +9,11 @@ from unittest.mock import Mock
 import pytest
 from pytest_mock import MockerFixture
 
-import interbolt.runtime as _rt_module
+import interbolt.runtime.current as _current_module
 from interbolt import InMemoryReporter, Policy, Runtime, configure
 from interbolt.models.core import Action, Decision, Label, Mode
 from interbolt.policy import Policy as _Policy
-from interbolt.policy.engine import compile_policy
+from interbolt.policy.compile import compile_policy
 from interbolt.policy.schema import (
     Defaults,
     PolicyDocument,
@@ -132,9 +132,9 @@ def make_policy() -> Callable[..., _Policy]:
 @pytest.fixture
 def reset_runtime() -> Generator[None, None, None]:
     """Set _current_runtime to None before and after the test."""
-    _rt_module._current_runtime = None
+    _current_module._current_runtime = None
     yield
-    _rt_module._current_runtime = None
+    _current_module._current_runtime = None
 
 
 @pytest.fixture(autouse=True)

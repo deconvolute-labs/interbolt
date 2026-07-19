@@ -14,10 +14,11 @@ from interbolt.models.core import (
     Event,
     Label,
     Mode,
+    Outcome,
     TrustLevel,
-    validate_qualified_name_part,
 )
-from interbolt.models.protocols import auto_deny
+from interbolt.runtime import auto_deny
+from interbolt.utils.names import validate_qualified_name_part
 
 
 def _label(source: str = "src") -> Label:
@@ -90,17 +91,8 @@ def test_event_carries_schema_version_constant() -> None:
     event = Event(
         schema_version=EVENT_SCHEMA_VERSION,
         decision=d,
-        agent_id="agent",
-        run_id="run",
-        session_id=None,
         sources=frozenset(),
-        lineage=(),
-        matched_rule=None,
-        trifecta=frozenset(),
-        untrusted_sources=frozenset(),
-        run_tainted=False,
-        mode=Mode.ENFORCE,
-        outcome="allow",
+        outcome=Outcome.ALLOW,
         timestamp=datetime.now(UTC),
     )
     assert event.schema_version == EVENT_SCHEMA_VERSION

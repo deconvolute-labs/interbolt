@@ -6,10 +6,19 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from pytest_mock import MockerFixture
 
 from interbolt.constants import EVENT_SCHEMA_VERSION, RECORD_TYPE_EVENT
-from interbolt.models.core import Action, Decision, Endorsement, Event, Finding, Mode
+from interbolt.models.core import (
+    Action,
+    Decision,
+    Endorsement,
+    Event,
+    Finding,
+    Mode,
+    Outcome,
+)
 from interbolt.reporting import (
     CompositeReporter,
     InMemoryReporter,
@@ -50,17 +59,8 @@ def _event() -> Event:
     return Event(
         schema_version=EVENT_SCHEMA_VERSION,
         decision=_decision(),
-        agent_id="agent",
-        run_id="run",
-        session_id=None,
         sources=frozenset(),
-        lineage=(),
-        matched_rule=None,
-        trifecta=frozenset(),
-        untrusted_sources=frozenset(),
-        run_tainted=False,
-        mode=Mode.ENFORCE,
-        outcome="allow",
+        outcome=Outcome.ALLOW,
         timestamp=datetime.now(UTC),
     )
 
@@ -140,6 +140,11 @@ class TestInMemoryReporter:
         assert len(reporter.endorsements) == 1
         assert reporter.endorsements[0] is e
 
+    def test_raises_error_on_unsupported_type(self) -> None:
+        reporter = InMemoryReporter()
+        with pytest.raises(TypeError):
+            reporter.export("invalid")  # type: ignore[arg-type] # noqa
+
     def test_endorsement_not_in_events_or_findings(self) -> None:
         reporter = InMemoryReporter()
         reporter.export(_endorsement())
@@ -168,7 +173,7 @@ class TestInMemoryReporter:
 
 class TestLoggingReporter:
     def test_calls_logger_debug(self, mocker: MockerFixture) -> None:
-        mock_debug = mocker.patch("interbolt.reporting._logger.debug")
+        mock_debug = mocker.patch("interbolt.reporting.reporters._logger.debug")
         ev = _event()
         LoggingReporter().export(ev)
         mock_debug.assert_called_once()
@@ -182,17 +187,8 @@ class TestJsonlReporter:
         ev = Event(
             schema_version=EVENT_SCHEMA_VERSION,
             decision=_decision(),
-            agent_id="agent",
-            run_id="run",
-            session_id=None,
             sources=frozenset(),
-            lineage=(),
-            matched_rule=None,
-            trifecta=frozenset(),
-            untrusted_sources=frozenset(),
-            run_tainted=False,
-            mode=Mode.ENFORCE,
-            outcome="allow",
+            outcome=Outcome.ALLOW,
             trace_id="a" * 32,
             span_id="b" * 16,
             timestamp=datetime.now(UTC),
