@@ -203,7 +203,7 @@ def validate_policy(path: str) -> list[str]:
                     "t.source directly; a merged label's source is only its "
                     "first contributor, so this can silently miss a value "
                     "formed by merging two differently-sourced inputs; use "
-                    "t.lineage.exists(s, s == ...) instead"
+                    "t.lineage.any(s, s == ...) instead"
                 )
 
     return problems
