@@ -8,5 +8,9 @@ from interbolt.runtime.current import _current as _current
 from interbolt.runtime.current import get_runtime as get_runtime
 from interbolt.runtime.guard import agent as agent
 from interbolt.runtime.guard import check as check
+from interbolt.runtime.guard import enforce_decision as enforce_decision
+from interbolt.runtime.guard import (
+    enforce_decision_async as enforce_decision_async,
+)
 from interbolt.runtime.guard import guard as guard
 from interbolt.runtime.runtime import Runtime as Runtime

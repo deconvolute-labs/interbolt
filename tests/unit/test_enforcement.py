@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable, Mapping
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from pytest_mock import MockerFixture
@@ -11,8 +12,10 @@ from interbolt.constants import AUDIT_MIN_MATCH_LENGTH, EVENT_SCHEMA_VERSION
 from interbolt.enforcement import AuditRegistry, check
 from interbolt.enforcement.audit import _walk_strings
 from interbolt.enforcement.check import _emit
+from interbolt.enforcement.enforce import enforce_decision, enforce_decision_async
 from interbolt.enforcement.signals import _compute_trifecta
-from interbolt.models.core import Action, Label, Mode, TrustLevel
+from interbolt.errors import ApprovalDenied, InterboltUsageError, PolicyViolation
+from interbolt.models.core import Action, Decision, Label, Mode, TrustLevel
 from interbolt.models.protocols import Reporter
 from interbolt.policy import Policy
 from interbolt.policy.evaluate import resolve_labels
@@ -1139,3 +1142,112 @@ class TestEmit:
             timestamp=datetime.now(UTC),
         )
         _emit(bad_reporter, event)  # must not raise
+
+
+class TestEnforceDecision:
+    def test_allow_returns_without_raise(
+        self, make_decision: Callable[..., Decision], mocker: MockerFixture
+    ) -> None:
+        resolver = mocker.Mock()
+        decision = make_decision(action=Action.ALLOW)
+        enforce_decision(decision, approval_resolver=resolver)
+        resolver.assert_not_called()
+
+    def test_block_raises_policy_violation(
+        self, make_decision: Callable[..., Decision], mocker: MockerFixture
+    ) -> None:
+        resolver = mocker.Mock()
+        decision = make_decision(action=Action.BLOCK)
+        with pytest.raises(PolicyViolation) as exc_info:
+            enforce_decision(decision, approval_resolver=resolver)
+        assert exc_info.value.decision is decision
+        resolver.assert_not_called()
+
+    def test_violation_message_contains_rule_name_when_matched(
+        self, make_decision: Callable[..., Decision], mocker: MockerFixture
+    ) -> None:
+        decision = make_decision(action=Action.BLOCK, matched_rule="my_rule")
+        with pytest.raises(PolicyViolation, match="my_rule"):
+            enforce_decision(decision, approval_resolver=mocker.Mock())
+
+    def test_violation_message_mentions_default_when_no_rule(
+        self, make_decision: Callable[..., Decision], mocker: MockerFixture
+    ) -> None:
+        decision = make_decision(action=Action.BLOCK, matched_rule=None)
+        with pytest.raises(PolicyViolation, match="default sink action"):
+            enforce_decision(decision, approval_resolver=mocker.Mock())
+
+    def test_require_approval_resolver_true_no_raise(
+        self, make_decision: Callable[..., Decision]
+    ) -> None:
+        decision = make_decision(action=Action.REQUIRE_APPROVAL)
+        enforce_decision(decision, approval_resolver=lambda decision: True)
+
+    def test_require_approval_resolver_false_raises_approval_denied(
+        self, make_decision: Callable[..., Decision]
+    ) -> None:
+        decision = make_decision(action=Action.REQUIRE_APPROVAL)
+        with pytest.raises(ApprovalDenied) as exc_info:
+            enforce_decision(decision, approval_resolver=lambda decision: False)
+        assert exc_info.value.decision is decision
+
+    def test_require_approval_async_resolver_raises_usage_error(
+        self, make_decision: Callable[..., Decision]
+    ) -> None:
+        # An awaitable returned at a sync call site must raise InterboltUsageError.
+        # Use AsyncMock so the coroutine object is created but never awaited here,
+        # which is expected -- the code raises before it could be awaited.
+        mock_resolver = AsyncMock(return_value=True)
+        decision = make_decision(action=Action.REQUIRE_APPROVAL)
+        with pytest.raises(InterboltUsageError, match="sync call site"):
+            enforce_decision(decision, approval_resolver=mock_resolver)
+
+    def test_block_under_dry_run_still_raises(
+        self, make_decision: Callable[..., Decision], mocker: MockerFixture
+    ) -> None:
+        # enforce_decision trusts decision.action alone; mode semantics are
+        # already baked in by check()'s _apply_mode before the Decision exists.
+        decision = make_decision(action=Action.BLOCK, mode=Mode.DRY_RUN)
+        with pytest.raises(PolicyViolation):
+            enforce_decision(decision, approval_resolver=mocker.Mock())
+
+
+class TestEnforceDecisionAsync:
+    async def test_allow_returns_without_raise(
+        self, make_decision: Callable[..., Decision], mocker: MockerFixture
+    ) -> None:
+        resolver = mocker.Mock()
+        decision = make_decision(action=Action.ALLOW)
+        await enforce_decision_async(decision, approval_resolver=resolver)
+        resolver.assert_not_called()
+
+    async def test_block_raises_policy_violation(
+        self, make_decision: Callable[..., Decision], mocker: MockerFixture
+    ) -> None:
+        decision = make_decision(action=Action.BLOCK)
+        with pytest.raises(PolicyViolation) as exc_info:
+            await enforce_decision_async(decision, approval_resolver=mocker.Mock())
+        assert exc_info.value.decision is decision
+
+    async def test_require_approval_sync_resolver_true_no_raise(
+        self, make_decision: Callable[..., Decision]
+    ) -> None:
+        decision = make_decision(action=Action.REQUIRE_APPROVAL)
+        await enforce_decision_async(decision, approval_resolver=lambda decision: True)
+
+    async def test_require_approval_sync_resolver_false_raises_approval_denied(
+        self, make_decision: Callable[..., Decision]
+    ) -> None:
+        decision = make_decision(action=Action.REQUIRE_APPROVAL)
+        with pytest.raises(ApprovalDenied):
+            await enforce_decision_async(
+                decision, approval_resolver=lambda decision: False
+            )
+
+    async def test_require_approval_async_resolver_is_awaited(
+        self, make_decision: Callable[..., Decision]
+    ) -> None:
+        mock_resolver = AsyncMock(return_value=True)
+        decision = make_decision(action=Action.REQUIRE_APPROVAL)
+        await enforce_decision_async(decision, approval_resolver=mock_resolver)
+        mock_resolver.assert_awaited_once()
