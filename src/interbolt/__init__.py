@@ -48,7 +48,16 @@ from interbolt.reporting import (
     describe_event,
     describe_finding,
 )
-from interbolt.runtime import Runtime, agent, check, configure, get_runtime, guard
+from interbolt.runtime import (
+    Runtime,
+    agent,
+    check,
+    configure,
+    enforce_decision,
+    enforce_decision_sync,
+    get_runtime,
+    guard,
+)
 from interbolt.runtime.guard import AgentHandle
 from interbolt.taint import (
     LabeledValue,
@@ -64,6 +73,8 @@ __all__ = [
     "endorse",
     "guard",
     "check",
+    "enforce_decision",
+    "enforce_decision_sync",
     "configure",
     "default_policy",
     "agent",
