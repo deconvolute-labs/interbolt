@@ -10,7 +10,7 @@ from interbolt.runtime.guard import agent as agent
 from interbolt.runtime.guard import check as check
 from interbolt.runtime.guard import enforce_decision as enforce_decision
 from interbolt.runtime.guard import (
-    enforce_decision_async as enforce_decision_async,
+    enforce_decision_sync as enforce_decision_sync,
 )
 from interbolt.runtime.guard import guard as guard
 from interbolt.runtime.runtime import Runtime as Runtime

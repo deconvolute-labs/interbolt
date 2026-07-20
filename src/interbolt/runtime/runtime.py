@@ -12,7 +12,7 @@ from interbolt.enforcement import AuditRegistry
 from interbolt.enforcement import check as _enforcement_check
 from interbolt.enforcement import enforce_decision as _enforcement_enforce_decision
 from interbolt.enforcement import (
-    enforce_decision_async as _enforcement_enforce_decision_async,
+    enforce_decision_sync as _enforcement_enforce_decision_sync,
 )
 from interbolt.models.core import Decision, Finding, Mode
 from interbolt.models.protocols import ApprovalResolver, Reporter
@@ -182,23 +182,23 @@ class Runtime:
             audit_registry=self._audit_registry,
         )
 
-    def enforce_decision(self, decision: Decision) -> None:
-        """Enforce `decision`, synchronously. See `enforcement.enforce_decision`.
+    async def enforce_decision(self, decision: Decision) -> None:
+        """Enforce `decision`, asynchronously. See `enforcement.enforce_decision`.
 
         Args:
             decision: The decision to enforce, as returned by `check()`.
         """
-        _enforcement_enforce_decision(
+        await _enforcement_enforce_decision(
             decision, approval_resolver=self.approval_resolver
         )
 
-    async def enforce_decision_async(self, decision: Decision) -> None:
-        """Enforce `decision`, asynchronously. See `enforcement.enforce_decision_async`.
+    def enforce_decision_sync(self, decision: Decision) -> None:
+        """Enforce `decision`, synchronously. See `enforcement.enforce_decision_sync`.
 
         Args:
             decision: The decision to enforce, as returned by `check()`.
         """
-        await _enforcement_enforce_decision_async(
+        _enforcement_enforce_decision_sync(
             decision, approval_resolver=self.approval_resolver
         )
 

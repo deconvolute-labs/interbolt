@@ -18,7 +18,7 @@ from interbolt.policy import Policy
 from interbolt.reporting import InMemoryReporter
 from interbolt.runtime import configure
 from interbolt.runtime import enforce_decision as _ambient_enforce_decision
-from interbolt.runtime import enforce_decision_async as _ambient_enforce_decision_async
+from interbolt.runtime import enforce_decision_sync as _ambient_enforce_decision_sync
 from interbolt.runtime.guard import (
     AgentHandle,
     _build_wrapper,
@@ -50,13 +50,13 @@ class TestQualifyToolName:
 
 
 class TestRuntimeEnforceDecision:
-    """`Runtime.enforce_decision`/`enforce_decision_async`: the pure enforcement
-    core (`enforcement.enforce_decision`) is exercised directly in
-    `test_enforcement.py`; these tests confirm the `Runtime` methods thread
-    `self.approval_resolver` through correctly.
+    """`Runtime.enforce_decision`/`enforce_decision_sync`: the pure enforcement
+    core (`enforcement.enforce_decision`/`enforcement.enforce_decision_sync`)
+    is exercised directly in `test_enforcement.py`; these tests confirm the
+    `Runtime` methods thread `self.approval_resolver` through correctly.
     """
 
-    def test_allow_returns_without_raise(
+    def test_sync_allow_returns_without_raise(
         self,
         make_decision: Callable[..., Decision],
         make_policy: Callable[..., Policy],
@@ -64,9 +64,9 @@ class TestRuntimeEnforceDecision:
     ) -> None:
         rt = configure(policy=make_policy())
         decision = make_decision(action=Action.ALLOW)
-        rt.enforce_decision(decision)  # should not raise
+        rt.enforce_decision_sync(decision)  # should not raise
 
-    def test_block_raises_policy_violation(
+    def test_sync_block_raises_policy_violation(
         self,
         make_decision: Callable[..., Decision],
         make_policy: Callable[..., Policy],
@@ -75,10 +75,10 @@ class TestRuntimeEnforceDecision:
         rt = configure(policy=make_policy())
         decision = make_decision(action=Action.BLOCK)
         with pytest.raises(PolicyViolation) as exc_info:
-            rt.enforce_decision(decision)
+            rt.enforce_decision_sync(decision)
         assert exc_info.value.decision is decision
 
-    def test_require_approval_uses_runtimes_resolver(
+    def test_sync_require_approval_uses_runtimes_resolver(
         self,
         make_decision: Callable[..., Decision],
         make_policy: Callable[..., Policy],
@@ -87,7 +87,7 @@ class TestRuntimeEnforceDecision:
         rt = configure(policy=make_policy(), approval_resolver=lambda decision: False)
         decision = make_decision(action=Action.REQUIRE_APPROVAL)
         with pytest.raises(ApprovalDenied) as exc_info:
-            rt.enforce_decision(decision)
+            rt.enforce_decision_sync(decision)
         assert exc_info.value.decision is decision
 
     async def test_async_uses_runtimes_resolver(
@@ -99,23 +99,23 @@ class TestRuntimeEnforceDecision:
         mock_resolver = AsyncMock(return_value=True)
         rt = configure(policy=make_policy(), approval_resolver=mock_resolver)
         decision = make_decision(action=Action.REQUIRE_APPROVAL)
-        await rt.enforce_decision_async(decision)
+        await rt.enforce_decision(decision)
         mock_resolver.assert_awaited_once()
 
 
 class TestAmbientEnforceDecision:
-    """The module-level `enforce_decision`/`enforce_decision_async`: resolve
+    """The module-level `enforce_decision`/`enforce_decision_sync`: resolve
     the process-current runtime, same shape as the bare `check()`.
     """
 
-    def test_raises_usage_error_when_unconfigured(
+    def test_sync_raises_usage_error_when_unconfigured(
         self, make_decision: Callable[..., Decision], reset_runtime: None
     ) -> None:
         decision = make_decision(action=Action.BLOCK)
         with pytest.raises(InterboltUsageError):
-            _ambient_enforce_decision(decision)
+            _ambient_enforce_decision_sync(decision)
 
-    def test_delegates_to_current_runtime_sync(
+    def test_sync_delegates_to_current_runtime(
         self,
         make_decision: Callable[..., Decision],
         make_policy: Callable[..., Policy],
@@ -124,9 +124,9 @@ class TestAmbientEnforceDecision:
         configure(policy=make_policy(), approval_resolver=lambda decision: False)
         decision = make_decision(action=Action.REQUIRE_APPROVAL)
         with pytest.raises(ApprovalDenied):
-            _ambient_enforce_decision(decision)
+            _ambient_enforce_decision_sync(decision)
 
-    async def test_delegates_to_current_runtime_async(
+    async def test_async_delegates_to_current_runtime(
         self,
         make_decision: Callable[..., Decision],
         make_policy: Callable[..., Policy],
@@ -135,7 +135,7 @@ class TestAmbientEnforceDecision:
         mock_resolver = AsyncMock(return_value=True)
         configure(policy=make_policy(), approval_resolver=mock_resolver)
         decision = make_decision(action=Action.REQUIRE_APPROVAL)
-        await _ambient_enforce_decision_async(decision)
+        await _ambient_enforce_decision(decision)
         mock_resolver.assert_awaited_once()
 
 

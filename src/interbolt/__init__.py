@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-__version__ = "0.2.0"
+__version__ = "0.1.1"
 
 from interbolt.constants import (
     RECORD_TYPE_ENDORSEMENT,
@@ -54,7 +54,7 @@ from interbolt.runtime import (
     check,
     configure,
     enforce_decision,
-    enforce_decision_async,
+    enforce_decision_sync,
     get_runtime,
     guard,
 )
@@ -74,7 +74,7 @@ __all__ = [
     "guard",
     "check",
     "enforce_decision",
-    "enforce_decision_async",
+    "enforce_decision_sync",
     "configure",
     "default_policy",
     "agent",

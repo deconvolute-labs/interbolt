@@ -126,7 +126,7 @@ def _build_wrapper[F: Callable[..., Any]](
                 agent_id=agent_id_source(),
                 run_id=current_run_id.get(),
             )
-            await rt.enforce_decision_async(decision)
+            await rt.enforce_decision(decision)
             return await fn(*args, **kwargs)
 
         return async_wrapper  # type: ignore[return-value]
@@ -140,7 +140,7 @@ def _build_wrapper[F: Callable[..., Any]](
             agent_id=agent_id_source(),
             run_id=current_run_id.get(),
         )
-        rt.enforce_decision(decision)
+        rt.enforce_decision_sync(decision)
         return fn(*args, **kwargs)
 
     return sync_wrapper  # type: ignore[return-value]
@@ -240,16 +240,39 @@ def check(
     )
 
 
-def enforce_decision(decision: Decision) -> None:
+async def enforce_decision(decision: Decision) -> None:
     """Enforce a decision from `check()`, against the current runtime.
 
     A no-op on `allow`. Raises `PolicyViolation` on `block`. On
     `require_approval`, consults the current runtime's `approval_resolver`
-    and raises `ApprovalDenied` if it denies.
+    (awaited if it returns an awaitable) and raises `ApprovalDenied` if it
+    denies.
 
     Use this at a call site `guard` cannot decorate: a framework-owned tool
     executor, an MCP proxy, or any other middleware boundary that can call
     `check()` but not wrap the callable itself.
+
+    For a synchronous call site, use `enforce_decision_sync` instead: same
+    contract, no `await` required.
+
+    Args:
+        decision: The decision to enforce, as returned by `check()`.
+
+    Raises:
+        PolicyViolation: If `decision.action` is `block`.
+        ApprovalDenied: If `decision.action` is `require_approval` and the
+            approval resolver denies it.
+    """
+    await _current().enforce_decision(decision)
+
+
+def enforce_decision_sync(decision: Decision) -> None:
+    """Synchronous counterpart to `enforce_decision`.
+
+    Same contract as `enforce_decision`; use this when the call site cannot
+    `await`. Raises `InterboltUsageError` if the current runtime's
+    `approval_resolver` returns an awaitable, since a sync call site has no
+    way to await it.
 
     Args:
         decision: The decision to enforce, as returned by `check()`.
@@ -261,18 +284,4 @@ def enforce_decision(decision: Decision) -> None:
         InterboltUsageError: If the approval resolver returns an awaitable
             at this synchronous call site.
     """
-    _current().enforce_decision(decision)
-
-
-async def enforce_decision_async(decision: Decision) -> None:
-    """Async counterpart to `enforce_decision`. Awaits an async approval resolver.
-
-    Args:
-        decision: The decision to enforce, as returned by `check()`.
-
-    Raises:
-        PolicyViolation: If `decision.action` is `block`.
-        ApprovalDenied: If `decision.action` is `require_approval` and the
-            approval resolver denies it.
-    """
-    await _current().enforce_decision_async(decision)
+    _current().enforce_decision_sync(decision)
