@@ -86,7 +86,7 @@ def check(
     resolved_labels = resolve_labels(labels, sources_table)
     trifecta = _compute_trifecta(resolved_labels)
     untrusted_sources = _compute_untrusted_sources(resolved_labels)
-    resolved_run_id = run_id or str(uuid.uuid4())
+    resolved_run_id = run_id if run_id is not None else str(uuid.uuid4())
     run_tainted = _compute_run_tainted(resolved_run_id, sources_table)
 
     action, matched_rule, matched_condition, evaluation_error = _evaluate(

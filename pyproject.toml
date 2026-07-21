@@ -69,7 +69,7 @@ path = "src/interbolt/__init__.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/interbolt"]
 artifacts = [
-  "src/interbolt/policy.example.yaml",
+  "src/interbolt/policy.example.yaml"
 ]
 
 [tool.ruff]
@@ -89,6 +89,7 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.12"
+mypy_path = "src"
 strict = true
 warn_return_any = true
 warn_unused_configs = true

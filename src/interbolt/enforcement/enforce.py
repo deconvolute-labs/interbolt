@@ -84,6 +84,8 @@ def enforce_decision_sync(
         raise PolicyViolation(_violation_message(decision), decision=decision)
     result = approval_resolver(decision)
     if inspect.isawaitable(result):
+        if inspect.iscoroutine(result):
+            result.close()
         raise InterboltUsageError(
             "a sync call site cannot use an ApprovalResolver that returns an awaitable"
         )
