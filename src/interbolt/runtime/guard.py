@@ -11,7 +11,6 @@ from interbolt.runtime.current import _current
 from interbolt.taint import track_model_call as _track_model_call
 from interbolt.utils import bind_arguments
 from interbolt.utils import current_agent_id as current_agent_id
-from interbolt.utils import current_run_id as current_run_id
 from interbolt.utils.names import split_qualified_name, validate_qualified_name_part
 
 if TYPE_CHECKING:
@@ -124,7 +123,6 @@ def _build_wrapper[F: Callable[..., Any]](
                 tool=qualified_tool,
                 args=bind_arguments(sig, args, kwargs),
                 agent_id=agent_id_source(),
-                run_id=current_run_id.get(),
             )
             await rt.enforce_decision(decision)
             return await fn(*args, **kwargs)
@@ -138,7 +136,6 @@ def _build_wrapper[F: Callable[..., Any]](
             tool=qualified_tool,
             args=bind_arguments(sig, args, kwargs),
             agent_id=agent_id_source(),
-            run_id=current_run_id.get(),
         )
         rt.enforce_decision_sync(decision)
         return fn(*args, **kwargs)
@@ -229,7 +226,9 @@ def check(
         tool: The dotted qualified tool name.
         args: The call's bound arguments.
         agent_id: The durable agent identity.
-        run_id: The per-run identity, or `None` to mint a fresh one.
+        run_id: The per-run identity. `None` resolves the ambient
+            `agent_context` run id when one is active, minting a fresh id
+            only when no run is active.
         session_id: The optional session identity.
 
     Returns:

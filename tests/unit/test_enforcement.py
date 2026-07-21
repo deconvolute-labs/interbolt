@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+import warnings
 from collections.abc import Callable, Mapping
 from typing import Any
 from unittest.mock import AsyncMock
@@ -1195,12 +1196,15 @@ class TestEnforceDecisionSync:
         self, make_decision: Callable[..., Decision]
     ) -> None:
         # An awaitable returned at a sync call site must raise InterboltUsageError.
-        # Use AsyncMock so the coroutine object is created but never awaited here,
-        # which is expected -- the code raises before it could be awaited.
+        # Use AsyncMock so the coroutine object is created; enforce_decision_sync
+        # must close it before raising, or Python emits a coroutine-never-awaited
+        # RuntimeWarning, which this promotes to an error to catch a regression.
         mock_resolver = AsyncMock(return_value=True)
         decision = make_decision(action=Action.REQUIRE_APPROVAL)
-        with pytest.raises(InterboltUsageError, match="sync call site"):
-            enforce_decision_sync(decision, approval_resolver=mock_resolver)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            with pytest.raises(InterboltUsageError, match="sync call site"):
+                enforce_decision_sync(decision, approval_resolver=mock_resolver)
 
     def test_block_under_dry_run_still_raises(
         self, make_decision: Callable[..., Decision], mocker: MockerFixture

@@ -164,12 +164,16 @@ class Runtime:
             tool: The dotted qualified tool name.
             args: The call's bound arguments.
             agent_id: The durable agent identity.
-            run_id: The per-run identity, or `None` to mint a fresh one.
+            run_id: The per-run identity. `None` resolves the ambient
+                `agent_context` run id when one is active, minting a fresh
+                id only when no run is active.
             session_id: The optional session identity.
 
         Returns:
             The computed `Decision`.
         """
+        if run_id is None:
+            run_id = current_run_id.get()
         return _enforcement_check(
             tool=tool,
             args=args,

@@ -8,7 +8,14 @@ version: "1.0"
 defaults:
   # A sink with no matching rule falls through to this action.
   sink_action: require_approval
-  fail_mode: enforce
+
+  # fail_mode pins the enforcement mode from the policy itself. It is the
+  # second-highest precedence source (below the INTERBOLT_MODE env var, above
+  # the mode= argument to configure()), so uncommenting it makes this policy
+  # override whatever mode= a service passes to configure(). Leave it commented
+  # to let each deployment choose its mode via configure(mode=) or
+  # INTERBOLT_MODE; uncomment to pin enforcement centrally.
+  # fail_mode: enforce   # enforce | monitor | dry_run
 
 # INGRESS: assign trust to named sources. `taint(value, source=...)` records
 # only the source name; trust is resolved here, at evaluation time.

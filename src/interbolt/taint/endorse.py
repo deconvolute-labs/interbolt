@@ -6,20 +6,14 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-from interbolt.constants import (
-    CONTAINER_TYPES,
-    DEFAULT_AGENT_ID,
-    EVENT_SCHEMA_VERSION,
-    RECURSION_DEPTH,
-)
+from interbolt.constants import DEFAULT_AGENT_ID, EVENT_SCHEMA_VERSION, RECURSION_DEPTH
 from interbolt.models.core import Endorsement, Label
 from interbolt.taint.carriers import LabeledValue, Tainted, TaintedBytes, _new_value_id
 from interbolt.taint.runstate import get_endorsement_emitter
-from interbolt.taint.walk import _rebuild_container
+from interbolt.taint.walk import map_leaves
 from interbolt.utils import (
     current_agent_id,
     current_run_id,
@@ -78,13 +72,11 @@ def _record_endorsement(*, kind: str, note: str | None, label: Label) -> None:
     emitter(endorsement)
 
 
-def _endorse_recurse(
+def _endorse_leaf(
     value: Any,  # noqa: ANN401
     *,
     kind: str,
-    depth: int,
     endorsed_labels: list[Label],
-    rebuild: Callable[[Any, list[Any]], Any],
 ) -> Any:  # noqa: ANN401
     if isinstance(value, Tainted):
         new_label = _add_endorsement(value.label, kind)
@@ -98,46 +90,6 @@ def _endorse_recurse(
         new_label = _add_endorsement(value.label, kind)
         endorsed_labels.append(new_label)
         return LabeledValue(value=value.value, label=new_label)
-    if depth <= 0:
-        return value
-    if isinstance(value, Mapping):
-        return {
-            _endorse_recurse(
-                k,
-                kind=kind,
-                depth=depth - 1,
-                endorsed_labels=endorsed_labels,
-                rebuild=rebuild,
-            ): _endorse_recurse(
-                v,
-                kind=kind,
-                depth=depth - 1,
-                endorsed_labels=endorsed_labels,
-                rebuild=rebuild,
-            )
-            for k, v in value.items()
-        }
-    if isinstance(value, CONTAINER_TYPES):
-        items = [
-            _endorse_recurse(
-                item,
-                kind=kind,
-                depth=depth - 1,
-                endorsed_labels=endorsed_labels,
-                rebuild=rebuild,
-            )
-            for item in value
-        ]
-        try:
-            return rebuild(value, items)
-        except Exception:  # noqa: BLE001 - containment must never crash the caller
-            _logger.debug(
-                "endorse(): could not reconstruct container type %s; "
-                "returning the value unendorsed",
-                type(value).__name__,
-                exc_info=True,
-            )
-            return value
     return value
 
 
@@ -190,12 +142,10 @@ def endorse(value: Any, *, kind: str, note: str | None = None) -> Any:  # noqa: 
     """
     validate_endorsement_kind(kind)
     endorsed_labels: list[Label] = []
-    result = _endorse_recurse(
+    result = map_leaves(
         value,
-        kind=kind,
         depth=RECURSION_DEPTH,
-        endorsed_labels=endorsed_labels,
-        rebuild=_rebuild_container,
+        fn=lambda leaf: _endorse_leaf(leaf, kind=kind, endorsed_labels=endorsed_labels),
     )
     if not endorsed_labels:
         _logger.debug(

@@ -5,7 +5,7 @@ from collections.abc import Callable
 from interbolt import InMemoryReporter, Policy, configure, endorse, taint
 from interbolt.models.core import Action
 from interbolt.policy.schema import SinkRule
-from interbolt.runtime.guard import current_run_id
+from interbolt.utils import current_run_id
 
 
 def _endorsement_policy(make_policy: Callable[..., Policy]) -> Policy:

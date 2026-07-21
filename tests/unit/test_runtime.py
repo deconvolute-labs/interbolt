@@ -16,7 +16,8 @@ from interbolt.policy import Policy
 from interbolt.policy.schema import SinkRule
 from interbolt.reporting import CompositeReporter, InMemoryReporter, NullReporter
 from interbolt.runtime import Runtime, _current, agent, configure, get_runtime
-from interbolt.runtime.guard import AgentHandle, current_agent_id, current_run_id
+from interbolt.runtime.guard import AgentHandle, current_agent_id
+from interbolt.utils import current_run_id
 
 if TYPE_CHECKING:
     pass
@@ -63,6 +64,47 @@ class TestConfigure:
         policy = make_policy(fail_mode=Mode.ENFORCE)
         rt = configure(policy=policy, mode=Mode.MONITOR)
         assert rt.mode is Mode.ENFORCE
+
+    def test_policy_fail_mode_override_logs_warning_when_it_differs(
+        self,
+        make_policy: Callable[..., Policy],
+        caplog: pytest.LogCaptureFixture,
+        reset_runtime: None,
+    ) -> None:
+        from interbolt.models.core import Mode
+
+        policy = make_policy(fail_mode=Mode.ENFORCE)
+        with caplog.at_level("WARNING", logger="interbolt.runtime"):
+            configure(policy=policy, mode=Mode.MONITOR)
+        assert any("defaults.fail_mode" in record.message for record in caplog.records)
+
+    def test_policy_fail_mode_override_logs_no_warning_when_equal(
+        self,
+        make_policy: Callable[..., Policy],
+        caplog: pytest.LogCaptureFixture,
+        reset_runtime: None,
+    ) -> None:
+        from interbolt.models.core import Mode
+
+        policy = make_policy(fail_mode=Mode.ENFORCE)
+        with caplog.at_level("WARNING", logger="interbolt.runtime"):
+            configure(policy=policy, mode=Mode.ENFORCE)
+        assert not any(
+            "defaults.fail_mode" in record.message for record in caplog.records
+        )
+
+    def test_policy_fail_mode_override_logs_no_warning_when_fail_mode_none(
+        self,
+        make_policy: Callable[..., Policy],
+        caplog: pytest.LogCaptureFixture,
+        reset_runtime: None,
+    ) -> None:
+        policy = make_policy(fail_mode=None)
+        with caplog.at_level("WARNING", logger="interbolt.runtime"):
+            configure(policy=policy, mode=Mode.MONITOR)
+        assert not any(
+            "defaults.fail_mode" in record.message for record in caplog.records
+        )
 
     def test_env_var_interbolt_mode_overrides_policy_fail_mode(
         self,
@@ -508,6 +550,56 @@ class TestAgentContextSync:
             with rt.agent_context_sync("agent-xyz"):
                 run_ids.append(current_run_id.get())
         assert run_ids[0] != run_ids[1]
+
+    def test_bare_check_inside_agent_context_sync_resolves_run_tainted_from_ambient_run(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        from interbolt.taint import taint
+
+        policy = make_policy(
+            sink_action=Action.ALLOW,
+            sinks={
+                "default.tool": (
+                    SinkRule(
+                        name="block_tainted_run",
+                        when="run.tainted",
+                        action=Action.BLOCK,
+                    ),
+                    SinkRule(name="default", action=Action.ALLOW),
+                )
+            },
+        )
+        rt = configure(policy=policy)
+        with rt.agent_context_sync("agent-xyz"):
+            taint("payload", source="web_search")
+            decision = rt.check(tool="default.tool", args={}, agent_id="agent-xyz")
+        assert decision.run_tainted is True
+        assert decision.action is Action.BLOCK
+
+    def test_bare_check_outside_agent_context_mints_fresh_run_id(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        from interbolt.taint import taint
+
+        policy = make_policy(
+            sink_action=Action.ALLOW,
+            sinks={
+                "default.tool": (
+                    SinkRule(
+                        name="block_tainted_run",
+                        when="run.tainted",
+                        action=Action.BLOCK,
+                    ),
+                    SinkRule(name="default", action=Action.ALLOW),
+                )
+            },
+        )
+        rt = configure(policy=policy)
+        with rt.agent_context_sync("agent-xyz"):
+            taint("payload", source="web_search")
+        decision = rt.check(tool="default.tool", args={}, agent_id="agent-xyz")
+        assert decision.run_tainted is False
+        assert decision.action is Action.ALLOW
 
     def test_agent_context_sync_requires_no_event_loop(
         self, make_policy: Callable[..., Policy], reset_runtime: None

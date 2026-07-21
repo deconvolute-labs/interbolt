@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from interbolt import InMemoryReporter, Policy, configure, taint
-from interbolt.runtime.guard import current_run_id
+from interbolt.utils import current_run_id
 
 if TYPE_CHECKING:
     from interbolt import Runtime
@@ -59,9 +59,9 @@ class TestLaunderingAuditCanonicalCase:
     async def test_fstring_laundered_payload_caught_via_bare_check_with_explicit_run_id(
         self,
     ) -> None:
-        # Bare check() never reads the agent_context contextvar automatically,
-        # unlike @guard; run_id must be passed explicitly to correlate with
-        # the run taint() attributed content to.
+        # Bare check() now resolves run_id from the ambient agent_context
+        # automatically (revision 21); passing it explicitly here still
+        # works and correlates with the run taint() attributed content to.
         rt = _configure(audit=True)
         async with rt.agent_context("a"):
             web = taint("ATTACKER-PAYLOAD-INJECTED-CONTENT", source="web_search")
