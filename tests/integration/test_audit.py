@@ -59,9 +59,9 @@ class TestLaunderingAuditCanonicalCase:
     async def test_fstring_laundered_payload_caught_via_bare_check_with_explicit_run_id(
         self,
     ) -> None:
-        # Bare check() now resolves run_id from the ambient agent_context
-        # automatically (revision 21); passing it explicitly here still
-        # works and correlates with the run taint() attributed content to.
+        # Bare check() resolves run_id from the ambient agent_context
+        # automatically. But passing it explicitly here also works and
+        # correlates with the run taint() attributed content to.
         rt = _configure(audit=True)
         async with rt.agent_context("a"):
             web = taint("ATTACKER-PAYLOAD-INJECTED-CONTENT", source="web_search")

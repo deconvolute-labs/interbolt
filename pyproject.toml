@@ -70,6 +70,7 @@ path = "src/interbolt/__init__.py"
 packages = ["src/interbolt"]
 artifacts = [
   "src/interbolt/policy.example.yaml",
+  "src/interbolt/py.typed",
 ]
 
 [tool.ruff]
@@ -89,6 +90,7 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.12"
+mypy_path = "src"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
