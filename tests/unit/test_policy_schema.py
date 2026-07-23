@@ -214,6 +214,18 @@ sinks:
       action: block
 """
 
+_POLICY_WITH_UNDECLARED_GROUP_ANY_SPELLING = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: undeclared_group
+      when: 'agent.groups.any(g, g == "ghost")'
+      action: block
+"""
+
 _POLICY_WITH_BAD_AGENT_ID_CHARSET = """\
 version: "1.0"
 defaults:
@@ -647,6 +659,19 @@ sinks:
         mocker.patch(
             "builtins.open",
             mocker.mock_open(read_data=_POLICY_WITH_UNDECLARED_GROUP),
+        )
+        problems = validate_policy("fake.yaml")
+        assert any(p.startswith("warning:") and "'ghost'" in p for p in problems)
+
+    def test_undeclared_group_in_any_spelling_produces_warning(
+        self, mocker: MockerFixture
+    ) -> None:
+        # agent.groups.any(...) is functionally identical to
+        # agent.groups.exists(...) (.any is rewritten to exists at compile
+        # time regardless of receiver), so the typo lint must catch both.
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_UNDECLARED_GROUP_ANY_SPELLING),
         )
         problems = validate_policy("fake.yaml")
         assert any(p.startswith("warning:") and "'ghost'" in p for p in problems)

@@ -31,7 +31,9 @@ from interbolt.utils.names import (
 _TRIFECTA_LEG_PATTERN = re.compile(r"trifecta\.contains\(\s*[\"']([^\"']+)[\"']\s*\)")
 _RUN_FIELD_PATTERN = re.compile(r"\brun\.(\w+)")
 _AGENT_FIELD_PATTERN = re.compile(r"\bagent\.(\w+)")
-_AGENT_GROUPS_EXISTS_PATTERN = re.compile(r"agent\.groups\.exists\(([^)]*)\)")
+_AGENT_GROUPS_MEMBERSHIP_PATTERN = re.compile(
+    r"agent\.groups\.(?:exists|any)\(([^)]*)\)"
+)
 _STRING_LITERAL_PATTERN = re.compile(r"[\"']([^\"']+)[\"']")
 _SOURCE_EQUALITY_PATTERN = re.compile(r"\bt\.source\s*(==|!=)")
 _IDENTITY_ONLY_SIGNALS = ("taint", "max_trust", "sources", "run.")
@@ -280,14 +282,14 @@ def validate_policy(path: str) -> list[str]:
                         f"agent.{field!r}, which does not exist; the only "
                         f"computable field is {sorted(AGENT_COMPUTABLE_FIELDS)}"
                     )
-            for match in _AGENT_GROUPS_EXISTS_PATTERN.finditer(when):
+            for match in _AGENT_GROUPS_MEMBERSHIP_PATTERN.finditer(when):
                 for group in _STRING_LITERAL_PATTERN.findall(match.group(1)):
                     if group not in declared_groups:
                         problems.append(
                             f"warning: sink {sink_key!r}: rule {rule.name!r} "
-                            f"references group {group!r} in "
-                            "agent.groups.exists(...), which is not declared "
-                            "for any agent in the policy's 'agents' section"
+                            f"references group {group!r} in an agent.groups "
+                            "membership check, which is not declared for "
+                            "any agent in the policy's 'agents' section"
                         )
             if _SOURCE_EQUALITY_PATTERN.search(when):
                 problems.append(
