@@ -3,6 +3,18 @@ from __future__ import annotations
 from interbolt.models.core import TrustLevel
 from interbolt.policy.compile import CompiledSink, compile_policy
 from interbolt.policy.evaluate import ResolvedLabel
+from interbolt.policy.explain import (
+    AgentExplanation,
+    GroupExplanation,
+    RuleExplanation,
+    RuleOutcome,
+    SinkExplanation,
+    ToolExplanation,
+    ToolMention,
+    explain_for_agent,
+    explain_for_group,
+    explain_for_tool,
+)
 from interbolt.policy.schema import (
     Defaults,
     PolicyDocument,
@@ -17,6 +29,16 @@ __all__ = [
     "CompiledSink",
     "ResolvedLabel",
     "compile_policy",
+    "AgentExplanation",
+    "GroupExplanation",
+    "RuleExplanation",
+    "RuleOutcome",
+    "SinkExplanation",
+    "ToolExplanation",
+    "ToolMention",
+    "explain_for_agent",
+    "explain_for_group",
+    "explain_for_tool",
 ]
 
 

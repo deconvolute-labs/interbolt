@@ -36,7 +36,20 @@ from interbolt.models.core import (
     TrustLevel,
 )
 from interbolt.models.protocols import ApprovalResolver, Reporter
-from interbolt.policy import Policy, default_policy
+from interbolt.policy import (
+    AgentExplanation,
+    GroupExplanation,
+    Policy,
+    RuleExplanation,
+    RuleOutcome,
+    SinkExplanation,
+    ToolExplanation,
+    ToolMention,
+    default_policy,
+    explain_for_agent,
+    explain_for_group,
+    explain_for_tool,
+)
 from interbolt.reporting import (
     CompositeReporter,
     InMemoryReporter,
@@ -91,6 +104,16 @@ __all__ = [
     "Mode",
     "Label",
     "TrustLevel",
+    "AgentExplanation",
+    "GroupExplanation",
+    "RuleExplanation",
+    "RuleOutcome",
+    "SinkExplanation",
+    "ToolExplanation",
+    "ToolMention",
+    "explain_for_agent",
+    "explain_for_group",
+    "explain_for_tool",
     "Reporter",
     "ApprovalResolver",
     "NullReporter",
