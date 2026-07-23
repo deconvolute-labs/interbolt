@@ -6,6 +6,7 @@ from interbolt.errors import InterboltConfigError
 
 _ENDORSEMENT_KIND_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
 _AGENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
+_GROUP_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 def validate_agent_id(value: str) -> None:
@@ -29,6 +30,27 @@ def validate_agent_id(value: str) -> None:
     if not _AGENT_ID_PATTERN.match(value):
         raise InterboltConfigError(
             f"agent_id {value!r} must match {_AGENT_ID_PATTERN.pattern!r}"
+        )
+
+
+def validate_group_name(value: str) -> None:
+    """Reject a group name with characters outside the safe identifier set.
+
+    A group name is matched as a string literal inside a policy's `when:`
+    CEL text (`agent.groups.exists(g, g == "...")`); constraining its
+    charset keeps every declared group name expressible as a plain CEL
+    string literal with no escaping question.
+
+    Args:
+        value: The candidate group name.
+
+    Raises:
+        InterboltConfigError: If `value` contains a character outside
+            `[A-Za-z0-9_.-]`, or is empty.
+    """
+    if not _GROUP_NAME_PATTERN.match(value):
+        raise InterboltConfigError(
+            f"group name {value!r} must match {_GROUP_NAME_PATTERN.pattern!r}"
         )
 
 

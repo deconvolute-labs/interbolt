@@ -19,6 +19,7 @@ from interbolt.policy.evaluate import (
     resolve_labels,
 )
 from interbolt.policy.schema import (
+    AgentDeclaration,
     Defaults,
     PolicyDocument,
     SinkRule,
@@ -35,6 +36,7 @@ def _label(source: str = "src", lineage: tuple[str, ...] | None = None) -> Label
 
 def _simple_doc(
     sinks: dict[str, list[dict[str, str]]] | None = None,
+    agents: dict[str, list[str]] | None = None,
 ) -> PolicyDocument:
     raw_sinks: dict[str, tuple[SinkRule, ...]] = {}
     if sinks:
@@ -47,10 +49,17 @@ def _simple_doc(
                 )
                 for r in rules
             )
+    raw_agents: dict[str, AgentDeclaration] = {}
+    if agents:
+        raw_agents = {
+            agent_id: AgentDeclaration(groups=tuple(groups))
+            for agent_id, groups in agents.items()
+        }
     return PolicyDocument(
         version="1.0",
         defaults=Defaults(sink_action=Action.ALLOW),
         sources=(),
+        agents=raw_agents,
         sinks=raw_sinks,
     )
 
@@ -105,6 +114,7 @@ class TestAnyRewriteLiteralPreservation:
             trifecta=frozenset(),
             run_tainted=False,
             agent_id="agent-1",
+            groups=frozenset(),
         )
         return bool(runner.evaluate(ctx))
 
@@ -159,6 +169,7 @@ class TestAnyRewriteLiteralPreservation:
             trifecta=frozenset(),
             run_tainted=False,
             agent_id="agent-1",
+            groups=frozenset(),
         )
         _, action, _ = evaluate_sink(
             compiled["default.tool"], ctx_match, default_action=Action.ALLOW
@@ -172,6 +183,7 @@ class TestAnyRewriteLiteralPreservation:
             trifecta=frozenset(),
             run_tainted=False,
             agent_id="agent-1",
+            groups=frozenset(),
         )
         _, action2, _ = evaluate_sink(
             compiled["default.tool"], ctx_no_match, default_action=Action.ALLOW
@@ -277,6 +289,7 @@ class TestBuildContext:
             trifecta=frozenset(),
             run_tainted=False,
             agent_id="agent-1",
+            groups=frozenset(),
         )
         for key in (
             "tool",
@@ -298,10 +311,11 @@ class TestBuildContext:
             trifecta=frozenset(),
             run_tainted=False,
             agent_id="billing-agent",
+            groups=frozenset(),
         )
         assert str(ctx["agent"]["id"]) == "billing-agent"
 
-    def test_agent_map_has_exactly_one_field(self) -> None:
+    def test_agent_map_has_id_and_groups(self) -> None:
         ctx = build_context(
             tool="default.tool",
             args={},
@@ -309,8 +323,22 @@ class TestBuildContext:
             trifecta=frozenset(),
             run_tainted=False,
             agent_id="agent-1",
+            groups=frozenset(),
         )
-        assert set(ctx["agent"].keys()) == {"id"}
+        assert set(ctx["agent"].keys()) == {"id", "groups"}
+
+    def test_agent_map_groups_renders_as_cel_list(self) -> None:
+        ctx = build_context(
+            tool="default.tool",
+            args={},
+            resolved_labels=(),
+            trifecta=frozenset(),
+            run_tainted=False,
+            agent_id="billing-agent",
+            groups=frozenset({"payer", "internal"}),
+        )
+        groups = sorted(str(g) for g in ctx["agent"]["groups"])
+        assert groups == ["internal", "payer"]
 
     def test_max_trust_untrusted_when_any_untrusted(self) -> None:
         labels = self._labels_for(["web"])
@@ -321,6 +349,7 @@ class TestBuildContext:
             trifecta=frozenset(),
             run_tainted=False,
             agent_id="agent-1",
+            groups=frozenset(),
         )
         assert str(ctx["max_trust"]) == "untrusted"
 
@@ -333,6 +362,7 @@ class TestBuildContext:
             trifecta=frozenset(),
             run_tainted=False,
             agent_id="agent-1",
+            groups=frozenset(),
         )
         assert str(ctx["max_trust"]) == "trusted"
 
@@ -344,6 +374,7 @@ class TestBuildContext:
             trifecta=frozenset(),
             run_tainted=False,
             agent_id="agent-1",
+            groups=frozenset(),
         )
         assert str(ctx["max_trust"]) == "trusted"
 
@@ -357,6 +388,7 @@ class TestBuildContext:
             trifecta=frozenset(),
             run_tainted=False,
             agent_id="agent-1",
+            groups=frozenset(),
         )
         sources = [str(s) for s in ctx["sources"]]
         assert sources.count("shared") == 1
@@ -370,6 +402,7 @@ class TestBuildContext:
             trifecta=frozenset(),
             run_tainted=False,
             agent_id="agent-1",
+            groups=frozenset(),
         )
         taint_list = ctx["taint"]
         lineage = [str(s) for s in taint_list[0]["lineage"]]
@@ -386,6 +419,7 @@ class TestBuildContext:
             trifecta=frozenset(),
             run_tainted=False,
             agent_id="agent-1",
+            groups=frozenset(),
         )
         endorsements = [str(s) for s in ctx["taint"][0]["endorsements"]]
         assert endorsements == ["k1", "k2"]
@@ -417,6 +451,7 @@ class TestLineageVsSourceAfterMerge:
             trifecta=frozenset(),
             run_tainted=False,
             agent_id="agent-1",
+            groups=frozenset(),
         )
         assert bool(lineage_expr.evaluate(ctx)) is True
         assert bool(source_expr.evaluate(ctx)) is False
@@ -474,6 +509,7 @@ class TestRequireEndorsementSugar:
             trifecta=frozenset(),
             run_tainted=False,
             agent_id="agent-1",
+            groups=frozenset(),
         )
         _, action, _ = evaluate_sink(
             compiled["default.tool"], ctx, default_action=Action.ALLOW
@@ -512,6 +548,7 @@ class TestRequireEndorsementSugar:
             trifecta=frozenset(),
             run_tainted=False,
             agent_id="agent-1",
+            groups=frozenset(),
         )
         _, action, _ = evaluate_sink(
             compiled["default.tool"], ctx, default_action=Action.ALLOW
@@ -543,6 +580,7 @@ class TestAgentIdInCel:
             trifecta=frozenset(),
             run_tainted=False,
             agent_id="billing-agent",
+            groups=frozenset(),
         )
         _, action, _ = evaluate_sink(
             compiled["default.tool"], ctx, default_action=Action.ALLOW
@@ -570,6 +608,7 @@ class TestAgentIdInCel:
             trifecta=frozenset(),
             run_tainted=False,
             agent_id="support-agent",
+            groups=frozenset(),
         )
         _, action, _ = evaluate_sink(
             compiled["default.tool"], ctx, default_action=Action.ALLOW
@@ -591,8 +630,141 @@ class TestAgentIdInCel:
             trifecta=frozenset(),
             run_tainted=False,
             agent_id="x",
+            groups=frozenset(),
         )
         assert bool(expr.evaluate(ctx)) is True
+
+
+class TestAgentGroupsInCel:
+    """`agent.groups` is a CEL list nested inside the `agent` map, resolved
+    from the policy's optional `agents` section via `Policy.id_to_groups`.
+    """
+
+    def _group_gated_doc(self) -> PolicyDocument:
+        return _simple_doc(
+            sinks={
+                "default.tool": [
+                    {
+                        "name": "r",
+                        "when": 'agent.groups.exists(g, g == "payer")',
+                        "action": "block",
+                    },
+                    {"name": "default", "action": "allow"},
+                ]
+            },
+            agents={"billing-agent": ["payer", "internal"]},
+        )
+
+    def test_declared_group_matches_in_rule(self) -> None:
+        compiled = compile_policy(self._group_gated_doc())
+        ctx = build_context(
+            tool="default.tool",
+            args={},
+            resolved_labels=(),
+            trifecta=frozenset(),
+            run_tainted=False,
+            agent_id="billing-agent",
+            groups=frozenset({"payer", "internal"}),
+        )
+        _, action, _ = evaluate_sink(
+            compiled["default.tool"], ctx, default_action=Action.ALLOW
+        )
+        assert action is Action.BLOCK
+
+    def test_undeclared_agent_resolves_empty_and_does_not_match(self) -> None:
+        compiled = compile_policy(self._group_gated_doc())
+        ctx = build_context(
+            tool="default.tool",
+            args={},
+            resolved_labels=(),
+            trifecta=frozenset(),
+            run_tainted=False,
+            agent_id="unknown-agent",
+            groups=frozenset(),
+        )
+        _, action, _ = evaluate_sink(
+            compiled["default.tool"], ctx, default_action=Action.ALLOW
+        )
+        assert action is Action.ALLOW
+
+    def test_no_agents_section_behaves_like_today(self) -> None:
+        doc = _simple_doc(
+            sinks={
+                "default.tool": [
+                    {
+                        "name": "r",
+                        "when": 'agent.groups.exists(g, g == "payer")',
+                        "action": "block",
+                    },
+                    {"name": "default", "action": "allow"},
+                ]
+            }
+        )
+        compiled = compile_policy(doc)
+        ctx = build_context(
+            tool="default.tool",
+            args={},
+            resolved_labels=(),
+            trifecta=frozenset(),
+            run_tainted=False,
+            agent_id="billing-agent",
+            groups=frozenset(),
+        )
+        _, action, _ = evaluate_sink(
+            compiled["default.tool"], ctx, default_action=Action.ALLOW
+        )
+        assert action is Action.ALLOW
+
+    def test_all_on_empty_groups_is_vacuously_true(self) -> None:
+        # Documents the same empty-list-fold hazard as
+        # test_vacuous_taint_all_true_on_zero_labels, one level up: an
+        # undeclared or group-less agent still satisfies `agent.groups.all`.
+        expr = compile_cel_expression('agent.groups.all(g, g == "payer")')
+        ctx = build_context(
+            tool="t",
+            args={},
+            resolved_labels=(),
+            trifecta=frozenset(),
+            run_tainted=False,
+            agent_id="researcher",
+            groups=frozenset(),
+        )
+        assert bool(expr.evaluate(ctx)) is True
+
+    def test_multi_group_agent_matches_first_rule_in_order(self) -> None:
+        doc = _simple_doc(
+            sinks={
+                "default.tool": [
+                    {
+                        "name": "payer_rule",
+                        "when": 'agent.groups.exists(g, g == "payer")',
+                        "action": "block",
+                    },
+                    {
+                        "name": "internal_rule",
+                        "when": 'agent.groups.exists(g, g == "internal")',
+                        "action": "require_approval",
+                    },
+                    {"name": "default", "action": "allow"},
+                ]
+            },
+            agents={"billing-agent": ["payer", "internal"]},
+        )
+        compiled = compile_policy(doc)
+        ctx = build_context(
+            tool="default.tool",
+            args={},
+            resolved_labels=(),
+            trifecta=frozenset(),
+            run_tainted=False,
+            agent_id="billing-agent",
+            groups=frozenset({"payer", "internal"}),
+        )
+        name, action, _ = evaluate_sink(
+            compiled["default.tool"], ctx, default_action=Action.ALLOW
+        )
+        assert name == "payer_rule"
+        assert action is Action.BLOCK
 
 
 class TestEvaluateSink:
@@ -620,6 +792,7 @@ class TestEvaluateSink:
             trifecta=frozenset(),
             run_tainted=False,
             agent_id="agent-1",
+            groups=frozenset(),
         )
 
     def test_catch_all_fires_immediately(self) -> None:

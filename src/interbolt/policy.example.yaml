@@ -27,6 +27,16 @@ sources:
   - name: user_input
     trust: trusted
 
+# IDENTITY (optional): group agent ids so sink rules can test membership
+# instead of enumerating ids one at a time. An agent id not listed here still
+# resolves to agent.groups == [], so a new agent is covered by default rather
+# than silently uncovered.
+# agents:
+#   billing-agent:
+#     groups: [payer, internal]
+#   support-agent:
+#     groups: [internal]
+
 # EGRESS: gate sinks. Keys are dotted qualified names "namespace.tool".
 # Within a sink, rules are ordered; first match wins. A trailing rule with
 # no `when` is the catch-all.
@@ -36,9 +46,7 @@ sinks:
     # the block rule below): if your code validates a recipient against an
     # allowlist and calls endorse(value, kind="recipient_allowlisted"), this
     # rule lets that specific value through without weakening the block
-    # rule for everything else. require_endorsement is sugar for the
-    # equivalent taint.any(t, t.trust == "untrusted" &&
-    #   !t.endorsements.exists(k, k == "recipient_allowlisted")) when clause.
+    # rule for everything else.
     # - name: allow_endorsed_recipients
     #   require_endorsement: recipient_allowlisted
     #   action: allow
@@ -51,9 +59,14 @@ sinks:
     # model-controlled input.
     # when: taint.any(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
     #       && agent.id != "outbound-mailer"
+    #
+    # Group-gated carve-out idiom: the same narrowing shape as above, but
+    # testing membership instead of one enumerated id, so a newly deployed
+    # agent with no declared groups stays covered by default instead of
+    # silently falling outside the rule the moment it ships.
+    # when: taint.any(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
+    #       && !agent.groups.any(g, g == "outbound")
     - name: block_untrusted_exfil
-      # taint.any(...) is rewritten to CEL's `exists` macro at compile time;
-      # write it exactly like this, it works unchanged.
       when: taint.any(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
       action: block
     - name: default

@@ -32,6 +32,16 @@ class Policy:
         sources_table: The declared source-to-trust mapping, for trust
             resolution at the sink. Computed once here, since `document` is
             frozen and cannot change underneath a live `Policy`.
+        id_to_groups: The declared agent-id-to-groups mapping, from the
+            policy's optional `agents` section. Computed once here, for the
+            same reason as `sources_table`; an agent id absent from it is
+            not an error, it resolves to the empty set at read time
+            (`resolve_agent_groups`). The table itself never changes after
+            construction (`configure()` is the only way a new `Policy`
+            comes into existence), but which entry applies is resolved
+            fresh on every `check()` call from that call's `agent_id`,
+            since one run may span several agents with the acting agent
+            chosen per call.
         fingerprint: A stable hash of the normalized document
             (`"sha256:..."`), stamped onto every emitted `Event`/`Finding`/
             `Endorsement` so a record can be joined against the policy that
@@ -50,6 +60,10 @@ class Policy:
         self.source = source
         self.sources_table: dict[str, TrustLevel] = {
             declaration.name: declaration.trust for declaration in document.sources
+        }
+        self.id_to_groups: dict[str, frozenset[str]] = {
+            agent_id: frozenset(declaration.groups)
+            for agent_id, declaration in document.agents.items()
         }
         self.fingerprint: str = compute_policy_fingerprint(document)
 

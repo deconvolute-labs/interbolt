@@ -18,7 +18,11 @@ from interbolt.models.core import (
     TrustLevel,
 )
 from interbolt.runtime import auto_deny
-from interbolt.utils.names import validate_agent_id, validate_qualified_name_part
+from interbolt.utils.names import (
+    validate_agent_id,
+    validate_group_name,
+    validate_qualified_name_part,
+)
 
 
 def _label(source: str = "src") -> Label:
@@ -69,6 +73,25 @@ def test_validate_agent_id_rejects_bad_char() -> None:
 def test_validate_agent_id_rejects_empty() -> None:
     with pytest.raises(InterboltConfigError, match="agent_id"):
         validate_agent_id("")
+
+
+def test_validate_group_name_accepts_valid_chars() -> None:
+    validate_group_name("payer-group_1.v2")
+
+
+def test_validate_group_name_rejects_space() -> None:
+    with pytest.raises(InterboltConfigError, match="group name"):
+        validate_group_name("bad group")
+
+
+def test_validate_group_name_rejects_bad_char() -> None:
+    with pytest.raises(InterboltConfigError, match="group name"):
+        validate_group_name("group!")
+
+
+def test_validate_group_name_rejects_empty() -> None:
+    with pytest.raises(InterboltConfigError, match="group name"):
+        validate_group_name("")
 
 
 def test_label_is_frozen() -> None:

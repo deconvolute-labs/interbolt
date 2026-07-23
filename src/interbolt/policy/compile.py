@@ -53,6 +53,26 @@ def _rewrite_any_to_exists(tree: lark.Tree[lark.Token]) -> lark.Tree[lark.Token]
     return tree
 
 
+def parse_normalized(source: str) -> lark.Tree[lark.Token]:
+    """Parse one CEL expression and retarget `.any(` to `.exists(`.
+
+    The shared first half of `compile_cel_expression`, exposed on its own for
+    callers that need the parsed tree itself rather than a ready-to-evaluate
+    `celpy.Runner` — for example a static analysis that inspects the boolean
+    structure of a `when` expression.
+
+    Args:
+        source: The CEL expression text, as written in the policy YAML.
+
+    Returns:
+        The parsed, `.any`-normalized `lark.Tree`.
+
+    Raises:
+        celpy.CELParseError: If the expression is not valid CEL.
+    """
+    return _rewrite_any_to_exists(_ENV.compile(source))
+
+
 def compile_cel_expression(source: str) -> celpy.Runner:
     """Compile one CEL `when` expression into a reusable, evaluate-many program.
 
@@ -65,8 +85,7 @@ def compile_cel_expression(source: str) -> celpy.Runner:
     Raises:
         celpy.CELParseError: If the expression is not valid CEL.
     """
-    tree = _rewrite_any_to_exists(_ENV.compile(source))
-    return _ENV.program(tree)
+    return _ENV.program(parse_normalized(source))
 
 
 @dataclass(frozen=True)

@@ -30,6 +30,30 @@ def resolve_source_trust(
     return sources_table.get(name, TrustLevel.UNTRUSTED)
 
 
+def resolve_agent_groups(
+    agent_id: str, id_to_groups: Mapping[str, frozenset[str]]
+) -> frozenset[str]:
+    """Resolve one agent id's declared groups against the policy's `agents` table.
+
+    An agent id absent from the table (not declared in the policy's
+    optional `agents:` section) resolves to the empty set rather than
+    raising: an undeclared agent still evaluates normally, just with no
+    groups. A typo or a newly deployed agent belongs in `validate`-time
+    output, not a runtime exception, and absence of a group is not itself a
+    trust signal, unlike `resolve_source_trust`'s untrusted-by-default
+    fallback.
+
+    Args:
+        agent_id: The acting agent's durable identity.
+        id_to_groups: The policy's declared agent-id-to-groups mapping
+            (`Policy.id_to_groups`).
+
+    Returns:
+        The agent's declared groups, or the empty frozenset if undeclared.
+    """
+    return id_to_groups.get(agent_id, frozenset())
+
+
 def resolve_label_trust(
     label: Label, sources_table: Mapping[str, TrustLevel]
 ) -> TrustLevel:
@@ -104,6 +128,7 @@ def build_context(
     trifecta: frozenset[str],
     run_tainted: bool,
     agent_id: str,
+    groups: frozenset[str],
 ) -> dict[str, Any]:
     """Build the CEL evaluation context for one `check()` call.
 
@@ -119,6 +144,11 @@ def build_context(
     `taint.sources`/`taint.max_trust`, because CEL can't make one variable
     both a list and a map. `run` and `agent` are maps since `run.tainted`
     and `agent.id` only ever need dotted access, never quantification.
+    `agent.groups` is a list-typed value nested inside the `agent` map, the
+    same shape `t.lineage`/`t.endorsements` already use inside each `taint`
+    entry: a CEL map can hold a list value, so `agent.groups.exists(...)`
+    quantifies over that nested list without `agent` itself needing to be a
+    list.
 
     Args:
         tool: The dotted qualified tool name.
@@ -132,6 +162,9 @@ def build_context(
         agent_id: The acting agent's durable identity, the same value
             resolved once in `Runtime.check` and stamped on `Decision`, so
             the CEL context and the audit record never disagree.
+        groups: The acting agent's declared groups, already resolved once
+            via `resolve_agent_groups`/`Policy.id_to_groups` by the caller,
+            never re-resolved here, the same shape as `resolved_labels`.
 
     Returns:
         A context mapping ready for `celpy.Runner.evaluate(...)`.
@@ -185,7 +218,12 @@ def build_context(
             {celtypes.StringType("tainted"): celtypes.BoolType(run_tainted)}
         ),
         "agent": celtypes.MapType(
-            {celtypes.StringType("id"): celtypes.StringType(agent_id)}
+            {
+                celtypes.StringType("id"): celtypes.StringType(agent_id),
+                celtypes.StringType("groups"): celtypes.ListType(
+                    [celtypes.StringType(group) for group in sorted(groups)]
+                ),
+            }
         ),
     }
 
