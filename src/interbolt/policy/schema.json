@@ -10,7 +10,24 @@
       "title": "Action",
       "type": "string"
     },
+    "AgentDeclaration": {
+      "additionalProperties": false,
+      "description": "One declared agent's group membership.\n\nCarries no permissions itself; sink rules already grant those. A group\nis a label on the acting principal that a rule's `when:` can test via\n`agent.groups.exists(...)`.",
+      "properties": {
+        "groups": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Groups",
+          "type": "array"
+        }
+      },
+      "title": "AgentDeclaration",
+      "type": "object"
+    },
     "Defaults": {
+      "additionalProperties": false,
       "description": "Default-deny posture for sources and sinks not otherwise declared.",
       "properties": {
         "sink_action": {
@@ -18,21 +35,32 @@
           "default": "require_approval"
         },
         "fail_mode": {
-          "default": "enforce",
-          "enum": [
-            "enforce",
-            "monitor",
-            "dry_run"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Mode"
+            },
+            {
+              "type": "null"
+            }
           ],
-          "title": "Fail Mode",
-          "type": "string"
+          "default": null
         }
       },
       "title": "Defaults",
       "type": "object"
     },
+    "Mode": {
+      "description": "The enforcement mode: governs behavior on evaluation error.\n\nA correct `block`/`require_approval` decision always holds, except under\n`DRY_RUN`, which downgrades every decision to allow.",
+      "enum": [
+        "enforce",
+        "monitor",
+        "dry_run"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
     "SinkRule": {
-      "description": "One ordered rule within a sink's rule list. First match wins.",
+      "description": "One ordered rule within a sink's rule list. First match wins.\n\n`require_endorsement` is sugar for the common \"gate untrusted data\nlacking this endorsement kind\" shape: setting it compiles to the\nequivalent `when:` CEL text (`policy/compile.py:_require_endorsement_when`),\nso most rules needing this never hand-write CEL. Mutually exclusive with\n`when`; a rule may set at most one of the two.",
       "properties": {
         "name": {
           "title": "Name",
@@ -49,6 +77,18 @@
           ],
           "default": null,
           "title": "When"
+        },
+        "require_endorsement": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Require Endorsement"
         },
         "action": {
           "$ref": "#/$defs/Action"
@@ -105,6 +145,14 @@
       },
       "title": "Sources",
       "type": "array"
+    },
+    "agents": {
+      "additionalProperties": {
+        "$ref": "#/$defs/AgentDeclaration"
+      },
+      "default": {},
+      "title": "Agents",
+      "type": "object"
     },
     "sinks": {
       "additionalProperties": {
