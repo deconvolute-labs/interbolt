@@ -126,6 +126,7 @@ class AuditRegistry:
         agent_id: str,
         session_id: str | None,
         depth: int,
+        policy_fingerprint: str,
     ) -> list[Finding]:
         """Scan `args` for previously-registered untrusted content with no label.
 
@@ -166,6 +167,7 @@ class AuditRegistry:
                                     session_id=session_id,
                                     trace_id=trace_id,
                                     span_id=span_id,
+                                    policy_fingerprint=policy_fingerprint,
                                     timestamp=datetime.now(UTC),
                                 )
                             )

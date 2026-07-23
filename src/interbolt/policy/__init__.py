@@ -6,6 +6,7 @@ from interbolt.policy.evaluate import ResolvedLabel
 from interbolt.policy.schema import (
     Defaults,
     PolicyDocument,
+    compute_policy_fingerprint,
     load_policy_document,
     validate_policy,
 )
@@ -31,6 +32,11 @@ class Policy:
         sources_table: The declared source-to-trust mapping, for trust
             resolution at the sink. Computed once here, since `document` is
             frozen and cannot change underneath a live `Policy`.
+        fingerprint: A stable hash of the normalized document
+            (`"sha256:..."`), stamped onto every emitted `Event`/`Finding`/
+            `Endorsement` so a record can be joined against the policy that
+            produced it, even after the policy has since changed. Computed
+            once here, from `document`.
     """
 
     def __init__(
@@ -45,6 +51,7 @@ class Policy:
         self.sources_table: dict[str, TrustLevel] = {
             declaration.name: declaration.trust for declaration in document.sources
         }
+        self.fingerprint: str = compute_policy_fingerprint(document)
 
     @classmethod
     def from_file(cls, path: str) -> Policy:

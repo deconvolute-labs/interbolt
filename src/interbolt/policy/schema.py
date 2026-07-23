@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 
 import yaml
@@ -106,6 +108,28 @@ class PolicyDocument(BaseModel):
         for key in value:
             _split_sink_key(key)
         return value
+
+
+def compute_policy_fingerprint(document: PolicyDocument) -> str:
+    """Hash a validated policy document into a stable, algorithm-prefixed fingerprint.
+
+    Hashes the normalized document, not the compiled CEL objects (whose
+    serialization is not guaranteed stable across `celpy` versions): a JSON
+    dump of `document.model_dump(mode="json")` with sorted object keys, so
+    two loads of the same file, or the same file with different key order or
+    comments, hash identically, while a rule-order or value change (both
+    semantic under first-match-wins policy evaluation) changes the hash.
+
+    Args:
+        document: The validated policy document to fingerprint.
+
+    Returns:
+        The fingerprint as `"sha256:<hex digest>"`.
+    """
+    payload = json.dumps(
+        document.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
+    )
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def load_policy_document(path: str) -> PolicyDocument:

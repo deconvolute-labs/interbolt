@@ -48,9 +48,17 @@ def make_endorsement_emitter(runtime: Runtime) -> Callable[[Endorsement], None]:
     Unlike the audit observer above, this is installed unconditionally: an
     `Endorsement` is a fire-and-forget export through whatever reporter is
     configured (even the default `NullReporter`), not an opt-in instrument.
+
+    `taint/endorse.py` builds the `Endorsement` with no policy reference
+    (`taint/` may never import `policy/` or `runtime/`), so this closure
+    stamps `policy_fingerprint` from the live `runtime.policy` just before
+    export, the one point where both the record and the policy are in scope.
     """
 
     def _emitter(endorsement: Endorsement) -> None:
+        endorsement = endorsement.model_copy(
+            update={"policy_fingerprint": runtime.policy.fingerprint}
+        )
         try:
             runtime.reporter.export(endorsement)
         except Exception:  # noqa: BLE001 -- a reporter failure must never propagate

@@ -125,6 +125,7 @@ def check(
         resolved_run_id=resolved_run_id,
         session_id=session_id,
         outcome=outcome,
+        policy_fingerprint=policy.fingerprint,
     )
     _emit(reporter, event)
 
@@ -138,6 +139,7 @@ def check(
             agent_id=agent_id,
             session_id=session_id,
             reporter=reporter,
+            policy_fingerprint=policy.fingerprint,
         )
 
     if evaluation_error is not None and mode == Mode.ENFORCE:
@@ -214,6 +216,7 @@ def _build_records(
     resolved_run_id: str,
     session_id: str | None,
     outcome: Outcome,
+    policy_fingerprint: str,
 ) -> tuple[Decision, Event]:
     """Assemble the `Decision` and `Event` records. Assembly only."""
     decision = Decision(
@@ -240,6 +243,7 @@ def _build_records(
         outcome=outcome,
         trace_id=trace_id,
         span_id=span_id,
+        policy_fingerprint=policy_fingerprint,
         timestamp=datetime.now(UTC),
     )
     return decision, event
@@ -255,6 +259,7 @@ def _run_audit(
     agent_id: str,
     session_id: str | None,
     reporter: Reporter,
+    policy_fingerprint: str,
 ) -> None:
     """Register this call's args, scan for laundered content, emit any findings."""
     audit_registry.register_from_args(
@@ -270,6 +275,7 @@ def _run_audit(
         agent_id=agent_id,
         session_id=session_id,
         depth=RECURSION_DEPTH,
+        policy_fingerprint=policy_fingerprint,
     )
     for finding in findings:
         _emit(reporter, finding)

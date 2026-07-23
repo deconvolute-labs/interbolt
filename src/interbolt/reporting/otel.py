@@ -54,6 +54,8 @@ def _event_attributes(event: Event) -> dict[str, _AttributeValue]:
         "interbolt.untrusted_sources": sorted(decision.untrusted_sources),
         "interbolt.trifecta": sorted(decision.trifecta),
     }
+    if event.policy_fingerprint is not None:
+        attrs["interbolt.policy_fingerprint"] = event.policy_fingerprint
     if decision.matched_rule is not None:
         attrs["interbolt.matched_rule"] = decision.matched_rule
     if decision.session_id is not None:
@@ -71,6 +73,8 @@ def _finding_attributes(finding: Finding) -> dict[str, _AttributeValue]:
         "interbolt.finding.source": finding.source,
         "interbolt.finding.argument": finding.argument,
     }
+    if finding.policy_fingerprint is not None:
+        attrs["interbolt.policy_fingerprint"] = finding.policy_fingerprint
     if finding.session_id is not None:
         attrs["interbolt.session_id"] = finding.session_id
     return attrs
@@ -84,6 +88,8 @@ def _endorsement_attributes(endorsement: Endorsement) -> dict[str, _AttributeVal
         "interbolt.run_id": endorsement.run_id,
         "interbolt.endorsement.kind": endorsement.kind,
     }
+    if endorsement.policy_fingerprint is not None:
+        attrs["interbolt.policy_fingerprint"] = endorsement.policy_fingerprint
     if endorsement.session_id is not None:
         attrs["interbolt.session_id"] = endorsement.session_id
     if endorsement.note is not None:

@@ -127,6 +127,11 @@ class RecordBase(BaseModel):
             OpenTelemetry is absent or no span was active at construction.
         span_id: The active OpenTelemetry span id (W3C hex), or `None` under
             the same conditions as `trace_id`.
+        policy_fingerprint: A stable hash of the policy in force when this
+            record was produced (`Policy.fingerprint`), so a record can be
+            joined against a retained copy of that policy even after it has
+            since changed. `None` only when no policy was reachable at all,
+            for example an `Endorsement` emitted before `configure()` has run.
         timestamp: When the record was constructed.
     """
 
@@ -135,6 +140,7 @@ class RecordBase(BaseModel):
     schema_version: int
     trace_id: str | None = None
     span_id: str | None = None
+    policy_fingerprint: str | None = None
     timestamp: datetime
 
 
