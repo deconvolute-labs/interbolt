@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from interbolt.constants import DEFAULT_AGENT_ID
 from interbolt.errors import (
     ApprovalDenied,
     InterboltConfigError,
@@ -16,6 +17,7 @@ from interbolt.errors import (
 from interbolt.models.core import Action, Decision
 from interbolt.policy import Policy
 from interbolt.reporting import InMemoryReporter
+from interbolt.runtime import check as _ambient_check
 from interbolt.runtime import configure
 from interbolt.runtime import enforce_decision as _ambient_enforce_decision
 from interbolt.runtime import enforce_decision_sync as _ambient_enforce_decision_sync
@@ -305,6 +307,59 @@ class TestAgentHandle:
 
         my_function("value")
         assert reporter.decisions[0].tool == "default.my_function"
+
+
+class TestAgentIdValidation:
+    """Full validation (charset, carrier-rejection, reserved-word) at the
+    four surface entry points: `AgentHandle`/`agent()`, `agent_context`/
+    `agent_context_sync` (see TestRuntime in test_runtime.py), and the
+    module-level `check()` exercised here.
+    """
+
+    def test_agent_handle_rejects_bad_charset(self) -> None:
+        with pytest.raises(InterboltConfigError, match="agent_id"):
+            AgentHandle("bad id!", runtime_resolver=lambda: None)  # type: ignore[arg-type,return-value]
+
+    def test_agent_handle_rejects_taint_carrier(self) -> None:
+        tainted_id = taint("attacker-controlled", source="web_search")
+        with pytest.raises(InterboltConfigError, match="tainted"):
+            AgentHandle(tainted_id, runtime_resolver=lambda: None)  # type: ignore[arg-type,return-value]
+
+    def test_agent_handle_rejects_reserved_default(self) -> None:
+        with pytest.raises(InterboltConfigError, match="reserved"):
+            AgentHandle(DEFAULT_AGENT_ID, runtime_resolver=lambda: None)  # type: ignore[arg-type,return-value]
+
+    def test_agent_handle_rejects_default_is_also_a_value_error(self) -> None:
+        with pytest.raises(ValueError, match="reserved"):
+            AgentHandle(DEFAULT_AGENT_ID, runtime_resolver=lambda: None)  # type: ignore[arg-type,return-value]
+
+    def test_module_level_check_rejects_bad_charset(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        reporter = InMemoryReporter()
+        configure(policy=make_policy(), reporter=reporter)
+        with pytest.raises(InterboltConfigError, match="agent_id"):
+            _ambient_check(tool="default.t", args={}, agent_id="bad id!")
+        assert reporter.decisions == []
+
+    def test_module_level_check_rejects_taint_carrier(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        reporter = InMemoryReporter()
+        configure(policy=make_policy(), reporter=reporter)
+        tainted_id = taint("attacker-controlled", source="web_search")
+        with pytest.raises(InterboltConfigError, match="tainted"):
+            _ambient_check(tool="default.t", args={}, agent_id=tainted_id)
+        assert reporter.decisions == []
+
+    def test_module_level_check_rejects_reserved_default(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        reporter = InMemoryReporter()
+        configure(policy=make_policy(), reporter=reporter)
+        with pytest.raises(InterboltConfigError, match="reserved"):
+            _ambient_check(tool="default.t", args={}, agent_id=DEFAULT_AGENT_ID)
+        assert reporter.decisions == []
 
 
 class TestAgentHandleTrackModelCall:

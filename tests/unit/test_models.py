@@ -18,7 +18,7 @@ from interbolt.models.core import (
     TrustLevel,
 )
 from interbolt.runtime import auto_deny
-from interbolt.utils.names import validate_qualified_name_part
+from interbolt.utils.names import validate_agent_id, validate_qualified_name_part
 
 
 def _label(source: str = "src") -> Label:
@@ -50,6 +50,25 @@ def test_validate_qualified_name_part_with_dot_raises() -> None:
 
 def test_validate_qualified_name_part_no_dot_passes() -> None:
     validate_qualified_name_part("valid_name", part="tool")
+
+
+def test_validate_agent_id_accepts_valid_chars() -> None:
+    validate_agent_id("billing-agent_1.v2")
+
+
+def test_validate_agent_id_rejects_space() -> None:
+    with pytest.raises(InterboltConfigError, match="agent_id"):
+        validate_agent_id("agent id")
+
+
+def test_validate_agent_id_rejects_bad_char() -> None:
+    with pytest.raises(InterboltConfigError, match="agent_id"):
+        validate_agent_id("agent!")
+
+
+def test_validate_agent_id_rejects_empty() -> None:
+    with pytest.raises(InterboltConfigError, match="agent_id"):
+        validate_agent_id("")
 
 
 def test_label_is_frozen() -> None:

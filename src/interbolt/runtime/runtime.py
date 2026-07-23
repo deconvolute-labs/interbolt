@@ -18,7 +18,12 @@ from interbolt.models.core import Decision, Finding, Mode
 from interbolt.models.protocols import ApprovalResolver, Reporter
 from interbolt.policy import Policy
 from interbolt.reporting import CompositeReporter
-from interbolt.runtime.guard import AgentHandle, agent
+from interbolt.runtime.guard import (
+    AgentHandle,
+    _validate_agent_id_value,
+    _validate_explicit_agent_id,
+    agent,
+)
 from interbolt.taint import clear_run_ingress
 from interbolt.utils import current_agent_id, current_run_id
 
@@ -86,6 +91,7 @@ class Runtime:
     def _enter_agent_context(
         self, agent_id: str
     ) -> tuple[str, Token[str | None], Token[str | None]]:
+        _validate_explicit_agent_id(agent_id)
         run_id = str(uuid.uuid4())
         agent_token = current_agent_id.set(agent_id)
         run_token = current_run_id.set(run_id)
@@ -126,6 +132,12 @@ class Runtime:
 
         Args:
             agent_id: The agent identity to bind for this run.
+
+        Raises:
+            InterboltConfigError: If `agent_id` is a tainted value, fails the
+                identifier charset check, or is the reserved fallback value
+                `constants.DEFAULT_AGENT_ID`. Raised before anything binds,
+                so no cleanup is needed.
         """
         run_id, agent_token, run_token = self._enter_agent_context(agent_id)
         try:
@@ -142,6 +154,12 @@ class Runtime:
 
         Args:
             agent_id: The agent identity to bind for this run.
+
+        Raises:
+            InterboltConfigError: If `agent_id` is a tainted value, fails the
+                identifier charset check, or is the reserved fallback value
+                `constants.DEFAULT_AGENT_ID`. Raised before anything binds,
+                so no cleanup is needed.
         """
         run_id, agent_token, run_token = self._enter_agent_context(agent_id)
         try:
@@ -171,7 +189,16 @@ class Runtime:
 
         Returns:
             The computed `Decision`.
+
+        Raises:
+            InterboltConfigError: If `agent_id` is a tainted value or fails
+                the identifier charset check. Unlike `agent()`/
+                `agent_context()`, this does not reject the literal
+                `"default"`, since bare `guard`'s no-context fallback and an
+                already-validated `agent_context` value both resolve through
+                this method.
         """
+        _validate_agent_id_value(agent_id)
         if run_id is None:
             run_id = current_run_id.get()
         return _enforcement_check(

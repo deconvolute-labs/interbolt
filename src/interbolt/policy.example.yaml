@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=./policy/schema.json
 #
 # Starter interbolt policy. Copy this file, then adjust sources and sinks for
-# your agent. See docs/concepts/policies.md for the full policy reference.
+# your agent. See https://docs.deconvolutelabs.com/docs/concepts/policies for the full policy reference.
 
 version: "1.0"
 
@@ -42,6 +42,15 @@ sinks:
     # - name: allow_endorsed_recipients
     #   require_endorsement: recipient_allowlisted
     #   action: allow
+    #
+    # Per-agent carve-out idiom: narrow an existing block rule rather than
+    # preceding it with an allow, so the exception can't outlive the rule it
+    # modifies or be reordered away from it. agent.id is validated (charset,
+    # not a tainted value, never the reserved "default") at every point an
+    # agent identity is bound, so this comparison can't be spoofed by
+    # model-controlled input.
+    # when: taint.any(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
+    #       && agent.id != "outbound-mailer"
     - name: block_untrusted_exfil
       # taint.any(...) is rewritten to CEL's `exists` macro at compile time;
       # write it exactly like this, it works unchanged.

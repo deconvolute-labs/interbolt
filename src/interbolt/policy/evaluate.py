@@ -103,6 +103,7 @@ def build_context(
     resolved_labels: tuple[ResolvedLabel, ...],
     trifecta: frozenset[str],
     run_tainted: bool,
+    agent_id: str,
 ) -> dict[str, Any]:
     """Build the CEL evaluation context for one `check()` call.
 
@@ -116,8 +117,8 @@ def build_context(
     `taint` stays a plain CEL list so `taint.any(...)`/`taint.all(...)` work
     as macros. `sources` and `max_trust` are top-level siblings, not
     `taint.sources`/`taint.max_trust`, because CEL can't make one variable
-    both a list and a map. `run` is a map since `run.tainted` only needs
-    dotted access.
+    both a list and a map. `run` and `agent` are maps since `run.tainted`
+    and `agent.id` only ever need dotted access, never quantification.
 
     Args:
         tool: The dotted qualified tool name.
@@ -128,6 +129,9 @@ def build_context(
         run_tainted: Whether the active run has ingested untrusted data via
             `taint()` at any point, resolved by `enforcement` from the
             per-run ingress registry (run-level gating).
+        agent_id: The acting agent's durable identity, the same value
+            resolved once in `Runtime.check` and stamped on `Decision`, so
+            the CEL context and the audit record never disagree.
 
     Returns:
         A context mapping ready for `celpy.Runner.evaluate(...)`.
@@ -179,6 +183,9 @@ def build_context(
         "trifecta": celtypes.ListType([celtypes.StringType(leg) for leg in trifecta]),
         "run": celtypes.MapType(
             {celtypes.StringType("tainted"): celtypes.BoolType(run_tainted)}
+        ),
+        "agent": celtypes.MapType(
+            {celtypes.StringType("id"): celtypes.StringType(agent_id)}
         ),
     }
 

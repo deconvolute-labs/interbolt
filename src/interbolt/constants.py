@@ -37,6 +37,7 @@ TRIFECTA_FROM_UNTRUSTED: str = "from_untrusted"
 TRIFECTA_COMPUTABLE_LEGS: frozenset[str] = frozenset({TRIFECTA_FROM_UNTRUSTED})
 
 RUN_COMPUTABLE_FIELDS: frozenset[str] = frozenset({"tainted"})
+AGENT_COMPUTABLE_FIELDS: frozenset[str] = frozenset({"id"})
 
 
 def _resolve_recursion_depth() -> int:
