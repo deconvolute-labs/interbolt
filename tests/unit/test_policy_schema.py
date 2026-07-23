@@ -248,6 +248,179 @@ agents:
 sinks: {}
 """
 
+_POLICY_WITH_GROUP_RULE_SHADOWS_ID_RULE = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+agents:
+  billing-agent:
+    groups: [payer]
+sinks:
+  payments.send_payment:
+    - name: payers_need_approval
+      when: 'agent.groups.exists(g, g == "payer")'
+      action: require_approval
+    - name: billing_agent_blocked
+      when: 'agent.id == "billing-agent"'
+      action: block
+"""
+
+_POLICY_WITH_ID_RULE_THEN_GROUP_RULE_NOT_SOLE_MEMBER = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+agents:
+  billing-agent:
+    groups: [payer]
+  another-agent:
+    groups: [payer]
+sinks:
+  payments.send_payment:
+    - name: billing_agent_blocked
+      when: 'agent.id == "billing-agent"'
+      action: block
+    - name: payers_need_approval
+      when: 'agent.groups.exists(g, g == "payer")'
+      action: require_approval
+"""
+
+_POLICY_WITH_ID_RULE_SHADOWS_SOLE_GROUP_MEMBER = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+agents:
+  billing-agent:
+    groups: [payer]
+sinks:
+  payments.send_payment:
+    - name: billing_agent_blocked
+      when: 'agent.id == "billing-agent"'
+      action: block
+    - name: payers_need_approval
+      when: 'agent.groups.exists(g, g == "payer")'
+      action: require_approval
+"""
+
+_POLICY_WITH_AGENT_NOT_IN_SHADOWING_GROUP = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+agents:
+  billing-agent:
+    groups: [payer]
+  support-agent:
+    groups: [internal]
+sinks:
+  payments.send_payment:
+    - name: payers_need_approval
+      when: 'agent.groups.exists(g, g == "payer")'
+      action: require_approval
+    - name: support_blocked
+      when: 'agent.id == "support-agent"'
+      action: block
+"""
+
+_POLICY_WITH_TAINT_CONJUNCT_NOT_IDENTITY_ONLY = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+agents:
+  billing-agent:
+    groups: [payer]
+sinks:
+  payments.send_payment:
+    - name: payers_need_approval
+      when: >
+        agent.groups.exists(g, g == "payer") &&
+        taint.any(t, t.trust == "untrusted")
+      action: require_approval
+    - name: billing_agent_blocked
+      when: 'agent.id == "billing-agent"'
+      action: block
+"""
+
+_POLICY_WITH_NEGATED_GROUP_SHADOWS_NEGATED_ID = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+agents:
+  billing-agent:
+    groups: [payer]
+sinks:
+  payments.send_payment:
+    - name: not_payer_allowed
+      when: '!agent.groups.exists(g, g == "payer")'
+      action: block
+    - name: not_billing_blocked
+      when: 'agent.id != "billing-agent"'
+      action: block
+"""
+
+_POLICY_WITH_UNDECLARED_AGENT_ID_NOT_SHADOWED_BY_GROUP = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+agents:
+  billing-agent:
+    groups: [payer]
+sinks:
+  payments.send_payment:
+    - name: payers_need_approval
+      when: 'agent.groups.exists(g, g == "payer")'
+      action: require_approval
+    - name: ghost_blocked
+      when: 'agent.id != "ghost-agent"'
+      action: block
+"""
+
+_POLICY_WITH_SHADOWING_RULES_IN_DIFFERENT_SINKS = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+agents:
+  billing-agent:
+    groups: [payer]
+sinks:
+  payments.send_payment:
+    - name: payers_need_approval
+      when: 'agent.groups.exists(g, g == "payer")'
+      action: require_approval
+    - name: default1
+      action: allow
+  default.other_tool:
+    - name: billing_agent_blocked
+      when: 'agent.id == "billing-agent"'
+      action: block
+    - name: default2
+      action: allow
+"""
+
+_POLICY_WITH_UNRECOGNIZED_PREDICATE_SHAPE = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+agents:
+  billing-agent:
+    groups: [payer]
+sinks:
+  payments.send_payment:
+    - name: run_gate
+      when: 'run.tainted'
+      action: require_approval
+    - name: billing_agent_blocked
+      when: 'agent.id == "billing-agent"'
+      action: block
+"""
+
 
 class TestSplitSinkKey:
     def test_valid_dotted(self) -> None:
@@ -503,6 +676,111 @@ sinks:
         )
         problems = validate_policy("fake.yaml")
         assert len(problems) > 0
+
+    def test_group_rule_shadows_later_id_rule(self, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_GROUP_RULE_SHADOWS_ID_RULE),
+        )
+        problems = validate_policy("fake.yaml")
+        assert any(
+            not p.startswith("warning:")
+            and "billing_agent_blocked" in p
+            and "unreachable" in p
+            and "payers_need_approval" in p
+            and "member of group 'payer'" in p
+            for p in problems
+        )
+
+    def test_id_rule_before_group_rule_not_reported(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(
+                read_data=_POLICY_WITH_ID_RULE_THEN_GROUP_RULE_NOT_SOLE_MEMBER
+            ),
+        )
+        problems = validate_policy("fake.yaml")
+        assert not any("unreachable" in p for p in problems)
+
+    def test_id_rule_shadows_group_rule_when_sole_member(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_ID_RULE_SHADOWS_SOLE_GROUP_MEMBER),
+        )
+        problems = validate_policy("fake.yaml")
+        assert any(
+            "payers_need_approval" in p
+            and "unreachable" in p
+            and "billing_agent_blocked" in p
+            for p in problems
+        )
+
+    def test_group_rule_not_shadowing_when_agent_not_member(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_AGENT_NOT_IN_SHADOWING_GROUP),
+        )
+        problems = validate_policy("fake.yaml")
+        assert not any("unreachable" in p for p in problems)
+
+    def test_taint_conjunct_skips_shadowing_check(self, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_TAINT_CONJUNCT_NOT_IDENTITY_ONLY),
+        )
+        problems = validate_policy("fake.yaml")
+        assert not any("unreachable" in p for p in problems)
+
+    def test_negated_group_rule_shadows_negated_id_rule(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_NEGATED_GROUP_SHADOWS_NEGATED_ID),
+        )
+        problems = validate_policy("fake.yaml")
+        assert any(
+            "not_billing_blocked" in p
+            and "unreachable" in p
+            and "not_payer_allowed" in p
+            for p in problems
+        )
+
+    def test_undeclared_agent_id_not_shadowed_by_group_rule(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(
+                read_data=_POLICY_WITH_UNDECLARED_AGENT_ID_NOT_SHADOWED_BY_GROUP
+            ),
+        )
+        problems = validate_policy("fake.yaml")
+        assert not any("unreachable" in p for p in problems)
+
+    def test_shadowing_check_scoped_per_sink(self, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_SHADOWING_RULES_IN_DIFFERENT_SINKS),
+        )
+        problems = validate_policy("fake.yaml")
+        assert not any("unreachable" in p for p in problems)
+
+    def test_unrecognized_predicate_shape_not_reported(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_UNRECOGNIZED_PREDICATE_SHAPE),
+        )
+        problems = validate_policy("fake.yaml")
+        assert not any("unreachable" in p for p in problems)
 
 
 class TestDefaultsModel:

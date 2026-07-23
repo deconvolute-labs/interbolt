@@ -20,6 +20,7 @@ from interbolt.constants import (
 )
 from interbolt.errors import InterboltConfigError, PolicyEvaluationError
 from interbolt.models.core import Action, Mode, TrustLevel
+from interbolt.policy.shadowing import find_identity_shadowing
 from interbolt.utils.names import (
     split_qualified_name,
     validate_agent_id,
@@ -229,6 +230,10 @@ def validate_policy(path: str) -> list[str]:
     declared_groups = frozenset(
         group for decl in document.agents.values() for group in decl.groups
     )
+    declared_ids = frozenset(document.agents)
+    id_to_groups = {
+        agent_id: frozenset(decl.groups) for agent_id, decl in document.agents.items()
+    }
 
     for sink_key, rules in document.sinks.items():
         catch_all_seen = False
@@ -313,5 +318,16 @@ def validate_policy(path: str) -> list[str]:
                     '!taint.any(t, t.trust == "untrusted") or combine with '
                     "size(taint) > 0 if labeled input is actually required"
                 )
+
+        whens = [_rule_when(rule) for rule in rules]
+        problems.extend(
+            find_identity_shadowing(
+                sink_key,
+                rules,
+                whens,
+                declared_ids=declared_ids,
+                id_to_groups=id_to_groups,
+            )
+        )
 
     return problems
