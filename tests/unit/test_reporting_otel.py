@@ -210,6 +210,36 @@ class TestNoSensitiveFieldsLeak:
         assert not any("matched_condition" in key for key in attrs)
 
 
+class TestPolicyFingerprint:
+    def test_event_includes_policy_fingerprint(self) -> None:
+        reporter = OTelReporter()
+        reporter.export(_make_event(policy_fingerprint="sha256:abc"))
+        attrs = _exporter.get_finished_spans()[0].attributes
+        assert attrs is not None
+        assert attrs["interbolt.policy_fingerprint"] == "sha256:abc"
+
+    def test_finding_includes_policy_fingerprint(self) -> None:
+        reporter = OTelReporter()
+        reporter.export(_make_finding(policy_fingerprint="sha256:abc"))
+        attrs = _exporter.get_finished_spans()[0].attributes
+        assert attrs is not None
+        assert attrs["interbolt.policy_fingerprint"] == "sha256:abc"
+
+    def test_endorsement_includes_policy_fingerprint(self) -> None:
+        reporter = OTelReporter()
+        reporter.export(_make_endorsement(policy_fingerprint="sha256:abc"))
+        attrs = _exporter.get_finished_spans()[0].attributes
+        assert attrs is not None
+        assert attrs["interbolt.policy_fingerprint"] == "sha256:abc"
+
+    def test_endorsement_policy_fingerprint_none_is_absent(self) -> None:
+        reporter = OTelReporter()
+        reporter.export(_make_endorsement(policy_fingerprint=None))
+        attrs = _exporter.get_finished_spans()[0].attributes
+        assert attrs is not None
+        assert "interbolt.policy_fingerprint" not in attrs
+
+
 class TestImportGuard:
     def test_import_without_opentelemetry_raises_config_error(self) -> None:
         sys.modules.pop("interbolt.reporting.otel", None)

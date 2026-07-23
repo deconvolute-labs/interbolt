@@ -6,11 +6,13 @@ from pytest_mock import MockerFixture
 
 from interbolt.errors import InterboltConfigError, PolicyEvaluationError
 from interbolt.models.core import Action, Mode, TrustLevel
+from interbolt.policy import default_policy
 from interbolt.policy.schema import (
     Defaults,
     SinkRule,
     SourceDeclaration,
     _split_sink_key,
+    compute_policy_fingerprint,
     load_policy_document,
     validate_policy,
 )
@@ -446,3 +448,98 @@ class TestSinkRule:
                 require_endorsement="recipient_allowlisted",
                 action=Action.BLOCK,
             )
+
+
+class TestComputePolicyFingerprint:
+    _BASE_YAML = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources:
+  - name: web_search
+    trust: untrusted
+sinks:
+  default.tool:
+    - name: block_untrusted
+      when: 'taint.any(t, t.trust == "untrusted")'
+      action: block
+    - name: default
+      action: allow
+"""
+
+    def _fingerprint_of(self, mocker: MockerFixture, yaml_text: str) -> str:
+        mocker.patch("builtins.open", mocker.mock_open(read_data=yaml_text))
+        document = load_policy_document("fake.yaml")
+        return compute_policy_fingerprint(document)
+
+    def test_is_sha256_prefixed(self, mocker: MockerFixture) -> None:
+        fingerprint = self._fingerprint_of(mocker, self._BASE_YAML)
+        assert fingerprint.startswith("sha256:")
+        assert len(fingerprint) == len("sha256:") + 64
+
+    def test_same_document_twice_same_fingerprint(self, mocker: MockerFixture) -> None:
+        first = self._fingerprint_of(mocker, self._BASE_YAML)
+        second = self._fingerprint_of(mocker, self._BASE_YAML)
+        assert first == second
+
+    def test_whitespace_and_comment_only_edit_unchanged(
+        self, mocker: MockerFixture
+    ) -> None:
+        commented = (
+            self._BASE_YAML.replace("version:", "# a helpful comment\nversion:")
+            + "\n\n"
+        )
+        original = self._fingerprint_of(mocker, self._BASE_YAML)
+        edited = self._fingerprint_of(mocker, commented)
+        assert original == edited
+
+    def test_semantic_edit_changes_fingerprint(self, mocker: MockerFixture) -> None:
+        changed = self._BASE_YAML.replace("action: block", "action: require_approval")
+        original = self._fingerprint_of(mocker, self._BASE_YAML)
+        edited = self._fingerprint_of(mocker, changed)
+        assert original != edited
+
+    def test_mapping_key_reorder_unchanged(self, mocker: MockerFixture) -> None:
+        reordered = """\
+version: "1.0"
+sources:
+  - trust: untrusted
+    name: web_search
+sinks:
+  default.tool:
+    - when: 'taint.any(t, t.trust == "untrusted")'
+      name: block_untrusted
+      action: block
+    - name: default
+      action: allow
+defaults:
+  sink_action: allow
+"""
+        original = self._fingerprint_of(mocker, self._BASE_YAML)
+        edited = self._fingerprint_of(mocker, reordered)
+        assert original == edited
+
+    def test_rule_reorder_within_sink_changes_fingerprint(
+        self, mocker: MockerFixture
+    ) -> None:
+        reordered_rules = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources:
+  - name: web_search
+    trust: untrusted
+sinks:
+  default.tool:
+    - name: default
+      action: allow
+    - name: block_untrusted
+      when: 'taint.any(t, t.trust == "untrusted")'
+      action: block
+"""
+        original = self._fingerprint_of(mocker, self._BASE_YAML)
+        edited = self._fingerprint_of(mocker, reordered_rules)
+        assert original != edited
+
+    def test_default_policy_fingerprint_stable_across_calls(self) -> None:
+        assert default_policy().fingerprint == default_policy().fingerprint

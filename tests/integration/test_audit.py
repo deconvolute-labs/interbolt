@@ -55,6 +55,7 @@ class TestLaunderingAuditCanonicalCase:
         assert len(findings) == 1
         assert findings[0].source == "web_search"
         assert findings[0].argument == "body"
+        assert findings[0].policy_fingerprint == rt.policy.fingerprint
 
     async def test_fstring_laundered_payload_caught_via_bare_check_with_explicit_run_id(
         self,

@@ -733,6 +733,15 @@ class TestEndorse:
         result = endorse(taint("x", source="web_search"), kind="k")
         assert result.label.endorsements == ("k",)
 
+    def test_policy_fingerprint_defaults_to_none(self) -> None:
+        # taint/ never imports policy/ or runtime/, so the Endorsement it
+        # builds carries no fingerprint; runtime/observers.py's emitter
+        # closure is what stamps the real value from the live policy.
+        captured: list[Endorsement] = []
+        install_endorsement_emitter(captured.append)
+        endorse(taint("x", source="web_search"), kind="k")
+        assert captured[0].policy_fingerprint is None
+
     def test_endorsement_has_none_trace_ids_outside_a_span(self) -> None:
         captured: list[Endorsement] = []
         install_endorsement_emitter(captured.append)

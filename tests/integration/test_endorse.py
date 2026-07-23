@@ -102,3 +102,4 @@ class TestEndorsementReachesReporter:
         assert len(reporter.endorsements) == 1
         assert reporter.endorsements[0].kind == "recipient_allowlisted"
         assert reporter.endorsements[0].note == "checked against CRM"
+        assert reporter.endorsements[0].policy_fingerprint == rt.policy.fingerprint

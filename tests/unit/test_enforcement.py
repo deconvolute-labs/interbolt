@@ -168,6 +168,23 @@ class TestCheckFunction:
         )
         assert reporter.events[0].schema_version == EVENT_SCHEMA_VERSION
 
+    def test_event_policy_fingerprint_matches_policy(
+        self, make_policy: Callable[..., Policy]
+    ) -> None:
+        reporter = InMemoryReporter()
+        policy = make_policy()
+        check(
+            tool="default.test_tool",
+            args={},
+            agent_id="agent",
+            run_id="run",
+            session_id=None,
+            policy=policy,
+            reporter=reporter,
+            mode=Mode.ENFORCE,
+        )
+        assert reporter.events[0].policy_fingerprint == policy.fingerprint
+
     def test_decision_id_unique_per_call(
         self, make_policy: Callable[..., Policy]
     ) -> None:
@@ -808,6 +825,7 @@ class TestAuditRegistry:
             agent_id="a",
             session_id=None,
             depth=4,
+            policy_fingerprint="sha256:test",
         )
         assert len(findings) >= 1
 
@@ -829,6 +847,7 @@ class TestAuditRegistry:
             agent_id="a",
             session_id=None,
             depth=4,
+            policy_fingerprint="sha256:test",
         )
         assert findings == []
 
@@ -841,6 +860,7 @@ class TestAuditRegistry:
             agent_id="a",
             session_id=None,
             depth=4,
+            policy_fingerprint="sha256:test",
         )
         assert findings == []
 
@@ -870,6 +890,7 @@ class TestAuditRegistry:
             agent_id="a",
             session_id=None,
             depth=4,
+            policy_fingerprint="sha256:test",
         )
         registry.scan(
             {"cmd": secret},
@@ -878,6 +899,7 @@ class TestAuditRegistry:
             agent_id="a",
             session_id=None,
             depth=4,
+            policy_fingerprint="sha256:test",
         )
         assert len(registry.findings) >= 2
 
@@ -901,6 +923,7 @@ class TestAuditRegistry:
             agent_id="a",
             session_id=None,
             depth=4,
+            policy_fingerprint="sha256:test",
         )
         assert len(findings) >= 1
 
@@ -919,6 +942,7 @@ class TestAuditRegistry:
                 agent_id="a",
                 session_id=None,
                 depth=4,
+                policy_fingerprint="sha256:test",
             )
         assert len(registry.findings) == 2
         # The oldest finding (tool="default.t0") was evicted; the two most
@@ -955,6 +979,7 @@ class TestAuditRegistry:
             agent_id="a",
             session_id=None,
             depth=4,
+            policy_fingerprint="sha256:test",
         )
         second = registry.scan(
             {"cmd": secret},
@@ -963,6 +988,7 @@ class TestAuditRegistry:
             agent_id="a",
             session_id=None,
             depth=4,
+            policy_fingerprint="sha256:test",
         )
         assert len(first) == 1
         assert second == []
@@ -984,6 +1010,7 @@ class TestAuditRegistry:
             agent_id="a",
             session_id=None,
             depth=4,
+            policy_fingerprint="sha256:test",
         )
         second = registry.scan(
             {"other_arg": secret},
@@ -992,6 +1019,7 @@ class TestAuditRegistry:
             agent_id="a",
             session_id=None,
             depth=4,
+            policy_fingerprint="sha256:test",
         )
         assert len(second) == 1
 
@@ -1011,6 +1039,7 @@ class TestAuditRegistry:
             agent_id="a",
             session_id=None,
             depth=4,
+            policy_fingerprint="sha256:test",
         )
         second = registry.scan(
             {"cmd": secret},
@@ -1019,6 +1048,7 @@ class TestAuditRegistry:
             agent_id="a",
             session_id=None,
             depth=4,
+            policy_fingerprint="sha256:test",
         )
         assert len(second) == 1
 
@@ -1039,6 +1069,7 @@ class TestAuditRegistry:
             agent_id="a",
             session_id=None,
             depth=4,
+            policy_fingerprint="sha256:test",
         )
         second = registry.scan(
             {"cmd": secret},
@@ -1047,6 +1078,7 @@ class TestAuditRegistry:
             agent_id="a",
             session_id=None,
             depth=4,
+            policy_fingerprint="sha256:test",
         )
         assert len(first) == 1
         assert len(second) == 1
@@ -1067,6 +1099,7 @@ class TestAuditRegistry:
             agent_id="a",
             session_id=None,
             depth=4,
+            policy_fingerprint="sha256:test",
         )
         registry.clear_run("r")
         assert "r" not in registry._emitted
