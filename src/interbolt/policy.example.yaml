@@ -46,9 +46,7 @@ sinks:
     # the block rule below): if your code validates a recipient against an
     # allowlist and calls endorse(value, kind="recipient_allowlisted"), this
     # rule lets that specific value through without weakening the block
-    # rule for everything else. require_endorsement is sugar for the
-    # equivalent taint.any(t, t.trust == "untrusted" &&
-    #   !t.endorsements.exists(k, k == "recipient_allowlisted")) when clause.
+    # rule for everything else.
     # - name: allow_endorsed_recipients
     #   require_endorsement: recipient_allowlisted
     #   action: allow
@@ -67,10 +65,8 @@ sinks:
     # agent with no declared groups stays covered by default instead of
     # silently falling outside the rule the moment it ships.
     # when: taint.any(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
-    #       && !agent.groups.exists(g, g == "outbound")
+    #       && !agent.groups.any(g, g == "outbound")
     - name: block_untrusted_exfil
-      # taint.any(...) is rewritten to CEL's `exists` macro at compile time;
-      # write it exactly like this, it works unchanged.
       when: taint.any(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
       action: block
     - name: default
