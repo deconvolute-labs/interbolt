@@ -28,9 +28,10 @@ _logger = get_logger("taint.endorse")
 def _add_endorsement(label: Label, kind: str) -> Label:
     """Return a copy of `label` with `kind` added to its endorsements.
 
-    De-duplicated, insertion order preserved; lineage is unchanged (an
-    endorsement never touches provenance or trust resolution). Always mints
-    a fresh `value_id`: the endorsement hop is itself a derivation.
+    De-duplicated, insertion order preserved; lineage and ingested_by are
+    unchanged (an endorsement never touches provenance, attribution, or
+    trust resolution). Always mints a fresh `value_id`: the endorsement hop
+    is itself a derivation.
     """
     if kind in label.endorsements:
         endorsements = label.endorsements
@@ -40,6 +41,7 @@ def _add_endorsement(label: Label, kind: str) -> Label:
         source=label.source,
         value_id=_new_value_id(),
         lineage=label.lineage,
+        ingested_by=label.ingested_by,
         endorsements=endorsements,
     )
 

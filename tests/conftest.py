@@ -58,11 +58,12 @@ def runtime(in_memory_reporter: InMemoryReporter, fake_resolver: Mock) -> Runtim
 def make_label() -> Callable[..., Label]:
     """Return a factory that builds a fresh Label with a UUID value_id."""
 
-    def _factory(source: str = "src") -> Label:
+    def _factory(source: str = "src", ingested_by: tuple[str, ...] = ()) -> Label:
         return Label(
             source=source,
             value_id=str(uuid.uuid4()),
             lineage=(source,),
+            ingested_by=ingested_by,
         )
 
     return _factory

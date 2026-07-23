@@ -36,6 +36,12 @@ class Label(BaseModel):
             transformed, for the flow graph and audit trail.
         lineage: The de-duplicated set of source names that contributed to this
             value, in first-contributed order.
+        ingested_by: The de-duplicated set of agent ids that ingested or
+            derived this value, in first-contributed order. Populated by
+            `taint()` and `track_model_call`; unaffected by `endorse()`.
+            Records ingress and derivation attribution, not a full custody
+            chain: an agent that only passes a value along without
+            re-`taint`ing it leaves no entry here.
         endorsements: The de-duplicated set of endorsement kinds this value
             carries, in the order they were applied. Provenance-preserving
             and trust-neutral: `endorse()` never changes `lineage` or how
@@ -50,6 +56,7 @@ class Label(BaseModel):
     source: str
     value_id: str
     lineage: tuple[str, ...]
+    ingested_by: tuple[str, ...] = ()
     endorsements: tuple[str, ...] = ()
 
 

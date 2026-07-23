@@ -7,7 +7,7 @@ import inspect
 from collections.abc import Callable, Iterable
 from typing import Any
 
-from interbolt.constants import RECURSION_DEPTH
+from interbolt.constants import DEFAULT_AGENT_ID, RECURSION_DEPTH
 from interbolt.models.core import Label
 from interbolt.taint.carriers import LabeledValue as LabeledValue
 from interbolt.taint.carriers import Tainted as Tainted
@@ -21,7 +21,7 @@ from interbolt.taint.walk import (
     map_leaves,
     walk_leaves,
 )
-from interbolt.utils import bind_arguments, current_run_id
+from interbolt.utils import bind_arguments, current_agent_id, current_run_id
 
 
 def _observe_ingress(value: Any, *, source: str, run_id: str, depth: int) -> None:  # noqa: ANN401
@@ -51,8 +51,9 @@ def taint(
     depth `constants.RECURSION_DEPTH` (the same constant `check()`/`guard`
     read, so ingress labeling and sink collection are bounded identically).
 
-    The label only records `source`. Trust is resolved later, at the sink,
-    from the policy's `sources` table.
+    The label records `source` and the calling agent (`ingested_by`, read
+    from the active `agent_context`, or `DEFAULT_AGENT_ID` outside one).
+    Trust is resolved later, at the sink, from the policy's `sources` table.
 
     Passing `derived_from` marks `value` as derived from other values instead
     of as a raw ingress point: `source` becomes the name of the derivation
@@ -60,13 +61,16 @@ def taint(
     handoff), and the label's `lineage` is the union of every label found
     among `derived_from`, so trust resolves at the sink exactly as if the
     original inputs had reached the sink directly: trusted only if every
-    contributing input was trusted, untrusted if any one of them was. If no
-    label is found among `derived_from` (every input was trusted-by-
-    construction), `value` is returned completely unwrapped, since there is
-    no provenance to propagate. This does not record a raw ingress event for
-    `source`: the derivation hop is not itself a policy-declared source, and
-    recording it would make `run.tainted` spuriously true regardless of
-    whether the actual inputs were trusted.
+    contributing input was trusted, untrusted if any one of them was.
+    `ingested_by` is the union of the contributing labels' `ingested_by`
+    plus the calling agent, since the derivation hop itself happened under
+    that agent's control. If no label is found among `derived_from` (every
+    input was trusted-by-construction), `value` is returned completely
+    unwrapped, since there is no provenance to propagate. This does not
+    record a raw ingress event for `source`: the derivation hop is not
+    itself a policy-declared source, and recording it would make
+    `run.tainted` spuriously true regardless of whether the actual inputs
+    were trusted.
 
     Args:
         value: The value to mark.
@@ -99,12 +103,21 @@ def taint(
     if not labels:
         return value
 
-    lineage = _merge_labels(*labels).lineage
+    merged = _merge_labels(*labels)
+    current_agent = current_agent_id.get() or DEFAULT_AGENT_ID
+    ingested_by = (
+        merged.ingested_by
+        if current_agent in merged.ingested_by
+        else (*merged.ingested_by, current_agent)
+    )
     return _taint_value(
         value,
         depth=RECURSION_DEPTH,
         make_label=lambda: Label.model_construct(
-            source=source, value_id=_new_value_id(), lineage=lineage
+            source=source,
+            value_id=_new_value_id(),
+            lineage=merged.lineage,
+            ingested_by=ingested_by,
         ),
     )
 

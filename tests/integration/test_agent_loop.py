@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -16,6 +17,7 @@ from interbolt import (
     taint,
 )
 from interbolt.constants import ENV_MODE, EVENT_SCHEMA_VERSION
+from interbolt.policy.schema import SinkRule
 
 if TYPE_CHECKING:
     from unittest.mock import Mock
@@ -236,3 +238,63 @@ def test_reporter_records_full_decision_history_across_multiple_calls(
 
     for event in in_memory_reporter.events:
         assert event.schema_version == EVENT_SCHEMA_VERSION
+
+
+class TestIngestedByGatesAcrossAgents:
+    """`t.ingested_by` answers "which agent's ingress is upstream of this
+    call," independent of `agent.id`, "who is calling now." This is the
+    headline cross-agent scenario the field exists for.
+    """
+
+    def _policy(self, make_policy: Callable[..., Policy]) -> Policy:
+        return make_policy(
+            sink_action=Action.ALLOW,
+            sinks={
+                "default.read_data": (
+                    SinkRule(
+                        name="block_researcher_ingested",
+                        when=(
+                            'taint.any(t, t.ingested_by.exists(a, a == "researcher"))'
+                        ),
+                        action=Action.BLOCK,
+                    ),
+                    SinkRule(name="default", action=Action.ALLOW),
+                )
+            },
+        )
+
+    async def test_rule_fires_regardless_of_which_agent_calls_the_sink(
+        self, make_policy: Callable[..., Policy]
+    ) -> None:
+        policy = self._policy(make_policy)
+        rt = configure(policy=policy, reporter=InMemoryReporter(), mode="enforce")
+
+        async with rt.agent_context("researcher"):
+            payload = taint("finding", source="internal_kb")
+
+        decision = rt.check(
+            tool="default.read_data",
+            args={"value": payload},
+            agent_id="support-agent",
+        )
+
+        assert decision.action is Action.BLOCK
+        assert decision.matched_rule == "block_researcher_ingested"
+        assert decision.agent_id == "support-agent"
+
+    async def test_rule_does_not_fire_for_data_ingested_by_a_different_agent(
+        self, make_policy: Callable[..., Policy]
+    ) -> None:
+        policy = self._policy(make_policy)
+        rt = configure(policy=policy, reporter=InMemoryReporter(), mode="enforce")
+
+        async with rt.agent_context("planner"):
+            payload = taint("finding", source="internal_kb")
+
+        decision = rt.check(
+            tool="default.read_data",
+            args={"value": payload},
+            agent_id="support-agent",
+        )
+
+        assert decision.action is Action.ALLOW

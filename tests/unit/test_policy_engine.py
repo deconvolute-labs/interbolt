@@ -408,6 +408,25 @@ class TestBuildContext:
         lineage = [str(s) for s in taint_list[0]["lineage"]]
         assert lineage == ["a", "b"]
 
+    def test_per_label_map_contains_ingested_by(self) -> None:
+        lbl = Label(
+            source="a",
+            value_id="x1",
+            lineage=("a",),
+            ingested_by=("agent_a", "agent_b"),
+        )
+        ctx = build_context(
+            tool="t",
+            args={},
+            resolved_labels=resolve_labels((lbl,), {}),
+            trifecta=frozenset(),
+            run_tainted=False,
+            agent_id="agent-1",
+            groups=frozenset(),
+        )
+        ingested_by = [str(s) for s in ctx["taint"][0]["ingested_by"]]
+        assert ingested_by == ["agent_a", "agent_b"]
+
     def test_per_label_map_contains_endorsements(self) -> None:
         lbl = Label(
             source="a", value_id="x1", lineage=("a",), endorsements=("k1", "k2")
@@ -441,7 +460,7 @@ class TestLineageVsSourceAfterMerge:
         }
 
         lineage_expr = compile_cel_expression(
-            'taint.any(t, t.lineage.exists(s, s == "web_search"))'
+            'taint.any(t, t.lineage.any(s, s == "web_search"))'
         )
         source_expr = compile_cel_expression('taint.any(t, t.source == "web_search")')
         ctx = build_context(
@@ -635,6 +654,75 @@ class TestAgentIdInCel:
         assert bool(expr.evaluate(ctx)) is True
 
 
+class TestIngestedByInCel:
+    """`t.ingested_by` answers "which agent's ingress is upstream of this
+    call," independent of `agent.id`, which answers "who is calling now."
+    """
+
+    def _doc(self) -> PolicyDocument:
+        return _simple_doc(
+            sinks={
+                "default.tool": [
+                    {
+                        "name": "r",
+                        "when": (
+                            'taint.any(t, t.ingested_by.any(a, a == "researcher"))'
+                        ),
+                        "action": "block",
+                    },
+                    {"name": "default", "action": "allow"},
+                ]
+            }
+        )
+
+    def test_matches_value_ingested_by_named_agent_regardless_of_caller(self) -> None:
+        # Headline scenario: agent A (researcher) ingests the data, agent B
+        # (support-agent) is the one calling the sink. The rule fires on
+        # ingested_by, not on agent.id.
+        compiled = compile_policy(self._doc())
+        lbl = Label(
+            source="web_search",
+            value_id="v1",
+            lineage=("web_search",),
+            ingested_by=("researcher",),
+        )
+        ctx = build_context(
+            tool="default.tool",
+            args={},
+            resolved_labels=resolve_labels((lbl,), {}),
+            trifecta=frozenset(),
+            run_tainted=False,
+            agent_id="support-agent",
+            groups=frozenset(),
+        )
+        _, action, _ = evaluate_sink(
+            compiled["default.tool"], ctx, default_action=Action.ALLOW
+        )
+        assert action is Action.BLOCK
+
+    def test_does_not_match_value_ingested_elsewhere(self) -> None:
+        compiled = compile_policy(self._doc())
+        lbl = Label(
+            source="web_search",
+            value_id="v1",
+            lineage=("web_search",),
+            ingested_by=("planner",),
+        )
+        ctx = build_context(
+            tool="default.tool",
+            args={},
+            resolved_labels=resolve_labels((lbl,), {}),
+            trifecta=frozenset(),
+            run_tainted=False,
+            agent_id="support-agent",
+            groups=frozenset(),
+        )
+        _, action, _ = evaluate_sink(
+            compiled["default.tool"], ctx, default_action=Action.ALLOW
+        )
+        assert action is Action.ALLOW
+
+
 class TestAgentGroupsInCel:
     """`agent.groups` is a CEL list nested inside the `agent` map, resolved
     from the policy's optional `agents` section via `Policy.id_to_groups`.
@@ -646,7 +734,7 @@ class TestAgentGroupsInCel:
                 "default.tool": [
                     {
                         "name": "r",
-                        "when": 'agent.groups.exists(g, g == "payer")',
+                        "when": 'agent.groups.any(g, g == "payer")',
                         "action": "block",
                     },
                     {"name": "default", "action": "allow"},
@@ -693,7 +781,7 @@ class TestAgentGroupsInCel:
                 "default.tool": [
                     {
                         "name": "r",
-                        "when": 'agent.groups.exists(g, g == "payer")',
+                        "when": 'agent.groups.any(g, g == "payer")',
                         "action": "block",
                     },
                     {"name": "default", "action": "allow"},
@@ -737,12 +825,12 @@ class TestAgentGroupsInCel:
                 "default.tool": [
                     {
                         "name": "payer_rule",
-                        "when": 'agent.groups.exists(g, g == "payer")',
+                        "when": 'agent.groups.any(g, g == "payer")',
                         "action": "block",
                     },
                     {
                         "name": "internal_rule",
-                        "when": 'agent.groups.exists(g, g == "internal")',
+                        "when": 'agent.groups.any(g, g == "internal")',
                         "action": "require_approval",
                     },
                     {"name": "default", "action": "allow"},
