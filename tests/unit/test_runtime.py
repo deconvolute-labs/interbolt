@@ -10,7 +10,7 @@ import pytest
 import interbolt.runtime.config as _config_module
 import interbolt.runtime.current as _current_module
 from interbolt.constants import DEFAULT_AGENT_ID, ENV_AUDIT, ENV_MODE
-from interbolt.errors import InterboltConfigError, InterboltUsageError
+from interbolt.errors import InterboltConfigError, InterboltUsageError, PolicyViolation
 from interbolt.models.core import Action, Mode
 from interbolt.policy import Policy
 from interbolt.policy.schema import SinkRule
@@ -482,6 +482,102 @@ class TestRuntime:
         assert by_agent["agent-a"].run_id != by_agent["agent-b"].run_id
 
 
+class TestAgentIdentityValidation:
+    """Full validation at `agent_context`/`agent_context_sync`, and the
+    partial (charset+carrier only) validation `Runtime.check()` applies
+    unconditionally, including to the internal DEFAULT_AGENT_ID fallback.
+    """
+
+    async def test_agent_context_rejects_bad_charset_before_binding(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        rt = configure(policy=make_policy())
+        with pytest.raises(InterboltConfigError, match="agent_id"):
+            async with rt.agent_context("bad id!"):
+                pass
+        assert current_agent_id.get() is None
+        assert current_run_id.get() is None
+
+    async def test_agent_context_rejects_taint_carrier_before_binding(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        from interbolt.taint import taint
+
+        rt = configure(policy=make_policy())
+        tainted_id = taint("attacker-controlled", source="web_search")
+        with pytest.raises(InterboltConfigError, match="tainted"):
+            async with rt.agent_context(tainted_id):
+                pass
+        assert current_agent_id.get() is None
+
+    async def test_agent_context_rejects_reserved_default_before_binding(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        rt = configure(policy=make_policy())
+        with pytest.raises(InterboltConfigError, match="reserved"):
+            async with rt.agent_context(DEFAULT_AGENT_ID):
+                pass
+        assert current_agent_id.get() is None
+
+    def test_agent_context_sync_rejects_bad_charset_before_binding(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        rt = configure(policy=make_policy())
+        with pytest.raises(InterboltConfigError, match="agent_id"):
+            with rt.agent_context_sync("bad id!"):
+                pass
+        assert current_agent_id.get() is None
+        assert current_run_id.get() is None
+
+    def test_agent_context_sync_rejects_taint_carrier_before_binding(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        from interbolt.taint import taint
+
+        rt = configure(policy=make_policy())
+        tainted_id = taint("attacker-controlled", source="web_search")
+        with pytest.raises(InterboltConfigError, match="tainted"):
+            with rt.agent_context_sync(tainted_id):
+                pass
+        assert current_agent_id.get() is None
+
+    def test_agent_context_sync_rejects_reserved_default_before_binding(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        rt = configure(policy=make_policy())
+        with pytest.raises(InterboltConfigError, match="reserved"):
+            with rt.agent_context_sync(DEFAULT_AGENT_ID):
+                pass
+        assert current_agent_id.get() is None
+
+    def test_runtime_check_still_succeeds_with_default_fallback(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        # Regression guard: Runtime.check()'s unconditional partial
+        # validation (charset + carrier only) must never reject the literal
+        # "default" the bare @guard fallback and direct callers rely on.
+        rt = configure(policy=make_policy(), reporter=InMemoryReporter())
+        decision = rt.check(tool="default.tool", args={}, agent_id=DEFAULT_AGENT_ID)
+        assert decision.agent_id == DEFAULT_AGENT_ID
+
+    def test_runtime_check_rejects_bad_charset(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        rt = configure(policy=make_policy())
+        with pytest.raises(InterboltConfigError, match="agent_id"):
+            rt.check(tool="default.tool", args={}, agent_id="bad id!")
+
+    def test_runtime_check_rejects_taint_carrier(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        from interbolt.taint import taint
+
+        rt = configure(policy=make_policy())
+        tainted_id = taint("attacker-controlled", source="web_search")
+        with pytest.raises(InterboltConfigError, match="tainted"):
+            rt.check(tool="default.tool", args={}, agent_id=tainted_id)
+
+
 class TestAgentContextSync:
     """Mirrors TestRuntime's agent_context tests, but synchronous."""
 
@@ -617,6 +713,76 @@ class TestAgentContextSync:
         with rt.agent_context_sync("agent-xyz"):
             result = my_tool("hello")
         assert result == "hello"
+
+
+class TestAgentIdPolicyIntegration:
+    """End-to-end: `agent.id` in a real policy's `when:`, the §3.2-shaped
+    least-privilege scenario (block unless the right agent, then a
+    provenance check still applies for the right agent).
+    """
+
+    def _policy(self, make_policy: Callable[..., Policy]) -> Policy:
+        return make_policy(
+            sink_action=Action.ALLOW,
+            sinks={
+                "payments.send_payment": (
+                    SinkRule(
+                        name="only_billing_agent",
+                        when='agent.id != "billing-agent"',
+                        action=Action.BLOCK,
+                    ),
+                    SinkRule(
+                        name="untrusted_payment",
+                        when='max_trust == "untrusted"',
+                        action=Action.BLOCK,
+                    ),
+                    SinkRule(name="default", action=Action.ALLOW),
+                )
+            },
+        )
+
+    def test_wrong_agent_is_blocked(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        rt = configure(policy=self._policy(make_policy))
+        support = rt.agent("support-agent")
+
+        @support.guard(tool="payments.send_payment")
+        def send_payment(amount: float) -> None:
+            return None
+
+        with pytest.raises(PolicyViolation) as exc_info:
+            send_payment(10.0)
+        assert exc_info.value.decision.matched_rule == "only_billing_agent"
+
+    def test_right_agent_is_allowed(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        rt = configure(policy=self._policy(make_policy))
+        billing = rt.agent("billing-agent")
+
+        @billing.guard(tool="payments.send_payment")
+        def send_payment(amount: float) -> None:
+            return None
+
+        send_payment(10.0)  # should not raise
+
+    def test_right_agent_still_blocked_on_untrusted_data(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        from interbolt.taint import taint
+
+        rt = configure(policy=self._policy(make_policy))
+        billing = rt.agent("billing-agent")
+
+        @billing.guard(tool="payments.send_payment")
+        def send_payment(amount: object) -> None:
+            return None
+
+        untrusted_amount = taint("10.0", source="web_search")
+        with pytest.raises(PolicyViolation) as exc_info:
+            send_payment(untrusted_amount)
+        assert exc_info.value.decision.matched_rule == "untrusted_payment"
 
 
 class TestModuleLevelAgent:

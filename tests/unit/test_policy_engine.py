@@ -104,6 +104,7 @@ class TestAnyRewriteLiteralPreservation:
             resolved_labels=resolve_labels(labels, sources_table or {}),
             trifecta=frozenset(),
             run_tainted=False,
+            agent_id="agent-1",
         )
         return bool(runner.evaluate(ctx))
 
@@ -157,6 +158,7 @@ class TestAnyRewriteLiteralPreservation:
             resolved_labels=(),
             trifecta=frozenset(),
             run_tainted=False,
+            agent_id="agent-1",
         )
         _, action, _ = evaluate_sink(
             compiled["default.tool"], ctx_match, default_action=Action.ALLOW
@@ -169,6 +171,7 @@ class TestAnyRewriteLiteralPreservation:
             resolved_labels=(),
             trifecta=frozenset(),
             run_tainted=False,
+            agent_id="agent-1",
         )
         _, action2, _ = evaluate_sink(
             compiled["default.tool"], ctx_no_match, default_action=Action.ALLOW
@@ -273,9 +276,41 @@ class TestBuildContext:
             resolved_labels=(),
             trifecta=frozenset(),
             run_tainted=False,
+            agent_id="agent-1",
         )
-        for key in ("tool", "args", "taint", "sources", "max_trust", "trifecta"):
+        for key in (
+            "tool",
+            "args",
+            "taint",
+            "sources",
+            "max_trust",
+            "trifecta",
+            "run",
+            "agent",
+        ):
             assert key in ctx
+
+    def test_agent_map_contains_id(self) -> None:
+        ctx = build_context(
+            tool="default.tool",
+            args={},
+            resolved_labels=(),
+            trifecta=frozenset(),
+            run_tainted=False,
+            agent_id="billing-agent",
+        )
+        assert str(ctx["agent"]["id"]) == "billing-agent"
+
+    def test_agent_map_has_exactly_one_field(self) -> None:
+        ctx = build_context(
+            tool="default.tool",
+            args={},
+            resolved_labels=(),
+            trifecta=frozenset(),
+            run_tainted=False,
+            agent_id="agent-1",
+        )
+        assert set(ctx["agent"].keys()) == {"id"}
 
     def test_max_trust_untrusted_when_any_untrusted(self) -> None:
         labels = self._labels_for(["web"])
@@ -285,6 +320,7 @@ class TestBuildContext:
             resolved_labels=resolve_labels(labels, {"web": TrustLevel.UNTRUSTED}),
             trifecta=frozenset(),
             run_tainted=False,
+            agent_id="agent-1",
         )
         assert str(ctx["max_trust"]) == "untrusted"
 
@@ -296,6 +332,7 @@ class TestBuildContext:
             resolved_labels=resolve_labels(labels, {"kb": TrustLevel.TRUSTED}),
             trifecta=frozenset(),
             run_tainted=False,
+            agent_id="agent-1",
         )
         assert str(ctx["max_trust"]) == "trusted"
 
@@ -306,6 +343,7 @@ class TestBuildContext:
             resolved_labels=(),
             trifecta=frozenset(),
             run_tainted=False,
+            agent_id="agent-1",
         )
         assert str(ctx["max_trust"]) == "trusted"
 
@@ -318,6 +356,7 @@ class TestBuildContext:
             resolved_labels=resolve_labels((lbl1, lbl2), {}),
             trifecta=frozenset(),
             run_tainted=False,
+            agent_id="agent-1",
         )
         sources = [str(s) for s in ctx["sources"]]
         assert sources.count("shared") == 1
@@ -330,6 +369,7 @@ class TestBuildContext:
             resolved_labels=resolve_labels((merged,), {}),
             trifecta=frozenset(),
             run_tainted=False,
+            agent_id="agent-1",
         )
         taint_list = ctx["taint"]
         lineage = [str(s) for s in taint_list[0]["lineage"]]
@@ -345,6 +385,7 @@ class TestBuildContext:
             resolved_labels=resolve_labels((lbl,), {}),
             trifecta=frozenset(),
             run_tainted=False,
+            agent_id="agent-1",
         )
         endorsements = [str(s) for s in ctx["taint"][0]["endorsements"]]
         assert endorsements == ["k1", "k2"]
@@ -375,6 +416,7 @@ class TestLineageVsSourceAfterMerge:
             resolved_labels=resolve_labels((merged,), sources_table),
             trifecta=frozenset(),
             run_tainted=False,
+            agent_id="agent-1",
         )
         assert bool(lineage_expr.evaluate(ctx)) is True
         assert bool(source_expr.evaluate(ctx)) is False
@@ -431,6 +473,7 @@ class TestRequireEndorsementSugar:
             resolved_labels=resolve_labels((lbl,), {}),
             trifecta=frozenset(),
             run_tainted=False,
+            agent_id="agent-1",
         )
         _, action, _ = evaluate_sink(
             compiled["default.tool"], ctx, default_action=Action.ALLOW
@@ -468,11 +511,88 @@ class TestRequireEndorsementSugar:
             resolved_labels=resolve_labels((lbl,), {}),
             trifecta=frozenset(),
             run_tainted=False,
+            agent_id="agent-1",
         )
         _, action, _ = evaluate_sink(
             compiled["default.tool"], ctx, default_action=Action.ALLOW
         )
         assert action is Action.BLOCK
+
+
+class TestAgentIdInCel:
+    """`agent.id` is a top-level CEL map field, mirroring `run.tainted`."""
+
+    def test_agent_id_matches_in_rule(self) -> None:
+        doc = _simple_doc(
+            sinks={
+                "default.tool": [
+                    {
+                        "name": "r",
+                        "when": 'agent.id == "billing-agent"',
+                        "action": "block",
+                    },
+                    {"name": "default", "action": "allow"},
+                ]
+            }
+        )
+        compiled = compile_policy(doc)
+        ctx = build_context(
+            tool="default.tool",
+            args={},
+            resolved_labels=(),
+            trifecta=frozenset(),
+            run_tainted=False,
+            agent_id="billing-agent",
+        )
+        _, action, _ = evaluate_sink(
+            compiled["default.tool"], ctx, default_action=Action.ALLOW
+        )
+        assert action is Action.BLOCK
+
+    def test_agent_id_does_not_match_different_agent(self) -> None:
+        doc = _simple_doc(
+            sinks={
+                "default.tool": [
+                    {
+                        "name": "r",
+                        "when": 'agent.id == "billing-agent"',
+                        "action": "block",
+                    },
+                    {"name": "default", "action": "allow"},
+                ]
+            }
+        )
+        compiled = compile_policy(doc)
+        ctx = build_context(
+            tool="default.tool",
+            args={},
+            resolved_labels=(),
+            trifecta=frozenset(),
+            run_tainted=False,
+            agent_id="support-agent",
+        )
+        _, action, _ = evaluate_sink(
+            compiled["default.tool"], ctx, default_action=Action.ALLOW
+        )
+        assert action is Action.ALLOW
+
+    def test_vacuous_taint_all_true_on_zero_labels(self) -> None:
+        # Documents CEL's empty-list fold explicitly: `taint.all` folds to
+        # `true` on an empty list, so pairing it with an identity check in an
+        # allow rule is vacuously satisfied by any unlabeled/laundered call.
+        # This is the exact hazard `validate_policy`'s new warning lint flags.
+        expr = compile_cel_expression(
+            'taint.all(t, t.trust == "trusted") && agent.id == "x"'
+        )
+        ctx = build_context(
+            tool="t",
+            args={},
+            resolved_labels=(),
+            trifecta=frozenset(),
+            run_tainted=False,
+            agent_id="x",
+        )
+        assert bool(expr.evaluate(ctx)) is True
 
 
 class TestEvaluateSink:
@@ -499,6 +619,7 @@ class TestEvaluateSink:
             resolved_labels=(),
             trifecta=frozenset(),
             run_tainted=False,
+            agent_id="agent-1",
         )
 
     def test_catch_all_fires_immediately(self) -> None:

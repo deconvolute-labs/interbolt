@@ -11,14 +11,20 @@ from pydantic import (
     model_validator,
 )
 
-from interbolt.constants import RUN_COMPUTABLE_FIELDS, TRIFECTA_COMPUTABLE_LEGS
+from interbolt.constants import (
+    AGENT_COMPUTABLE_FIELDS,
+    RUN_COMPUTABLE_FIELDS,
+    TRIFECTA_COMPUTABLE_LEGS,
+)
 from interbolt.errors import InterboltConfigError, PolicyEvaluationError
 from interbolt.models.core import Action, Mode, TrustLevel
 from interbolt.utils.names import split_qualified_name, validate_endorsement_kind
 
 _TRIFECTA_LEG_PATTERN = re.compile(r"trifecta\.contains\(\s*[\"']([^\"']+)[\"']\s*\)")
 _RUN_FIELD_PATTERN = re.compile(r"\brun\.(\w+)")
+_AGENT_FIELD_PATTERN = re.compile(r"\bagent\.(\w+)")
 _SOURCE_EQUALITY_PATTERN = re.compile(r"\bt\.source\s*(==|!=)")
+_IDENTITY_ONLY_SIGNALS = ("taint", "max_trust", "sources", "run.")
 
 
 class SourceDeclaration(BaseModel):
@@ -197,6 +203,13 @@ def validate_policy(path: str) -> list[str]:
                         f"run.{field!r}, which does not exist; the only "
                         f"computable field is {sorted(RUN_COMPUTABLE_FIELDS)}"
                     )
+            for field in _AGENT_FIELD_PATTERN.findall(when):
+                if field not in AGENT_COMPUTABLE_FIELDS:
+                    problems.append(
+                        f"sink {sink_key!r}: rule {rule.name!r} references "
+                        f"agent.{field!r}, which does not exist; the only "
+                        f"computable field is {sorted(AGENT_COMPUTABLE_FIELDS)}"
+                    )
             if _SOURCE_EQUALITY_PATTERN.search(when):
                 problems.append(
                     f"warning: sink {sink_key!r}: rule {rule.name!r} compares "
@@ -204,6 +217,27 @@ def validate_policy(path: str) -> list[str]:
                     "first contributor, so this can silently miss a value "
                     "formed by merging two differently-sourced inputs; use "
                     "t.lineage.any(s, s == ...) instead"
+                )
+            if (
+                rule.action is Action.ALLOW
+                and "agent." in when
+                and not any(signal in when for signal in _IDENTITY_ONLY_SIGNALS)
+            ):
+                problems.append(
+                    f"warning: sink {sink_key!r}: rule {rule.name!r} allows "
+                    "based on agent identity alone, with no taint/max_trust/"
+                    "sources/run.tainted condition; this grants unconditional "
+                    "access to this sink for that agent regardless of "
+                    "provenance"
+                )
+            if rule.action is Action.ALLOW and "taint.all(" in when:
+                problems.append(
+                    f"warning: sink {sink_key!r}: rule {rule.name!r} uses "
+                    "taint.all(...) in an allow rule; taint.all evaluates "
+                    "true on a call with zero labels (CEL's empty-list fold), "
+                    "so this can allow an unlabeled or laundered call; use "
+                    '!taint.any(t, t.trust == "untrusted") or combine with '
+                    "size(taint) > 0 if labeled input is actually required"
                 )
 
     return problems

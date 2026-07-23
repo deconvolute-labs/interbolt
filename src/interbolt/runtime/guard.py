@@ -6,17 +6,68 @@ from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, TypeVar, overload
 
 from interbolt.constants import DEFAULT_AGENT_ID, DEFAULT_NAMESPACE
+from interbolt.errors import InterboltConfigError
 from interbolt.models.core import Decision
 from interbolt.runtime.current import _current
+from interbolt.taint import LabeledValue, Tainted, TaintedBytes
 from interbolt.taint import track_model_call as _track_model_call
 from interbolt.utils import bind_arguments
 from interbolt.utils import current_agent_id as current_agent_id
-from interbolt.utils.names import split_qualified_name, validate_qualified_name_part
+from interbolt.utils.names import (
+    split_qualified_name,
+    validate_agent_id,
+    validate_qualified_name_part,
+)
 
 if TYPE_CHECKING:
     from interbolt.runtime.runtime import Runtime
 
 _F = TypeVar("_F", bound=Callable[..., Any])
+
+
+def _validate_agent_id_value(agent_id: str) -> None:
+    """Reject a tainted or charset-invalid agent_id. Applied unconditionally.
+
+    Safe to call on every resolved `agent_id`, including the
+    `DEFAULT_AGENT_ID` fallback and an already-validated `agent_context`
+    value: both are always plain, charset-valid, non-carrier strings. This
+    is the confused-deputy defense once `agent_id` becomes a policy-visible
+    authorization input via `agent.id` in the CEL context: a model-influenced
+    string must never choose its own policy scope, the same isinstance check
+    `taint/walk.py:collect_labels` uses to recognize a labeled leaf.
+
+    Raises:
+        InterboltConfigError: If `agent_id` is a `Tainted`/`TaintedBytes`/
+            `LabeledValue`, or fails the identifier charset check.
+    """
+    if isinstance(agent_id, (Tainted, TaintedBytes, LabeledValue)):
+        raise InterboltConfigError(
+            "agent_id must not be a tainted value; agent identity must come "
+            "from deterministic application dispatch, never from model "
+            "output or a tool result"
+        )
+    validate_agent_id(agent_id)
+
+
+def _validate_explicit_agent_id(agent_id: str) -> None:
+    """Full validation for a directly-supplied agent_id: `agent()`,
+    `agent_context()`/`agent_context_sync()`, and the module-level `check()`.
+
+    Adds rejection of the reserved fallback value on top of
+    `_validate_agent_id_value`, since only an *explicitly* supplied
+    `agent_id` can be ambiguous with the implicit no-context fallback; the
+    fallback itself must keep resolving to `DEFAULT_AGENT_ID` unchanged.
+
+    Raises:
+        InterboltConfigError: If `agent_id` fails `_validate_agent_id_value`,
+            or equals `constants.DEFAULT_AGENT_ID`.
+    """
+    _validate_agent_id_value(agent_id)
+    if agent_id == DEFAULT_AGENT_ID:
+        raise InterboltConfigError(
+            f"agent_id {agent_id!r} is reserved for the implicit "
+            "no-context fallback and cannot be supplied explicitly"
+        )
 
 
 def _qualify_tool_name(tool: str) -> str:
@@ -41,6 +92,14 @@ class AgentHandle:
     def __init__(
         self, agent_id: str, *, runtime_resolver: Callable[[], Runtime]
     ) -> None:
+        """Construct a handle for `agent_id`, validating it eagerly.
+
+        Raises:
+            InterboltConfigError: If `agent_id` is a tainted value, fails the
+                identifier charset check, or is the reserved fallback value
+                `constants.DEFAULT_AGENT_ID`.
+        """
+        _validate_explicit_agent_id(agent_id)
         self._agent_id = agent_id
         self._runtime_resolver = runtime_resolver
 
@@ -233,7 +292,13 @@ def check(
 
     Returns:
         The computed `Decision`.
+
+    Raises:
+        InterboltConfigError: If `agent_id` is a tainted value, fails the
+            identifier charset check, or is the reserved fallback value
+            `constants.DEFAULT_AGENT_ID`.
     """
+    _validate_explicit_agent_id(agent_id)
     return _current().check(
         tool=tool, args=args, agent_id=agent_id, run_id=run_id, session_id=session_id
     )

@@ -5,6 +5,31 @@ import re
 from interbolt.errors import InterboltConfigError
 
 _ENDORSEMENT_KIND_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
+_AGENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+def validate_agent_id(value: str) -> None:
+    """Reject an agent id with characters outside the safe identifier set.
+
+    Charset only. `agent_id` is a CEL-comparable value once exposed in the
+    policy context (`agent.id`), so it is constrained the same way
+    `validate_endorsement_kind` constrains an endorsement kind. Rejecting the
+    reserved fallback value `constants.DEFAULT_AGENT_ID` when explicitly
+    supplied, and rejecting a taint carrier passed as `agent_id`, both need
+    `constants`/`taint`, which this leaf module may not import; those checks
+    live in `runtime/guard.py` instead.
+
+    Args:
+        value: The candidate agent id.
+
+    Raises:
+        InterboltConfigError: If `value` contains a character outside
+            `[A-Za-z0-9_.-]`, or is empty.
+    """
+    if not _AGENT_ID_PATTERN.match(value):
+        raise InterboltConfigError(
+            f"agent_id {value!r} must match {_AGENT_ID_PATTERN.pattern!r}"
+        )
 
 
 def validate_endorsement_kind(value: str) -> None:

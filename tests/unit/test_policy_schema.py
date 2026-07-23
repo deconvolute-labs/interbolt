@@ -112,6 +112,78 @@ _POLICY_SCHEMA_ERROR = """\
 not_a_valid_field: true
 """
 
+_POLICY_WITH_NON_COMPUTABLE_AGENT_FIELD = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: bad_agent_field
+      when: 'agent.role == "billing"'
+      action: block
+"""
+
+_POLICY_WITH_AGENT_ID_ONLY = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: agent_id_only
+      when: 'agent.id == "x"'
+      action: block
+"""
+
+_POLICY_WITH_IDENTITY_ONLY_ALLOW = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: identity_only_allow
+      when: 'agent.id == "x"'
+      action: allow
+"""
+
+_POLICY_WITH_IDENTITY_AND_TAINT_ALLOW = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: identity_and_taint
+      when: 'agent.id == "x" && max_trust == "trusted"'
+      action: allow
+"""
+
+_POLICY_WITH_VACUOUS_TAINT_ALL_ALLOW = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: vacuous_allow
+      when: 'agent.id == "x" && taint.all(t, t.trust == "trusted")'
+      action: allow
+"""
+
+_POLICY_WITH_TAINT_ALL_BLOCK = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: taint_all_block
+      when: 'taint.all(t, t.trust == "trusted")'
+      action: block
+"""
+
 
 class TestSplitSinkKey:
     def test_valid_dotted(self) -> None:
@@ -267,6 +339,62 @@ sinks:
         )
         problems = validate_policy("fake.yaml")
         assert all(p.startswith("warning:") for p in problems)
+
+    def test_non_computable_agent_field(self, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_NON_COMPUTABLE_AGENT_FIELD),
+        )
+        problems = validate_policy("fake.yaml")
+        assert any(
+            not p.startswith("warning:") and "agent.'role'" in p for p in problems
+        )
+
+    def test_agent_id_block_rule_is_valid(self, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "builtins.open", mocker.mock_open(read_data=_POLICY_WITH_AGENT_ID_ONLY)
+        )
+        problems = validate_policy("fake.yaml")
+        assert problems == []
+
+    def test_identity_only_allow_produces_warning(self, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_IDENTITY_ONLY_ALLOW),
+        )
+        problems = validate_policy("fake.yaml")
+        assert any(
+            p.startswith("warning:") and "unconditional access" in p for p in problems
+        )
+
+    def test_identity_only_allow_not_flagged_when_taint_present(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_IDENTITY_AND_TAINT_ALLOW),
+        )
+        problems = validate_policy("fake.yaml")
+        assert not any("unconditional access" in p for p in problems)
+
+    def test_vacuous_taint_all_in_allow_produces_warning(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_VACUOUS_TAINT_ALL_ALLOW),
+        )
+        problems = validate_policy("fake.yaml")
+        assert any(p.startswith("warning:") and "taint.all" in p for p in problems)
+
+    def test_taint_all_in_block_rule_not_flagged(self, mocker: MockerFixture) -> None:
+        # The vacuous-fold hazard is allow-specific; a block rule using
+        # taint.all(...) is not gated on identity and does not over-grant.
+        mocker.patch(
+            "builtins.open", mocker.mock_open(read_data=_POLICY_WITH_TAINT_ALL_BLOCK)
+        )
+        problems = validate_policy("fake.yaml")
+        assert problems == []
 
 
 class TestDefaultsModel:

@@ -95,6 +95,7 @@ def check(
         resolved_labels=resolved_labels,
         trifecta=trifecta,
         run_tainted=run_tainted,
+        agent_id=agent_id,
         policy=policy,
     )
     final_action, outcome = _apply_mode(action, evaluation_error, mode)
@@ -152,6 +153,7 @@ def _evaluate(
     resolved_labels: tuple[ResolvedLabel, ...],
     trifecta: frozenset[str],
     run_tainted: bool,
+    agent_id: str,
     policy: Policy,
 ) -> tuple[Action, str | None, str | None, CELEvalError | CELUnsupportedError | None]:
     """Sink lookup, CEL context build, and rule evaluation. Pure."""
@@ -168,6 +170,7 @@ def _evaluate(
                 resolved_labels=resolved_labels,
                 trifecta=trifecta,
                 run_tainted=run_tainted,
+                agent_id=agent_id,
             )
             matched_rule, action, matched_condition = evaluate_sink(
                 compiled_sink,
