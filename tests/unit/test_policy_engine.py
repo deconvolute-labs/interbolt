@@ -460,7 +460,7 @@ class TestLineageVsSourceAfterMerge:
         }
 
         lineage_expr = compile_cel_expression(
-            'taint.any(t, t.lineage.exists(s, s == "web_search"))'
+            'taint.any(t, t.lineage.any(s, s == "web_search"))'
         )
         source_expr = compile_cel_expression('taint.any(t, t.source == "web_search")')
         ctx = build_context(
@@ -666,7 +666,7 @@ class TestIngestedByInCel:
                     {
                         "name": "r",
                         "when": (
-                            'taint.any(t, t.ingested_by.exists(a, a == "researcher"))'
+                            'taint.any(t, t.ingested_by.any(a, a == "researcher"))'
                         ),
                         "action": "block",
                     },
@@ -734,7 +734,7 @@ class TestAgentGroupsInCel:
                 "default.tool": [
                     {
                         "name": "r",
-                        "when": 'agent.groups.exists(g, g == "payer")',
+                        "when": 'agent.groups.any(g, g == "payer")',
                         "action": "block",
                     },
                     {"name": "default", "action": "allow"},
@@ -781,7 +781,7 @@ class TestAgentGroupsInCel:
                 "default.tool": [
                     {
                         "name": "r",
-                        "when": 'agent.groups.exists(g, g == "payer")',
+                        "when": 'agent.groups.any(g, g == "payer")',
                         "action": "block",
                     },
                     {"name": "default", "action": "allow"},
@@ -825,12 +825,12 @@ class TestAgentGroupsInCel:
                 "default.tool": [
                     {
                         "name": "payer_rule",
-                        "when": 'agent.groups.exists(g, g == "payer")',
+                        "when": 'agent.groups.any(g, g == "payer")',
                         "action": "block",
                     },
                     {
                         "name": "internal_rule",
-                        "when": 'agent.groups.exists(g, g == "internal")',
+                        "when": 'agent.groups.any(g, g == "internal")',
                         "action": "require_approval",
                     },
                     {"name": "default", "action": "allow"},
