@@ -82,8 +82,7 @@ class TestPartialEval:
 
     def test_depends_on_member_always_false_under_agent_mode(self) -> None:
         when = (
-            'agent.groups.exists(g, g == "payer") '
-            '&& taint.any(t, t.trust == "untrusted")'
+            'agent.groups.any(g, g == "payer") && taint.any(t, t.trust == "untrusted")'
         )
         tree = parse_normalized(when)
         result = partial_eval(
@@ -194,7 +193,7 @@ class TestExplainForAgent:
                 "default.tool": [
                     {
                         "name": "payer_rule",
-                        "when": 'agent.groups.exists(g, g == "payer")',
+                        "when": 'agent.groups.any(g, g == "payer")',
                         "action": "allow",
                     }
                 ]
@@ -212,7 +211,7 @@ class TestExplainForAgent:
                 "default.tool": [
                     {
                         "name": "payer_rule",
-                        "when": 'agent.groups.exists(g, g == "payer")',
+                        "when": 'agent.groups.any(g, g == "payer")',
                         "action": "allow",
                     }
                 ]
@@ -228,7 +227,7 @@ class TestExplainForAgent:
                 "default.tool": [
                     {
                         "name": "payers_need_approval",
-                        "when": 'agent.groups.exists(g, g == "payer")',
+                        "when": 'agent.groups.any(g, g == "payer")',
                         "action": "require_approval",
                     },
                     {
@@ -252,7 +251,7 @@ class TestExplainForAgent:
                 "default.tool": [
                     {
                         "name": "payers_need_approval",
-                        "when": 'agent.groups.exists(g, g == "payer")',
+                        "when": 'agent.groups.any(g, g == "payer")',
                         "action": "require_approval",
                     },
                     {
@@ -280,7 +279,7 @@ class TestExplainForAgent:
                 "default.tool": [
                     {
                         "name": "payers_need_approval",
-                        "when": 'agent.groups.exists(g, g == "payer")',
+                        "when": 'agent.groups.any(g, g == "payer")',
                         "action": "require_approval",
                     },
                     {
@@ -310,12 +309,12 @@ class TestExplainForGroup:
                     },
                     {
                         "name": "bound_group_rule",
-                        "when": 'agent.groups.exists(g, g == "payer")',
+                        "when": 'agent.groups.any(g, g == "payer")',
                         "action": "allow",
                     },
                     {
                         "name": "other_group_rule",
-                        "when": 'agent.groups.exists(g, g == "internal")',
+                        "when": 'agent.groups.any(g, g == "internal")',
                         "action": "block",
                     },
                 ]
@@ -348,7 +347,7 @@ class TestExplainForTool:
     def test_collects_ids_and_groups_across_disjunction_and_conjunction(self) -> None:
         when = (
             'agent.id == "billing-agent" || '
-            '(agent.groups.exists(g, g == "payer") && agent.id != "support-agent")'
+            '(agent.groups.any(g, g == "payer") && agent.id != "support-agent")'
         )
         policy = _simple_policy(
             sinks={"default.tool": [{"name": "mixed", "when": when, "action": "block"}]}
@@ -358,7 +357,7 @@ class TestExplainForTool:
         assert mention.groups == {"payer"}
 
     def test_zero_arg_dotted_call_does_not_crash(self) -> None:
-        when = 'agent.groups.size() && agent.groups.exists(g, g == "payer")'
+        when = 'agent.groups.size() && agent.groups.any(g, g == "payer")'
         policy = _simple_policy(
             sinks={"default.tool": [{"name": "mixed", "when": when, "action": "block"}]}
         )
