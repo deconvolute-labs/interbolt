@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 from pytest_mock import MockerFixture
 
-from interbolt.constants import RECURSION_DEPTH
+from interbolt.constants import DEFAULT_AGENT_ID, RECURSION_DEPTH
 from interbolt.errors import InterboltUsageError
 from interbolt.models.core import Endorsement, Label
 from interbolt.taint import (
@@ -25,6 +25,7 @@ from interbolt.taint import (
     track_model_call,
     unwrap,
 )
+from interbolt.utils import current_agent_id
 
 Point = namedtuple("Point", "x y")
 
@@ -65,6 +66,19 @@ class TestFreshLabelAndMerge:
         assert lbl.lineage == ("my_source",)
         assert len(lbl.value_id) == 36  # UUID4
 
+    def test_fresh_label_ingested_by_defaults_to_default_agent_id(self) -> None:
+        assert current_agent_id.get() is None
+        lbl = _fresh_label("my_source")
+        assert lbl.ingested_by == (DEFAULT_AGENT_ID,)
+
+    def test_fresh_label_ingested_by_records_active_agent(self) -> None:
+        token = current_agent_id.set("researcher")
+        try:
+            lbl = _fresh_label("my_source")
+        finally:
+            current_agent_id.reset(token)
+        assert lbl.ingested_by == ("researcher",)
+
     def test_merge_labels_single_reuses_label_and_value_id(self) -> None:
         # Fast path: a single-label "merge" (every single-parent
         # string-op derivation) returns the same Label object, minting no
@@ -80,6 +94,27 @@ class TestFreshLabelAndMerge:
         merged = _merge_labels(a, b)
         assert "src_a" in merged.lineage
         assert "src_b" in merged.lineage
+
+    def test_merge_labels_unions_ingested_by_deduplicated_in_order(self) -> None:
+        a = Label(
+            source="a", value_id="1", lineage=("a",), ingested_by=("agent_a", "agent_b")
+        )
+        b = Label(
+            source="b", value_id="2", lineage=("b",), ingested_by=("agent_b", "agent_c")
+        )
+        merged = _merge_labels(a, b)
+        assert merged.ingested_by == ("agent_a", "agent_b", "agent_c")
+
+    def test_merge_labels_does_not_add_current_agent(self) -> None:
+        # Operator-level combination is not a derivation hop: the acting
+        # agent is not added, unlike taint(..., derived_from=...).
+        a = Label(source="a", value_id="1", lineage=("a",), ingested_by=("agent_a",))
+        token = current_agent_id.set("agent_b")
+        try:
+            merged = _merge_labels(a, a)
+        finally:
+            current_agent_id.reset(token)
+        assert merged.ingested_by == ("agent_a",)
 
     def test_merge_labels_overlapping_lineage_deduplicates(self) -> None:
         a = _fresh_label("shared")
@@ -642,6 +677,7 @@ class TestSingleLabelFastPath:
         original = taint("hello world", source="s")
         upper = original.upper()
         assert upper.label.value_id == original.label.value_id
+        assert upper.label.ingested_by == original.label.ingested_by
 
     def test_split_parts_all_share_parent_value_id(self) -> None:
         original = taint("a b c", source="s")
@@ -661,6 +697,18 @@ class TestEndorse:
         original = taint("attacker@external.com", source="web_search")
         endorsed = endorse(original, kind="recipient_allowlisted")
         assert endorsed.label.lineage == original.label.lineage
+
+    def test_preserves_ingested_by(self) -> None:
+        # The intuitive-but-wrong instinct is to add the endorsing agent;
+        # endorse() must leave ingested_by completely untouched.
+        token = current_agent_id.set("researcher")
+        try:
+            original = taint("attacker@external.com", source="web_search")
+        finally:
+            current_agent_id.reset(token)
+        assert original.label.ingested_by == ("researcher",)
+        endorsed = endorse(original, kind="recipient_allowlisted")
+        assert endorsed.label.ingested_by == original.label.ingested_by
 
     def test_adds_kind_to_endorsements(self) -> None:
         original = taint("x", source="web_search")
@@ -829,6 +877,40 @@ class TestTaintFunction:
         assert result.label.source == "my_source"
         assert result.label.lineage == ("my_source",)
 
+    def test_ingested_by_defaults_to_default_agent_id_with_no_active_context(
+        self,
+    ) -> None:
+        assert current_agent_id.get() is None
+        result = taint("x", source="my_source")
+        assert result.label.ingested_by == (DEFAULT_AGENT_ID,)
+
+    def test_ingested_by_records_current_agent(self) -> None:
+        token = current_agent_id.set("researcher")
+        try:
+            result = taint("x", source="my_source")
+        finally:
+            current_agent_id.reset(token)
+        assert result.label.ingested_by == ("researcher",)
+
+    def test_handoff_without_re_taint_adds_no_ingested_by_entry(self) -> None:
+        # The honesty limit: a plain pass-through with no taint()/
+        # track_model_call call at the boundary is invisible to the library.
+        token = current_agent_id.set("agent_a")
+        try:
+            original = taint("x", source="s")
+        finally:
+            current_agent_id.reset(token)
+
+        def handoff(value: Tainted) -> Tainted:
+            return value
+
+        token = current_agent_id.set("agent_b")
+        try:
+            passed_along = handoff(original)
+        finally:
+            current_agent_id.reset(token)
+        assert passed_along.label.ingested_by == ("agent_a",)
+
 
 # ---------------------------------------------------------------------------
 # Container recursion labels only string leaves; the depth cutoff
@@ -932,6 +1014,34 @@ class TestTaintDerivedFrom:
         result = taint("summary", source="model", derived_from=[untrusted, trusted])
         assert set(result.label.lineage) == {"web_search", "internal_kb"}
 
+    def test_unions_ingested_by_and_adds_current_agent(self) -> None:
+        token = current_agent_id.set("agent_a")
+        try:
+            from_a = taint("attacker text", source="web_search")
+        finally:
+            current_agent_id.reset(token)
+        token = current_agent_id.set("agent_b")
+        try:
+            from_b = taint("kb text", source="internal_kb")
+        finally:
+            current_agent_id.reset(token)
+
+        token = current_agent_id.set("agent_c")
+        try:
+            result = taint("summary", source="model", derived_from=[from_a, from_b])
+        finally:
+            current_agent_id.reset(token)
+        assert result.label.ingested_by == ("agent_a", "agent_b", "agent_c")
+
+    def test_dedupes_when_current_agent_already_a_parent(self) -> None:
+        token = current_agent_id.set("agent_a")
+        try:
+            from_a = taint("attacker text", source="web_search")
+            result = taint("summary", source="model", derived_from=[from_a])
+        finally:
+            current_agent_id.reset(token)
+        assert result.label.ingested_by == ("agent_a",)
+
     def test_does_not_record_ingress_for_derivation_hop(
         self, mocker: MockerFixture
     ) -> None:
@@ -988,6 +1098,24 @@ class TestTrackModelCall:
         result = call_model("plain prompt")
         assert not isinstance(result, Tainted)
         assert result == "summary"
+
+    def test_unions_input_agents_and_adds_current_agent(self) -> None:
+        @track_model_call
+        def call_model(prompt: str) -> str:
+            return "summary"
+
+        token = current_agent_id.set("researcher")
+        try:
+            prompt = taint("attacker text", source="web_search")
+        finally:
+            current_agent_id.reset(token)
+
+        token = current_agent_id.set("planner")
+        try:
+            result = call_model(prompt)
+        finally:
+            current_agent_id.reset(token)
+        assert result.label.ingested_by == ("researcher", "planner")
 
     def test_mixed_trust_arguments_union_lineage(self) -> None:
         @track_model_call

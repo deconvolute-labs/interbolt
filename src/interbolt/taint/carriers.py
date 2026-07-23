@@ -12,8 +12,10 @@ import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
+from interbolt.constants import DEFAULT_AGENT_ID
 from interbolt.errors import InterboltUsageError
 from interbolt.models.core import Label
+from interbolt.utils import current_agent_id
 
 
 def _new_value_id() -> str:
@@ -21,7 +23,10 @@ def _new_value_id() -> str:
 
 
 def _fresh_label(source: str) -> Label:
-    return Label(source=source, value_id=_new_value_id(), lineage=(source,))
+    agent = current_agent_id.get() or DEFAULT_AGENT_ID
+    return Label(
+        source=source, value_id=_new_value_id(), lineage=(source,), ingested_by=(agent,)
+    )
 
 
 def _identity(value: Any) -> Any:  # noqa: ANN401 - pickle reconstruction target
@@ -50,24 +55,31 @@ def _merge_labels(*labels: Label) -> Label:
     """Union the lineage of one or more labels and mint a fresh value_id.
 
     Used both to retag a single-label transformation result and to merge
-    two or more differently-sourced operands (lineage union, endorsements
-    intersection). A single label is returned unchanged: it is frozen and
-    safe to share, and there is nothing to merge, so no new `value_id` is
-    minted for a single-parent derivation: the fast path for the common
-    case of transforming one already-tainted value.
+    two or more differently-sourced operands (lineage and ingested_by
+    union, endorsements intersection). This is an operand-level combine,
+    not a derivation hop, so it does not add the current agent to
+    `ingested_by`, unlike `taint(..., derived_from=...)`. A single label is
+    returned unchanged: it is frozen and safe to share, and there is
+    nothing to merge, so no new `value_id` is minted for a single-parent
+    derivation: the fast path for the common case of transforming one
+    already-tainted value.
     """
     if not labels:
         raise InterboltUsageError("_merge_labels requires at least one label")
     if len(labels) == 1:
         return labels[0]
-    seen: dict[str, None] = {}
+    seen_lineage: dict[str, None] = {}
+    seen_agents: dict[str, None] = {}
     for label in labels:
         for name in label.lineage:
-            seen.setdefault(name, None)
+            seen_lineage.setdefault(name, None)
+        for agent in label.ingested_by:
+            seen_agents.setdefault(agent, None)
     return Label.model_construct(
         source=labels[0].source,
         value_id=_new_value_id(),
-        lineage=tuple(seen),
+        lineage=tuple(seen_lineage),
+        ingested_by=tuple(seen_agents),
         endorsements=_intersect_endorsements(labels),
     )
 

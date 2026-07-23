@@ -11,6 +11,12 @@ _ACTION_COLOR = {
 }
 
 
+def _ingested_by(decision: Decision) -> set[str]:
+    return {
+        agent for label in decision.contributing_labels for agent in label.ingested_by
+    }
+
+
 def describe_event(event: Event) -> str:
     """Build a one-line, rich-markup-tagged human summary of an `Event`.
 
@@ -28,13 +34,15 @@ def describe_event(event: Event) -> str:
     rule = event.decision.matched_rule or "default"
     untrusted = ", ".join(sorted(event.decision.untrusted_sources)) or "-"
     sources = ", ".join(sorted(event.sources)) or "-"
+    ingested_by = ", ".join(sorted(_ingested_by(event.decision))) or "-"
     run_tainted = "[red bold]True[/red bold]" if event.decision.run_tainted else "False"
     return (
         f"{event.decision.tool}  "
         f"[{color}]{event.decision.action.value}[/{color}]  "
         f"rule={rule}  mode={event.decision.mode.value}  "
         f"untrusted_sources={{{untrusted}}}  "
-        f"run_tainted={run_tainted}  sources={{{sources}}}"
+        f"run_tainted={run_tainted}  sources={{{sources}}}  "
+        f"ingested_by={{{ingested_by}}}"
     )
 
 
@@ -59,10 +67,11 @@ def describe_decision(decision: Decision) -> str:
         f"  when={decision.matched_condition!r}" if decision.matched_condition else ""
     )
     untrusted = ", ".join(sorted(decision.untrusted_sources)) or "-"
+    ingested_by = ", ".join(sorted(_ingested_by(decision))) or "-"
     return (
         f"{decision.tool}  [{color}]{decision.action.value}[/{color}]  "
         f"rule={rule}{condition}  mode={decision.mode.value}  "
-        f"untrusted_sources={{{untrusted}}}"
+        f"untrusted_sources={{{untrusted}}}  ingested_by={{{ingested_by}}}"
     )
 
 
