@@ -136,7 +136,9 @@ def _string_literal(node: _Node) -> str | None:
     return str(celstr(token))
 
 
-def _recognize_comparison(op_node: _Node, rhs_node: _Node) -> _IdentityPredicate | None:
+def _recognize_comparison(
+    op_node: _Node, rhs_node: _Node
+) -> _IdEquals | _IdNotEquals | None:
     if not (
         isinstance(op_node, lark.Tree)
         and op_node.data in ("relation_eq", "relation_ne")
@@ -152,7 +154,11 @@ def _recognize_comparison(op_node: _Node, rhs_node: _Node) -> _IdentityPredicate
     )
 
 
-def _recognize_groups_exists(node: lark.Tree[lark.Token]) -> _IdentityPredicate | None:
+def _recognize_groups_exists(
+    node: lark.Tree[lark.Token],
+) -> _GroupMembership | None:
+    if len(node.children) != 3:
+        return None
     receiver, method_token, exprlist_node = node.children
     if not (isinstance(method_token, lark.Token) and method_token.value == "exists"):
         return None

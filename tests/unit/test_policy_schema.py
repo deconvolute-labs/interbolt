@@ -433,6 +433,21 @@ sinks:
       action: block
 """
 
+_POLICY_WITH_ZERO_ARG_DOTTED_CALL = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+agents:
+  billing-agent:
+    groups: [payer]
+sinks:
+  payments.send_payment:
+    - name: zero_arg_call_rule
+      when: 'agent.groups.size() && agent.id == "billing-agent"'
+      action: block
+"""
+
 
 class TestSplitSinkKey:
     def test_valid_dotted(self) -> None:
@@ -803,6 +818,16 @@ sinks:
         mocker.patch(
             "builtins.open",
             mocker.mock_open(read_data=_POLICY_WITH_UNRECOGNIZED_PREDICATE_SHAPE),
+        )
+        problems = validate_policy("fake.yaml")
+        assert not any("unreachable" in p for p in problems)
+
+    def test_zero_arg_dotted_call_does_not_crash_shadowing_check(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_ZERO_ARG_DOTTED_CALL),
         )
         problems = validate_policy("fake.yaml")
         assert not any("unreachable" in p for p in problems)
