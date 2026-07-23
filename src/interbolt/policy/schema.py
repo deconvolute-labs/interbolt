@@ -20,11 +20,18 @@ from interbolt.constants import (
 )
 from interbolt.errors import InterboltConfigError, PolicyEvaluationError
 from interbolt.models.core import Action, Mode, TrustLevel
-from interbolt.utils.names import split_qualified_name, validate_endorsement_kind
+from interbolt.utils.names import (
+    split_qualified_name,
+    validate_agent_id,
+    validate_endorsement_kind,
+    validate_group_name,
+)
 
 _TRIFECTA_LEG_PATTERN = re.compile(r"trifecta\.contains\(\s*[\"']([^\"']+)[\"']\s*\)")
 _RUN_FIELD_PATTERN = re.compile(r"\brun\.(\w+)")
 _AGENT_FIELD_PATTERN = re.compile(r"\bagent\.(\w+)")
+_AGENT_GROUPS_EXISTS_PATTERN = re.compile(r"agent\.groups\.exists\(([^)]*)\)")
+_STRING_LITERAL_PATTERN = re.compile(r"[\"']([^\"']+)[\"']")
 _SOURCE_EQUALITY_PATTERN = re.compile(r"\bt\.source\s*(==|!=)")
 _IDENTITY_ONLY_SIGNALS = ("taint", "max_trust", "sources", "run.")
 
@@ -36,6 +43,26 @@ class SourceDeclaration(BaseModel):
 
     name: str
     trust: TrustLevel
+
+
+class AgentDeclaration(BaseModel):
+    """One declared agent's group membership.
+
+    Carries no permissions itself; sink rules already grant those. A group
+    is a label on the acting principal that a rule's `when:` can test via
+    `agent.groups.exists(...)`.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    groups: tuple[str, ...] = ()
+
+    @field_validator("groups")
+    @classmethod
+    def _validate_group_names(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        for group in value:
+            validate_group_name(group)
+        return value
 
 
 class Defaults(BaseModel):
@@ -98,6 +125,7 @@ class PolicyDocument(BaseModel):
     version: str
     defaults: Defaults
     sources: tuple[SourceDeclaration, ...] = ()
+    agents: dict[str, AgentDeclaration] = {}
     sinks: dict[str, tuple[SinkRule, ...]]
 
     @field_validator("sinks")
@@ -107,6 +135,15 @@ class PolicyDocument(BaseModel):
     ) -> dict[str, tuple[SinkRule, ...]]:
         for key in value:
             _split_sink_key(key)
+        return value
+
+    @field_validator("agents")
+    @classmethod
+    def _validate_agent_ids(
+        cls, value: dict[str, AgentDeclaration]
+    ) -> dict[str, AgentDeclaration]:
+        for agent_id in value:
+            validate_agent_id(agent_id)
         return value
 
 
@@ -189,6 +226,10 @@ def validate_policy(path: str) -> list[str]:
             problems.append(f"{location}: {error['msg']}")
         return problems
 
+    declared_groups = frozenset(
+        group for decl in document.agents.values() for group in decl.groups
+    )
+
     for sink_key, rules in document.sinks.items():
         catch_all_seen = False
         for rule in rules:
@@ -234,6 +275,15 @@ def validate_policy(path: str) -> list[str]:
                         f"agent.{field!r}, which does not exist; the only "
                         f"computable field is {sorted(AGENT_COMPUTABLE_FIELDS)}"
                     )
+            for match in _AGENT_GROUPS_EXISTS_PATTERN.finditer(when):
+                for group in _STRING_LITERAL_PATTERN.findall(match.group(1)):
+                    if group not in declared_groups:
+                        problems.append(
+                            f"warning: sink {sink_key!r}: rule {rule.name!r} "
+                            f"references group {group!r} in "
+                            "agent.groups.exists(...), which is not declared "
+                            "for any agent in the policy's 'agents' section"
+                        )
             if _SOURCE_EQUALITY_PATTERN.search(when):
                 problems.append(
                     f"warning: sink {sink_key!r}: rule {rule.name!r} compares "

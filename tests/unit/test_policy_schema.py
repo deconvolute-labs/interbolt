@@ -8,6 +8,7 @@ from interbolt.errors import InterboltConfigError, PolicyEvaluationError
 from interbolt.models.core import Action, Mode, TrustLevel
 from interbolt.policy import default_policy
 from interbolt.policy.schema import (
+    AgentDeclaration,
     Defaults,
     SinkRule,
     SourceDeclaration,
@@ -184,6 +185,67 @@ sinks:
     - name: taint_all_block
       when: 'taint.all(t, t.trust == "trusted")'
       action: block
+"""
+
+_POLICY_WITH_AGENT_GROUPS_ONLY = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+agents:
+  billing-agent:
+    groups: [payer]
+sinks:
+  default.tool:
+    - name: group_gated
+      when: 'agent.groups.exists(g, g == "payer")'
+      action: block
+"""
+
+_POLICY_WITH_UNDECLARED_GROUP = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: undeclared_group
+      when: 'agent.groups.exists(g, g == "ghost")'
+      action: block
+"""
+
+_POLICY_WITH_BAD_AGENT_ID_CHARSET = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+agents:
+  "bad id!":
+    groups: []
+sinks: {}
+"""
+
+_POLICY_WITH_BAD_GROUP_NAME_CHARSET = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+agents:
+  billing-agent:
+    groups: ["bad group!"]
+sinks: {}
+"""
+
+_POLICY_WITH_UNKNOWN_AGENT_ENTRY_KEY = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+agents:
+  billing-agent:
+    groups: []
+    permissions: [admin]
+sinks: {}
 """
 
 
@@ -398,6 +460,50 @@ sinks:
         problems = validate_policy("fake.yaml")
         assert problems == []
 
+    def test_agent_groups_field_is_computable(self, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_AGENT_GROUPS_ONLY),
+        )
+        problems = validate_policy("fake.yaml")
+        assert problems == []
+
+    def test_undeclared_group_in_exists_produces_warning(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_UNDECLARED_GROUP),
+        )
+        problems = validate_policy("fake.yaml")
+        assert any(p.startswith("warning:") and "'ghost'" in p for p in problems)
+
+    def test_agents_entry_bad_id_charset_rejected(self, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_BAD_AGENT_ID_CHARSET),
+        )
+        problems = validate_policy("fake.yaml")
+        assert len(problems) > 0
+
+    def test_agents_entry_bad_group_name_charset_rejected(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_BAD_GROUP_NAME_CHARSET),
+        )
+        problems = validate_policy("fake.yaml")
+        assert len(problems) > 0
+
+    def test_agents_entry_unknown_key_rejected(self, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_UNKNOWN_AGENT_ENTRY_KEY),
+        )
+        problems = validate_policy("fake.yaml")
+        assert len(problems) > 0
+
 
 class TestDefaultsModel:
     def test_fail_mode_defaults_to_none(self) -> None:
@@ -422,6 +528,29 @@ class TestSourceDeclaration:
         sd = SourceDeclaration(name="my_source", trust=TrustLevel.TRUSTED)
         assert sd.name == "my_source"
         assert sd.trust == TrustLevel.TRUSTED
+
+
+class TestAgentDeclaration:
+    def test_default_groups_is_empty(self) -> None:
+        decl = AgentDeclaration()
+        assert decl.groups == ()
+
+    def test_construction_with_groups(self) -> None:
+        decl = AgentDeclaration(groups=("payer", "internal"))
+        assert decl.groups == ("payer", "internal")
+
+    def test_unknown_key_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            AgentDeclaration.model_validate({"groups": [], "permissions": ["admin"]})
+
+    def test_is_frozen(self) -> None:
+        decl = AgentDeclaration(groups=("payer",))
+        with pytest.raises((ValidationError, TypeError)):
+            decl.groups = ()
+
+    def test_bad_group_name_charset_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            AgentDeclaration(groups=("bad group!",))
 
 
 class TestSinkRule:
@@ -543,3 +672,11 @@ sinks:
 
     def test_default_policy_fingerprint_stable_across_calls(self) -> None:
         assert default_policy().fingerprint == default_policy().fingerprint
+
+    def test_agents_section_changes_fingerprint(self, mocker: MockerFixture) -> None:
+        with_agents = self._BASE_YAML + (
+            "agents:\n  billing-agent:\n    groups: [payer]\n"
+        )
+        original = self._fingerprint_of(mocker, self._BASE_YAML)
+        edited = self._fingerprint_of(mocker, with_agents)
+        assert original != edited

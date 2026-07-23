@@ -29,7 +29,12 @@ from interbolt.models.core import (
 )
 from interbolt.models.protocols import Reporter
 from interbolt.policy import Policy, ResolvedLabel
-from interbolt.policy.evaluate import build_context, evaluate_sink, resolve_labels
+from interbolt.policy.evaluate import (
+    build_context,
+    evaluate_sink,
+    resolve_agent_groups,
+    resolve_labels,
+)
 from interbolt.taint import collect_labels, unwrap
 from interbolt.utils import current_trace_context, get_logger
 
@@ -166,6 +171,7 @@ def _evaluate(
     evaluation_error: CELEvalError | CELUnsupportedError | None = None
     try:
         if compiled_sink is not None:
+            groups = resolve_agent_groups(agent_id, policy.id_to_groups)
             context = build_context(
                 tool=tool,
                 args=plain_args,
@@ -173,6 +179,7 @@ def _evaluate(
                 trifecta=trifecta,
                 run_tainted=run_tainted,
                 agent_id=agent_id,
+                groups=groups,
             )
             matched_rule, action, matched_condition = evaluate_sink(
                 compiled_sink,
