@@ -100,11 +100,6 @@ def _endorsement_attributes(endorsement: Endorsement) -> dict[str, _AttributeVal
 class OTelReporter:
     """Maps `Event`/`Finding`/`Endorsement` records onto OpenTelemetry spans.
 
-    Never the native record format: Interbolt's own versioned schema
-    (`Event`/`Finding`/`Endorsement`) is the source of truth, and this
-    reporter is a mapping at the edge for interop with existing OTel
-    instrumentation.
-
     Two emission paths. When the current span is recording (the common case:
     the host application already wraps the tool call in its own span), the
     record is added as a span event (`interbolt.decision`,
@@ -119,6 +114,7 @@ class OTelReporter:
     """
 
     def __init__(self) -> None:
+        """Initialize the reporter's OpenTelemetry tracer."""
         self._tracer = trace.get_tracer("interbolt", _version)
 
     def export(self, event: Event | Finding | Endorsement) -> None:

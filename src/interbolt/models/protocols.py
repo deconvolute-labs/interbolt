@@ -1,3 +1,5 @@
+"""Protocols the runtime is composed with: `Reporter` and `ApprovalResolver`."""
+
 from __future__ import annotations
 
 from collections.abc import Awaitable
@@ -12,11 +14,11 @@ class Reporter(Protocol):
     def export(self, event: Event | Finding | Endorsement) -> None:
         """Emit a decision event, audit finding, or endorsement record.
 
-        Args:
-            event: The record to emit.
-
         Implementations must return immediately; blocking here delays the
         decision that triggered it.
+
+        Args:
+            event: The record to emit.
         """
         ...
 

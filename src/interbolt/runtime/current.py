@@ -26,14 +26,12 @@ def _set_current(runtime: Runtime) -> None:
 
 
 def _current() -> Runtime:
-    """Return the process-current runtime, or raise if configure() hasn't run.
-
-    Reads the module-global reference without the lock: in CPython a plain
-    attribute read is atomic, and `_runtime_lock` only needs to serialize
-    concurrent writers (`configure()`). Guarding this read would put lock
-    contention on every guarded call's hot path for no
-    correctness benefit. Do not add a lock here.
-    """
+    """Return the process-current runtime, or raise if `configure()` hasn't run."""
+    # Reads the module-global reference without the lock: in CPython a plain
+    # attribute read is atomic, and `_runtime_lock` only needs to serialize
+    # concurrent writers (`configure()`). Guarding this read would put lock
+    # contention on every guarded call's hot path for no correctness benefit.
+    # Do not add a lock here.
     runtime = _current_runtime
     if runtime is None:
         raise InterboltUsageError(
@@ -45,8 +43,8 @@ def _current() -> Runtime:
 def get_runtime() -> Runtime:
     """Return the process-current runtime.
 
-    The `get_tracer_provider()` analog. Use this to reach the live runtime
-    later, for example to call `Runtime.add_reporter`.
+    Use this to reach the live runtime after `configure()` has run, for
+    example to call `Runtime.add_reporter`.
 
     Returns:
         The process-current `Runtime`.

@@ -1,7 +1,4 @@
-"""The `endorse()` primitive: the integrity dual of declassification.
-
-`endorse` is re-exported from `taint/__init__.py`.
-"""
+"""The `endorse()` primitive, re-exported from `taint/__init__.py`."""
 
 from __future__ import annotations
 
@@ -96,51 +93,37 @@ def _endorse_leaf(
 
 
 def endorse(value: Any, *, kind: str, note: str | None = None) -> Any:  # noqa: ANN401
-    """Reduce a value's restrictiveness after explicit, code-driven validation.
+    """Record that a value passed a named validation step.
 
-    The integrity dual of declassification: where `taint()` marks a value's
-    provenance at ingress, `endorse()` records that a specific validation
-    step has vouched for it, without erasing that provenance. `lineage` is
-    unchanged and `t.trust` still resolves exactly as before; `kind` is
-    added to the label's `endorsements`, a policy-visible fact a sink can
-    require (`t.endorsements.exists(k, k == "recipient_allowlisted")`).
-    Endorsing with a kind a sink does not check has no effect there, which
-    is what keeps one endorsement from silently over-authorizing an
-    unrelated sink.
+    Use this after code has actually checked an untrusted value: parsed a URL,
+    matched a recipient against an allowlist, validated a payload against a
+    schema. `kind` names the check that ran. A sink whose policy asks for that
+    kind will accept the value; every other sink is unaffected.
 
-    Accepts the same shapes as `taint()`: a `Tainted`/`TaintedBytes`/
-    `LabeledValue` leaf, or a builtin container/mapping (recursing to the
-    same bounded depth, endorsing every already-labeled leaf found). A value
-    with no label anywhere in it passes through unchanged; there is nothing
-    to endorse.
+    The value's sources and its resolved trust do not change. Only a policy
+    that names the endorsement sees a difference, so adding `endorse()` calls
+    cannot loosen a rule that does not mention them.
 
-    `kind` is required and machine-matchable on purpose: a blanket boolean
-    "endorsed" flag cannot express that a value validated safe for one sink
-    (a URL sanitizer) is not thereby safe for another (an email allowlist),
-    and a low-friction untainting primitive with no required category is
-    exactly the rubber stamp that undermined Perl's taint mode. Call this
-    only from deterministic code immediately after a real validation step;
-    never call it because a model asked to, or based on model output, since
-    the model is the confused deputy this library defends against.
+    Endorse from deterministic code, immediately after the check it stands
+    for. A model's assessment of a value is not a validation step.
 
-    `run.tainted` is unaffected: run-level gating is coarse and
-    laundering-resistant by design, and a value-level endorsement must not
-    clear it.
+    Accepts the same shapes as `taint()`. A value carrying no mark comes back
+    unchanged.
 
     Args:
         value: The value to endorse.
-        kind: The endorsement category, matched against a policy's
-            `t.endorsements` in CEL. Required, so every endorsement is
-            explicit about what it vouches for.
-        note: An optional free-text annotation carried on the emitted
-            `Endorsement` record only, never on the value's label.
+        kind: The name of the validation that ran. Match it in a policy with
+            `t.endorsements.any(k, k == "...")` or a rule's
+            `require_endorsement`. Letters, digits, `_`, `.`, and `-`.
+        note: Free text recorded on the emitted `Endorsement`. It is not
+            attached to the value.
 
     Returns:
-        The endorsed value, or `value` unchanged if it carries no label.
+        The endorsed value, or `value` unchanged if it carries no mark.
 
     Raises:
-        InterboltConfigError: If `kind` contains a character outside
-            `[A-Za-z0-9_.-]`, or is empty.
+        InterboltConfigError: If `kind` is empty or contains a character
+            outside `[A-Za-z0-9_.-]`.
     """
     validate_endorsement_kind(kind)
     endorsed_labels: list[Label] = []

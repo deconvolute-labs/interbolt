@@ -41,49 +41,40 @@ def taint(
     source: str,
     derived_from: Iterable[Any] | None = None,
 ) -> Any:  # noqa: ANN401 - returns whatever shape it labeled
-    """Mark a value with its provenance at the point it enters the agent.
+    """Mark a value with the source it came from.
 
-    For `str`/`bytes` this returns a `Tainted`/`TaintedBytes` carrier that
-    propagates over the supported operation subset. For other scalars it
-    returns a `LabeledValue` that does not propagate through transformations.
-    For builtin containers (`list`, `tuple`, `set`, `frozenset`, `Mapping`
-    keys and values) it recurses and labels string leaves, to the resolved
-    depth `constants.RECURSION_DEPTH` (the same constant `check()`/`guard`
-    read, so ingress labeling and sink collection are bounded identically).
+    Call this wherever data enters the agent from outside: a search result, a
+    retrieved document, an API response, an email body. The mark travels with
+    the value through your code, and `guard`/`check` read it at the tool call
+    to decide whether the call is allowed. Whether a source is trusted is
+    decided there, from your policy's `sources` table, so this function only
+    records the name.
 
-    The label records `source` and the calling agent (`ingested_by`, read
-    from the active `agent_context`, or `DEFAULT_AGENT_ID` outside one).
-    Trust is resolved later, at the sink, from the policy's `sources` table.
+    `str` and `bytes` come back as `Tainted`/`TaintedBytes`, subclasses usable
+    anywhere the plain type is. Lists, tuples, sets, and mappings have their
+    string leaves marked, to a bounded depth. Any other scalar comes back
+    wrapped in a `LabeledValue`.
 
-    Passing `derived_from` marks `value` as derived from other values instead
-    of as a raw ingress point: `source` becomes the name of the derivation
-    hop (for example `"model"`, an LLM call, or `"agent_a"`, an agent
-    handoff), and the label's `lineage` is the union of every label found
-    among `derived_from`, so trust resolves at the sink exactly as if the
-    original inputs had reached the sink directly: trusted only if every
-    contributing input was trusted, untrusted if any one of them was.
-    `ingested_by` is the union of the contributing labels' `ingested_by`
-    plus the calling agent, since the derivation hop itself happened under
-    that agent's control. If no label is found among `derived_from` (every
-    input was trusted-by-construction), `value` is returned completely
-    unwrapped, since there is no provenance to propagate. This does not
-    record a raw ingress event for `source`: the derivation hop is not
-    itself a policy-declared source, and recording it would make
-    `run.tainted` spuriously true regardless of whether the actual inputs
-    were trusted.
+    Use `derived_from` when a value was computed from other values rather than
+    read from a new source. `source` then names the step that produced it, for
+    example `"model"` for an LLM call, and the value inherits its inputs'
+    sources, so it resolves untrusted if any input was. A value whose inputs
+    carry no marks comes back unchanged.
 
     Args:
         value: The value to mark.
-        source: The stable name of the source this value came from, or the
-            name of the derivation hop when `derived_from` is given.
-        derived_from: The input values this one was derived from (for
-            example, an LLM call's prompt and retrieved context). When
-            omitted or empty, `value` is treated as a fresh ingress point.
+        source: The name of the source this value came from, or of the step
+            that produced it when `derived_from` is given. Declare the same
+            name in your policy's `sources` table.
+        derived_from: The values this one was computed from. Omit for data
+            arriving from a new source.
 
     Returns:
-        The labeled value: a `Tainted`/`TaintedBytes` carrier, a recursively
-        labeled container, a `LabeledValue` wrapper, or, when `derived_from`
-        is given and carries no provenance at all, `value` unchanged.
+        The marked value, in the same shape it came in.
+
+    Example:
+        >>> results = taint(web_search(query), source="web_search")
+        >>> send_email(to=addr, body=results)   # policy sees "web_search"
     """
     derived_items = None if derived_from is None else list(derived_from)
     if not derived_items:

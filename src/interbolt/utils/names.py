@@ -1,3 +1,5 @@
+"""Identifier validation shared across the library: agent ids, groups, tool names."""
+
 from __future__ import annotations
 
 import re
@@ -14,11 +16,7 @@ def validate_agent_id(value: str) -> None:
 
     Charset only. `agent_id` is a CEL-comparable value once exposed in the
     policy context (`agent.id`), so it is constrained the same way
-    `validate_endorsement_kind` constrains an endorsement kind. Rejecting the
-    reserved fallback value `constants.DEFAULT_AGENT_ID` when explicitly
-    supplied, and rejecting a taint carrier passed as `agent_id`, both need
-    `constants`/`taint`, which this leaf module may not import; those checks
-    live in `runtime/guard.py` instead.
+    `validate_endorsement_kind` constrains an endorsement kind.
 
     Args:
         value: The candidate agent id.
@@ -37,7 +35,7 @@ def validate_group_name(value: str) -> None:
     """Reject a group name with characters outside the safe identifier set.
 
     A group name is matched as a string literal inside a policy's `when:`
-    CEL text (`agent.groups.exists(g, g == "...")`); constraining its
+    CEL text (`agent.groups.any(g, g == "...")`); constraining its
     charset keeps every declared group name expressible as a plain CEL
     string literal with no escaping question.
 

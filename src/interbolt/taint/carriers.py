@@ -1,9 +1,4 @@
-"""The taint carriers: `Tainted`, `TaintedBytes`, `LabeledValue`, and label merge.
-
-The bulk of this file is mechanically repetitive per-operation dunder
-overrides on `Tainted`/`TaintedBytes`, not independent concerns to split
-into separate files.
-"""
+"""The taint carriers: `Tainted`, `TaintedBytes`, `LabeledValue`, and label merge."""
 
 from __future__ import annotations
 
@@ -107,12 +102,12 @@ class Tainted(str):
 
     `copy.copy`/`copy.deepcopy` preserve the label: both the string value and
     the label are immutable, so a copy safely returns `self`. Pickling
-    (`__reduce__`) instead reduces to the plain underlying `str`, dropping
-    the label: pickling crosses the process/storage boundary, and taint
-    propagation does not survive that boundary by design, so dropping to
-    plain here is intentional, not a gap.
+    (`__reduce__`) reduces to the plain underlying `str`, dropping the
+    label: taint propagation does not survive the process/storage boundary.
     """
 
+    # Narrows str's return type to Tainted (or list[Tainted]/TaintedBytes
+    # where noted); a covariant, intentional override in each case below.
     __slots__ = ("label",)
     label: Label
 
@@ -192,7 +187,6 @@ class Tainted(str):
         return _wrap(str.rstrip(self, chars), self.label)
 
     def replace(self, old: str, new: str, count: int = -1) -> Tainted:  # type: ignore[override]
-        # Narrows str's return type to Tainted; a covariant, intentional override.
         result = str.replace(self, old, new, count)
         return _wrap(result, self.label, *_labels_of(new))
 
@@ -258,7 +252,6 @@ class Tainted(str):
         return _wrap(str.removesuffix(self, suffix), self.label)
 
     def center(self, width: int, fillchar: str = " ") -> Tainted:  # type: ignore[override]
-        # Narrows str's return type to Tainted; a covariant, intentional override.
         return _wrap(str.center(self, width, fillchar), self.label)
 
     def ljust(self, width: int, fillchar: str = " ") -> Tainted:  # type: ignore[override]
@@ -282,16 +275,8 @@ class Tainted(str):
 class TaintedBytes(bytes):
     """The `bytes` counterpart to `Tainted`.
 
-    Covers binary `+`/`__radd__`, `%`-formatting (`__mod__`/`__rmod__`),
-    repetition (`__mul__`/`__rmul__`), slicing/indexing, the case/padding
-    family (`upper`/`lower`/`capitalize`/`title`/`swapcase`), `strip`/
-    `lstrip`/`rstrip`, `removeprefix`/`removesuffix`, `center`/`ljust`/
-    `rjust`/`zfill`/`expandtabs`, `replace`, `decode` (the bytes-to-str I/O
-    boundary), the part-returning family
-    (`split`/`rsplit`/`partition`/`rpartition`/`splitlines`), and `join`, the
-    same subset `Tainted` covers minus the string-formatting methods that
-    have no `bytes` analog: `bytes` has no `.format()`/`str.format_map`/
-    `casefold` equivalent, so there is nothing to override there.
+    Mirrors `Tainted` for `bytes`, minus the string-formatting methods that
+    have no `bytes` analog (`bytes` has no `.format()`/`format_map`/`casefold`).
 
     Stores `label` as a plain attribute rather than via `__slots__`, since
     CPython bytes subclasses can't add nonempty slots.

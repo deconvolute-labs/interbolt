@@ -40,6 +40,15 @@ class Runtime:
         mode: Mode,
         audit_registry: AuditRegistry | None,
     ) -> None:
+        """Construct a runtime from its policy, reporter, and enforcement settings.
+
+        Args:
+            policy: The compiled policy to enforce.
+            reporter: Where decisions and findings are emitted.
+            approval_resolver: Resolves `require_approval` decisions.
+            mode: The enforcement mode in effect.
+            audit_registry: The laundering-audit registry, or `None` if disabled.
+        """
         self.policy = policy
         self._reporter = (
             reporter
@@ -58,14 +67,14 @@ class Runtime:
     def add_reporter(self, reporter: Reporter) -> None:
         """Attach an additional reporter to this live runtime.
 
-        The `add_span_processor` analog: every `Runtime` holds a
-        `CompositeReporter` internally, seeded from `configure(reporter=...)`,
-        and this appends to it without reconfiguring. The non-blocking
-        contract applies to an added reporter exactly as it does
-        to the one passed to `configure()`: a reporter that blocks in
-        `export` blocks the decision that triggered it, and owning that is
-        the reporter author's responsibility. There is no `remove_reporter`;
-        call `configure()` again to reset the reporter set.
+        Every `Runtime` holds a `CompositeReporter` internally, seeded from
+        `configure(reporter=...)`, and this appends to it without
+        reconfiguring. The non-blocking contract applies to an added
+        reporter exactly as it does to the one passed to `configure()`: a
+        reporter that blocks in `export` blocks the decision that triggered
+        it, and owning that is the reporter author's responsibility. There
+        is no `remove_reporter`; call `configure()` again to reset the
+        reporter set.
 
         Args:
             reporter: The reporter to attach.
@@ -125,10 +134,10 @@ class Runtime:
         For a synchronous call site, use `agent_context_sync` instead: same
         binding and cleanup, no `async with` required.
 
-        Offloading guarded calls to a thread pool? Use `agent(...)` instead
-        (see its docstring): a `ContextVar` doesn't cross that boundary,
-        and for the same reason, `taint()` calls made in an offloaded
-        thread are invisible to this run's `run.tainted` gating.
+        For a guarded call that runs off the ambient thread, for example on
+        a thread pool, use `agent(...)` instead: a `ContextVar` doesn't cross
+        that boundary, and for the same reason, `taint()` calls made in an
+        offloaded thread are invisible to this run's `run.tainted` gating.
 
         Args:
             agent_id: The agent identity to bind for this run.

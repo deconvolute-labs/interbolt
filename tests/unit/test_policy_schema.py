@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 from pytest_mock import MockerFixture
@@ -7,9 +10,11 @@ from pytest_mock import MockerFixture
 from interbolt.errors import InterboltConfigError, PolicyEvaluationError
 from interbolt.models.core import Action, Mode, TrustLevel
 from interbolt.policy import default_policy
+from interbolt.policy import schema as schema_module
 from interbolt.policy.schema import (
     AgentDeclaration,
     Defaults,
+    PolicyDocument,
     SinkRule,
     SourceDeclaration,
     _split_sink_key,
@@ -1008,3 +1013,10 @@ sinks:
         original = self._fingerprint_of(mocker, self._BASE_YAML)
         edited = self._fingerprint_of(mocker, with_agents)
         assert original != edited
+
+
+class TestSchemaJsonMatchesModel:
+    def test_schema_json_on_disk_matches_live_model(self) -> None:
+        schema_path = Path(schema_module.__file__).parent / "schema.json"
+        on_disk = json.loads(schema_path.read_text())
+        assert on_disk == PolicyDocument.model_json_schema()

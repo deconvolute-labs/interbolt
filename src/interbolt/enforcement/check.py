@@ -53,37 +53,31 @@ def check(
     mode: Mode,
     audit_registry: AuditRegistry | None = None,
 ) -> Decision:
-    """Evaluate policy for one guarded call. The single decision entrypoint.
+    """Evaluate policy for one tool call and return the decision.
 
-    Pure with respect to the decision itself; side effects are limited to
-    fire-and-forget reporter emission and, when an audit registry is given,
-    the laundering scan. `guard` is sugar over this function, reusing this
-    exact sequence.
-
-    Returns the `Decision` for a `block`/`require_approval` outcome and
-    leaves enforcing it (raising, invoking the approval resolver) to the
-    caller, exactly as `guard` does. Raises directly only for a genuine
-    policy *evaluation* failure under `enforce` mode.
+    Computes the decision and emits it to the reporter. It does not act on
+    the decision: pass the result to `enforce_decision` or
+    `enforce_decision_sync` to raise on a block or route an approval. `guard`
+    does both steps for you.
 
     Args:
-        tool: The dotted qualified tool name.
-        args: The call's bound arguments.
-        agent_id: The durable agent identity.
-        run_id: The per-run identity, or `None` to mint a fresh one.
-        session_id: The optional session identity.
-        policy: The compiled policy to evaluate against.
-        reporter: Where to emit the resulting `Event`.
-        mode: The enforcement mode in effect.
-        audit_registry: The laundering-audit registry, or `None` if the
-            audit instrument is disabled.
+        tool: The qualified tool name, as `namespace.tool`.
+        args: The call's arguments, by name.
+        agent_id: The acting agent.
+        run_id: The run this call belongs to, or `None` to mint a fresh one.
+        session_id: An optional session identifier, carried onto the record.
+        policy: The compiled policy.
+        reporter: Where the resulting `Event` goes.
+        mode: The enforcement mode.
+        audit_registry: The audit registry, or `None` when auditing is off.
 
     Returns:
-        The computed `Decision`.
+        The `Decision`, for every outcome including allow.
 
     Raises:
-        PolicyEvaluationError: Under `enforce` mode, if policy evaluation
-            itself fails (a missing argument, a `None` value, or another CEL
-            evaluation error).
+        PolicyEvaluationError: Under `enforce` mode, when a rule's condition
+            fails to evaluate, for example because it reads an argument the
+            call did not pass.
     """
     labels = collect_labels(args, max_depth=RECURSION_DEPTH)
     plain_args = unwrap(args)
@@ -196,8 +190,9 @@ def _apply_mode(
     evaluation_error: CELEvalError | CELUnsupportedError | None,
     mode: Mode,
 ) -> tuple[Action, Outcome]:
-    """Map the raw evaluated action through the error-to-mode rule, then the
-    dry-run downgrade, producing the enforced action and the `Outcome`.
+    """Map the raw action through the error-to-mode rule and the dry-run downgrade.
+
+    Returns the enforced action and the `Outcome`.
     """
     outcome = Outcome(raw_action.value)
     corrected_action = raw_action

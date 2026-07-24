@@ -1,10 +1,10 @@
-"""CEL-AST recognizers for the six identity-predicate shapes built from
-`agent.id`/`agent.groups`.
+"""CEL-AST recognizers for the six identity-predicate shapes.
 
-Each recognizer takes a parsed CEL node (or, for `recognize_identity_when`,
-raw `when` text) and returns a small `IdentityPredicate` value if the node is
-exactly one of the recognized shapes, `None` otherwise. Nothing here decides
-reachability; that lives in `policy/shadowing.py`, built on these shapes.
+Built from `agent.id`/`agent.groups`. Each recognizer takes a parsed CEL
+node (or, for `recognize_identity_when`, raw `when` text) and returns a
+small `IdentityPredicate` value if the node is exactly one of the
+recognized shapes, `None` otherwise. Nothing here decides reachability;
+that lives in `policy/shadowing.py`, built on these shapes.
 """
 
 from __future__ import annotations
@@ -19,32 +19,44 @@ from interbolt.policy.cel import parse_normalized
 
 @dataclass(frozen=True)
 class IdEquals:
+    """`agent.id == "<literal>"`."""
+
     literal: str
 
 
 @dataclass(frozen=True)
 class IdNotEquals:
+    """`agent.id != "<literal>"`."""
+
     literal: str
 
 
 @dataclass(frozen=True)
 class GroupMembership:
+    """`agent.groups.any(g, g == "<group>")`."""
+
     group: str
 
 
 @dataclass(frozen=True)
 class Negation:
+    """The negation of one recognized identity predicate."""
+
     operand: IdentityPredicate
 
 
 @dataclass(frozen=True)
 class Conjunction:
+    """The conjunction (`&&`) of two recognized identity predicates."""
+
     left: IdentityPredicate
     right: IdentityPredicate
 
 
 @dataclass(frozen=True)
 class Disjunction:
+    """The disjunction (`||`) of two recognized identity predicates."""
+
     left: IdentityPredicate
     right: IdentityPredicate
 
@@ -77,6 +89,7 @@ _Node = lark.Tree[lark.Token] | lark.Token
 
 
 def unwrap_node(node: _Node) -> _Node:
+    """Strip `node` through single-child passthrough grammar levels."""
     while (
         isinstance(node, lark.Tree)
         and node.data in _PASSTHROUGH_NODES
@@ -116,6 +129,7 @@ def _string_literal(node: _Node) -> str | None:
 def recognize_comparison(
     op_node: _Node, rhs_node: _Node
 ) -> IdEquals | IdNotEquals | None:
+    """Recognize `agent.id == "..."`/`agent.id != "..."`, `None` otherwise."""
     if not (
         isinstance(op_node, lark.Tree)
         and op_node.data in ("relation_eq", "relation_ne")
@@ -132,6 +146,7 @@ def recognize_comparison(
 def recognize_groups_exists(
     node: lark.Tree[lark.Token],
 ) -> GroupMembership | None:
+    """Recognize `agent.groups.any(g, g == "...")`, `None` otherwise."""
     if len(node.children) != 3:
         return None
     receiver, method_token, exprlist_node = node.children
@@ -173,6 +188,7 @@ def recognize_groups_exists(
 
 
 def recognize_identity_expr(node: _Node) -> IdentityPredicate | None:
+    """Recursively recognize one of the six identity-predicate shapes, else `None`."""
     node = unwrap_node(node)
     if not isinstance(node, lark.Tree):
         return None
@@ -197,6 +213,7 @@ def recognize_identity_expr(node: _Node) -> IdentityPredicate | None:
 
 
 def recognize_identity_when(when: str) -> IdentityPredicate | None:
+    """Parse and recognize raw `when` text as an identity predicate, else `None`."""
     try:
         tree = parse_normalized(when)
     except Exception:  # noqa: BLE001 -- any parse failure means "not identity-only"

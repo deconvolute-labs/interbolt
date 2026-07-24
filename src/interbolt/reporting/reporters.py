@@ -30,9 +30,17 @@ class NullReporter:
 
 
 class InMemoryReporter:
-    """Captures every exported record in memory; the testing/audit assertion surface."""
+    """Captures every exported record in memory; the testing/audit assertion surface.
+
+    Attributes:
+        events: Every `Event` exported, in order.
+        decisions: Every decision, unpacked from `events` for convenience.
+        findings: Every `Finding` exported, in order.
+        endorsements: Every `Endorsement` exported, in order.
+    """
 
     def __init__(self) -> None:
+        """Initialize empty record lists."""
         self.events: list[Event] = []
         self.decisions: list[Decision] = []
         self.findings: list[Finding] = []
@@ -71,9 +79,9 @@ class JsonlReporter:
 
     Opens the destination file fresh on every `export()` call (append mode,
     flush, and `fsync`), so a record is durable on disk before `export()`
-    returns. Each line carries a `"record_type"` key (`"event"` or
-    `"finding"`) alongside the record's own fields, so a reader can recover
-    the concrete type without guessing from field shape.
+    returns. Each line carries a `"record_type"` key (`"event"`, `"finding"`,
+    or `"endorsement"`) alongside the record's own fields, so a reader can
+    recover the concrete type without guessing from field shape.
 
     Logs one WARNING-level line after the first successful write, naming the
     destination path, so where the output landed is visible even without a

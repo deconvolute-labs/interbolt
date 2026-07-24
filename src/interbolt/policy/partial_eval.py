@@ -182,7 +182,7 @@ def resolve_leaf_for_agent(agent_id: str, groups: frozenset[str]) -> LeafResolve
 def resolve_leaf_for_group(bound_group: str) -> LeafResolver:
     """Build a leaf resolver that binds only membership in one group.
 
-    `agent.id` stays unbound (always `None`); `agent.groups.exists(...)`
+    `agent.id` stays unbound (always `None`); a group membership test
     resolves to `True` only for the bound group itself, `None` for every
     other group, since membership in one group says nothing about another.
 

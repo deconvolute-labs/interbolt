@@ -1,14 +1,12 @@
 """Identity-shadowing static analysis: a CEL-AST-based `validate_policy` check.
 
-Every other lint in `policy/schema.py` is a regex or substring scan over a
-`when` string. This one is not: whether an earlier rule's identity predicate
-makes a later one unreachable depends on how `&&`/`||`/`!` combine
-sub-predicates, which a text scan cannot decide. This module resolves each
-recognized rule's identity predicate (`policy/identity_ast.py`) to the
-concrete set of agent ids it matches, and reports a later rule as
-unreachable when an earlier rule's matched set is a superset of it. A rule
-whose `when` is not built purely from these shapes is skipped, never
-guessed at.
+Resolves each recognized rule's identity predicate to the concrete set of
+agent ids it matches, and reports a later rule as unreachable when an
+earlier rule's matched set is a superset of it. Whether an earlier rule's
+identity predicate makes a later one unreachable depends on how `&&`/`||`/
+`!` combine sub-predicates, so this walks the parsed CEL AST rather than
+scanning `when` text. A rule whose `when` is not built purely from these
+shapes is skipped, never guessed at.
 """
 
 from __future__ import annotations
@@ -100,6 +98,7 @@ def explain_membership(
     universe: frozenset[_AgentSetElement],
     id_to_groups: Mapping[str, frozenset[str]],
 ) -> str | None:
+    """Explain why `witness` matches `expr`, or `None` if no single fact explains it."""
     if isinstance(expr, GroupMembership):
         if isinstance(witness, str) and expr.group in id_to_groups.get(
             witness, frozenset()
@@ -170,8 +169,8 @@ def find_identity_shadowing(
     identity predicate matches, since first-match-wins then makes the later
     rule unreachable. A rule whose `when` mixes in taint, args, run, or
     trifecta conditions is not purely identity-based and is skipped for both
-    positions in a pair: this is a false-negative-by-design restriction, not
-    an oversight, to keep every reported case provable rather than heuristic.
+    positions in a pair, so every reported case stays provable rather than
+    heuristic.
 
     Args:
         sink_key: The dotted sink name, for the problem message.

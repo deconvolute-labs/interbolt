@@ -1,3 +1,5 @@
+"""The library's exception hierarchy, rooted at `InterboltError`."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -18,6 +20,7 @@ class PolicyViolation(InterboltError):
     """
 
     def __init__(self, message: str, *, decision: Decision) -> None:
+        """Construct the exception with the blocking decision attached."""
         super().__init__(message)
         self.decision = decision
 
@@ -35,6 +38,7 @@ class PolicyEvaluationError(InterboltError):
     """
 
     def __init__(self, message: str, *, decision: Decision | None = None) -> None:
+        """Construct the exception, optionally with a partial decision attached."""
         super().__init__(message)
         self.decision = decision
 
@@ -47,6 +51,7 @@ class ApprovalDenied(InterboltError):
     """
 
     def __init__(self, message: str, *, decision: Decision) -> None:
+        """Construct the exception with the decision that required approval."""
         super().__init__(message)
         self.decision = decision
 

@@ -1,14 +1,11 @@
-"""CEL compilation: policy DSL rewrite and one-time policy compilation.
+"""CEL compilation: policy DSL rewrite.
 
 The policy DSL's `.any(` is retargeted to CEL's real `exists` macro via an
-AST-level transform on celpy's parsed `lark.Tree` (`_rewrite_any_to_exists`),
-not a text-level rewrite. A text substitution would also rewrite `.any(`
-occurrences that appear inside a CEL string literal, silently corrupting a
-security predicate's intended meaning. The transform only mutates
-`member_dot_arg` nodes, celpy's own method-call/macro-dispatch AST shape
-(see `celpy/evaluation.py:member_dot_arg`), so string, bytes, and
-triple-quoted literal tokens are structurally unreachable by it and are
-never touched, regardless of their contents.
+AST-level transform on celpy's parsed `lark.Tree` (`_rewrite_any_to_exists`).
+The transform only mutates `member_dot_arg` nodes, celpy's own
+method-call/macro-dispatch AST shape, so string, bytes, and triple-quoted
+literal tokens are structurally unreachable by it and are never touched,
+regardless of their contents.
 """
 
 from __future__ import annotations
@@ -28,10 +25,7 @@ def _rewrite_any_to_exists(tree: lark.Tree[lark.Token]) -> lark.Tree[lark.Token]
 
     Walks `tree`'s `member_dot_arg` nodes (the parse-tree shape celpy's own
     evaluator dispatches macros from) and renames the method token from
-    `any` to `exists` wherever it appears. String, bytes, and triple-quoted
-    literal tokens live under a sibling `literal` grammar node and are never
-    visited by this walk, so a `.any(` occurring inside any CEL string form
-    is never touched.
+    `any` to `exists` wherever it appears.
 
     Args:
         tree: The parsed CEL AST from `Environment.compile()`.
@@ -39,6 +33,8 @@ def _rewrite_any_to_exists(tree: lark.Tree[lark.Token]) -> lark.Tree[lark.Token]
     Returns:
         The same tree object, mutated in place.
     """
+    # String, bytes, and triple-quoted literals live under a sibling `literal`
+    # grammar node, so a `.any(` inside a CEL string is never touched here.
     for subtree in tree.iter_subtrees():
         if subtree.data != "member_dot_arg":
             continue
@@ -53,7 +49,7 @@ def parse_normalized(source: str) -> lark.Tree[lark.Token]:
 
     The shared first half of `compile_cel_expression`, exposed on its own for
     callers that need the parsed tree itself rather than a ready-to-evaluate
-    `celpy.Runner` — for example a static analysis that inspects the boolean
+    `celpy.Runner`, for example a static analysis that inspects the boolean
     structure of a `when` expression.
 
     Args:
