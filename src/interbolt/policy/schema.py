@@ -1,3 +1,5 @@
+"""Policy document schema: the Pydantic models validated from a policy YAML file."""
+
 from __future__ import annotations
 
 import hashlib
@@ -54,7 +56,7 @@ class AgentDeclaration(BaseModel):
 
     Carries no permissions itself; sink rules already grant those. A group
     is a label on the acting principal that a rule's `when:` can test via
-    `agent.groups.exists(...)`.
+    `agent.groups.any(...)`.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -83,9 +85,9 @@ class SinkRule(BaseModel):
 
     `require_endorsement` is sugar for the common "gate untrusted data
     lacking this endorsement kind" shape: setting it compiles to the
-    equivalent `when:` CEL text (`policy/schema.py:_require_endorsement_when`),
-    so most rules needing this never hand-write CEL. Mutually exclusive with
-    `when`; a rule may set at most one of the two.
+    equivalent `when:` CEL text, so most rules needing this never
+    hand-write CEL. Mutually exclusive with `when`; a rule may set at most
+    one of the two.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -120,12 +122,12 @@ def _require_endorsement_when(kind: str) -> str:
     one kind but not this one (the sanitizer-mismatch case).
     """
     return (
-        'taint.any(t, t.trust == "untrusted" && '
-        f'!t.endorsements.exists(k, k == "{kind}"))'
+        f'taint.any(t, t.trust == "untrusted" && !t.endorsements.any(k, k == "{kind}"))'
     )
 
 
 def rule_when(rule: SinkRule) -> str | None:
+    """Return `rule`'s effective CEL `when` text, synthesizing it if needed."""
     if rule.require_endorsement is not None:
         return _require_endorsement_when(rule.require_endorsement)
     return rule.when
@@ -222,8 +224,7 @@ def validate_policy(path: str) -> list[str]:
     """Statically analyze a policy file: schema, CEL compilation, dead rules.
 
     Performs schema and CEL checks only, so it is safe to run in CI without
-    executing the agent. See docs for the full set of
-    checks and their limits.
+    executing the agent.
 
     Args:
         path: Filesystem path to the policy YAML file.

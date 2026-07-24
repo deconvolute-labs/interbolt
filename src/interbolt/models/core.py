@@ -1,3 +1,5 @@
+"""Pydantic models for labels, decisions, and event/finding/endorsement records."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -26,8 +28,10 @@ class TrustLevel(StrEnum):
 
 
 class Label(BaseModel):
-    """Provenance attached to a value: where it came from. Trust is resolved
-    later, at the sink, not stored here.
+    """Provenance attached to a value: where it came from.
+
+    Trust is resolved later, at the sink, from the policy's `sources` table,
+    not stored on the label itself.
 
     Attributes:
         source: The originating source name. For a merged value, the first
@@ -89,9 +93,9 @@ class Decision(BaseModel):
             caller see exactly which policy condition fired, not just its name.
         tool: The qualified tool name the decision was made for.
         contributing_labels: Every label collected from the call's arguments.
-        trifecta: The lethal-trifecta legs satisfied by this call. In v1 this
-            only ever contains `"from_untrusted"` or is empty; the
-            `reaches_external` and `reads_private` legs are not computed.
+        trifecta: The lethal-trifecta legs satisfied by this call:
+            `"from_untrusted"` or empty. `reaches_external` and
+            `reads_private` are never included.
         untrusted_sources: The subset of contributing labels' lineage names
             that resolved untrusted against the policy's sources table at
             decision time. Answers "which source caused this" directly, so
@@ -152,8 +156,10 @@ class RecordBase(BaseModel):
 
 
 class IdentifiedRecordBase(RecordBase):
-    """Adds the durable identity triple, for a record that carries it directly
-    rather than through an embedded `Decision`.
+    """Adds the durable identity triple to a record.
+
+    For a record that carries the triple directly rather than through an
+    embedded `Decision`.
 
     Attributes:
         agent_id: The durable, integrator-supplied agent identity.
@@ -169,9 +175,7 @@ class IdentifiedRecordBase(RecordBase):
 class Event(RecordBase):
     """The versioned, emitted record of a `Decision`.
 
-    Identity, matched-rule, trifecta, and mode fields are not duplicated
-    here: reach them via `decision`, the single source of truth for what was
-    decided.
+    Read identity, the matched rule, and the mode from `decision`.
     """
 
     decision: Decision
@@ -188,8 +192,10 @@ class Finding(IdentifiedRecordBase):
 
 
 class Endorsement(IdentifiedRecordBase):
-    """A record of one `endorse()` call: a value's restrictiveness was
-    reduced by explicit, code-driven validation, not by laundering it.
+    """A record of one `endorse()` call.
+
+    The value's restrictiveness was reduced by explicit, code-driven
+    validation, not by laundering it.
 
     Attributes:
         kind: The machine-matchable endorsement category (for example

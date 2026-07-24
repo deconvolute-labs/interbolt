@@ -1,3 +1,5 @@
+"""Global constants: environment variable names, defaults, and version numbers."""
+
 from __future__ import annotations
 
 import os
@@ -22,11 +24,9 @@ RECORD_TYPE_EVENT: str = "event"
 RECORD_TYPE_FINDING: str = "finding"
 RECORD_TYPE_ENDORSEMENT: str = "endorsement"
 
-# The builtin container types `taint()`, `collect_labels()`, and the audit
-# walk all recurse into identically; a single shared definition keeps the
-# three traversals from silently drifting apart. `dict`/`Mapping` are
-# handled separately since a `Mapping` needs key-and-value recursion, not
-# plain iteration.
+# Container types recursed into by `taint()`, `collect_labels()`, and the
+# audit walk share this one definition. `dict`/`Mapping` are handled
+# separately since they need key-and-value recursion, not plain iteration.
 # Deliberately not given an explicit `tuple[type, ...]` annotation: that
 # would widen the type and break `isinstance(value, CONTAINER_TYPES)`
 # narrowing at every call site. Left for mypy to infer as the precise

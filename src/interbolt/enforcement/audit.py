@@ -43,21 +43,8 @@ def _walk_strings(
 class AuditRegistry:
     """The laundering audit's per-run registry of untrusted-resolving content.
 
-    Advisory only. Catches mechanical laundering, not model paraphrase; see
-    docs/concepts/taint-propagation.md.
-
-    `findings` is bounded to the most recent `max_findings` (oldest evicted
-    first): the audit trail otherwise grows for the lifetime of the process.
-    Per-run registered content is bounded to `max_tracked_runs` (oldest,
-    least-recently-touched run evicted first) as defense in depth: normal
-    cleanup happens via `clear_run`, called from `Runtime.agent_context`/
-    `agent_context_sync` on exit, but a run whose calls never pass through
-    either (for example, a durable `AgentHandle` used without one) has no
-    other cleanup path.
-
-    Findings are deduplicated: at most one per `(source, tool, argument)` per
-    run, not per occurrence, so repeated identical leaks in one run don't
-    drown the signal.
+    Advisory only: catches mechanical laundering, not model paraphrase. See
+    https://docs.deconvolutelabs.com/docs/concepts/taint-propagation.
     """
 
     def __init__(
@@ -67,6 +54,7 @@ class AuditRegistry:
         max_findings: int = AUDIT_FINDINGS_MAX,
         max_tracked_runs: int = AUDIT_MAX_TRACKED_RUNS,
     ) -> None:
+        """Initialize the registry with its bounding thresholds."""
         self._min_match_length = min_match_length
         self._max_tracked_runs = max_tracked_runs
         self._by_run: OrderedDict[str, list[tuple[str, str]]] = OrderedDict()
@@ -131,15 +119,12 @@ class AuditRegistry:
         """Scan `args` for previously-registered untrusted content with no label.
 
         Deduplicates: emits at most one Finding per (source, tool, argument)
-        per run, not per occurrence. Held under one lock acquisition for the
-        whole scan (not the snapshot-then-relock split used elsewhere in this
-        class): the dedup check-and-set must be atomic with respect to a
-        concurrent `scan()` call for the same run, or both could observe "not
-        yet emitted" and both emit. Audit scans are not latency-budgeted the
-        way a decision is, so the longer lock hold is an acceptable trade
-        for race-free dedup.
+        per run, not per occurrence.
         """
         trace_id, span_id = current_trace_context() or (None, None)
+        # Held for the whole scan, not a snapshot-then-relock: the dedup
+        # check-and-set must be atomic against a concurrent scan() call for
+        # the same run, or both could see "not yet emitted" and both emit.
         with self._lock:
             registered = list(self._by_run.get(run_id, ()))
             if not registered:
@@ -182,7 +167,6 @@ class AuditRegistry:
 
     @property
     def findings(self) -> list[Finding]:
-        """Every finding recorded so far, bounded to the most recent
-        `max_findings` (oldest evicted first once the cap is exceeded)."""
+        """Every finding recorded so far; oldest evicted first past `max_findings`."""
         with self._lock:
             return list(self._findings)

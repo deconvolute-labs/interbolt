@@ -1,3 +1,5 @@
+"""The `@guard`/`check()` decision path: agent-id validation and the call wrapper."""
+
 from __future__ import annotations
 
 import functools
@@ -33,8 +35,7 @@ def _validate_agent_id_value(agent_id: str) -> None:
     value: both are always plain, charset-valid, non-carrier strings. This
     is the confused-deputy defense once `agent_id` becomes a policy-visible
     authorization input via `agent.id` in the CEL context: a model-influenced
-    string must never choose its own policy scope, the same isinstance check
-    `taint/walk.py:collect_labels` uses to recognize a labeled leaf.
+    string must never choose its own policy scope.
 
     Raises:
         InterboltConfigError: If `agent_id` is a `Tainted`/`TaintedBytes`/
@@ -50,11 +51,11 @@ def _validate_agent_id_value(agent_id: str) -> None:
 
 
 def _validate_explicit_agent_id(agent_id: str) -> None:
-    """Full validation for a directly-supplied agent_id: `agent()`,
-    `agent_context()`/`agent_context_sync()`, and the module-level `check()`.
+    """Full validation for a directly-supplied agent_id.
 
-    Adds rejection of the reserved fallback value on top of
-    `_validate_agent_id_value`, since only an *explicitly* supplied
+    Used by `agent()`, `agent_context()`/`agent_context_sync()`, and the
+    module-level `check()`. Adds rejection of the reserved fallback value on
+    top of `_validate_agent_id_value`, since only an *explicitly* supplied
     `agent_id` can be ambiguous with the implicit no-context fallback; the
     fallback itself must keep resolving to `DEFAULT_AGENT_ID` unchanged.
 
@@ -168,7 +169,7 @@ def _build_wrapper[F: Callable[..., Any]](
     Detects `inspect.iscoroutinefunction(fn)` once, at decoration time, and
     returns the matching wrapper. Both wrappers extract bound arguments and
     call `rt.check(...)` identically; only the resolver-await and call-through
-    differ, per the "one implementation, two surfaces" rule.
+    differ.
     """
     qualified_tool = _qualify_tool_name(tool)
     sig = inspect.signature(fn)
@@ -242,7 +243,8 @@ def guard[F: Callable[..., Any]](
     Resolves the current runtime lazily, at call time, so a module using
     `@guard` can be imported before `configure()` has run.
 
-    Offloaded to a thread pool? Use `agent(...)` instead (see its docstring).
+    For a guarded call that runs off the ambient thread, for example on a
+    thread pool, use `agent(...)` instead.
 
     Args:
         func: The function to guard, when used as a bare `@guard`.

@@ -53,8 +53,6 @@ async def enforce_decision(
         result = await result
     if not result:
         raise ApprovalDenied(_approval_message(decision), decision=decision)
-    # TODO: emit a reporter record for the approval resolution outcome itself,
-    # not just the require_approval Event already emitted by check().
 
 
 def enforce_decision_sync(
@@ -91,5 +89,3 @@ def enforce_decision_sync(
         )
     if not result:
         raise ApprovalDenied(_approval_message(decision), decision=decision)
-    # TODO: emit a reporter record for the approval resolution outcome itself,
-    # not just the require_approval Event already emitted by check().

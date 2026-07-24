@@ -1,3 +1,5 @@
+"""Shared, depth-bounded container traversal used at ingress and the sink."""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping

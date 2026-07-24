@@ -65,6 +65,7 @@ def _report(label: str, samples: list[float]) -> None:
 
 
 def bench_check_small_arg() -> None:
+    """Measure check() overhead for a small tainted argument."""
     policy = _make_policy()
     runtime = configure(policy=policy, reporter=InMemoryReporter(), mode="enforce")
     arg = taint("attacker@external.com", source="web_search")
@@ -82,6 +83,7 @@ def bench_check_small_arg() -> None:
 
 
 def bench_check_large_arg() -> None:
+    """Measure check() overhead for a 25KB tainted argument."""
     policy = _make_policy()
     runtime = configure(policy=policy, reporter=InMemoryReporter(), mode="enforce")
     arg = taint("x" * 25_000, source="web_search")
@@ -98,6 +100,7 @@ def bench_check_large_arg() -> None:
 
 
 def bench_splitlines() -> None:
+    """Measure Tainted.splitlines() on a 5000-line tainted string."""
     text = "\n".join(f"line {i}" for i in range(5000))
     tainted = taint(text, source="web_search")
 

@@ -14,11 +14,10 @@ from interbolt.taint import run_ingress_sources
 def _compute_trifecta(resolved_labels: tuple[ResolvedLabel, ...]) -> frozenset[str]:
     """Compute the lethal-trifecta legs satisfied by this call.
 
-    v1 computes only the `from_untrusted` leg; `reaches_external` and
-    `reads_private` need a capabilities declaration this version does not
-    yet have. `trifecta.contains("reaches_external")` always evaluates false, so a
-    rule relying on trifecta size as a backstop fails open. Derived from
-    `resolved_labels` (resolved once in `check()`), not re-resolved here.
+    Computes only the `from_untrusted` leg; `reaches_external` and
+    `reads_private` are never included, so `trifecta.contains(...)` always
+    evaluates false for either. Derived from `resolved_labels` (resolved
+    once in `check()`), not re-resolved here.
     """
     if any(resolved.trust is TrustLevel.UNTRUSTED for resolved in resolved_labels):
         return frozenset({TRIFECTA_FROM_UNTRUSTED})

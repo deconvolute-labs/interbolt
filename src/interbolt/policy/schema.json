@@ -12,7 +12,7 @@
     },
     "AgentDeclaration": {
       "additionalProperties": false,
-      "description": "One declared agent's group membership.\n\nCarries no permissions itself; sink rules already grant those. A group\nis a label on the acting principal that a rule's `when:` can test via\n`agent.groups.exists(...)`.",
+      "description": "One declared agent's group membership.\n\nCarries no permissions itself; sink rules already grant those. A group\nis a label on the acting principal that a rule's `when:` can test via\n`agent.groups.any(...)`.",
       "properties": {
         "groups": {
           "default": [],
@@ -60,7 +60,7 @@
       "type": "string"
     },
     "SinkRule": {
-      "description": "One ordered rule within a sink's rule list. First match wins.\n\n`require_endorsement` is sugar for the common \"gate untrusted data\nlacking this endorsement kind\" shape: setting it compiles to the\nequivalent `when:` CEL text (`policy/compile.py:_require_endorsement_when`),\nso most rules needing this never hand-write CEL. Mutually exclusive with\n`when`; a rule may set at most one of the two.",
+      "description": "One ordered rule within a sink's rule list. First match wins.\n\n`require_endorsement` is sugar for the common \"gate untrusted data\nlacking this endorsement kind\" shape: setting it compiles to the\nequivalent `when:` CEL text, so most rules needing this never\nhand-write CEL. Mutually exclusive with `when`; a rule may set at most\none of the two.",
       "properties": {
         "name": {
           "title": "Name",
