@@ -1,7 +1,7 @@
 """Generic partial evaluation of a CEL `when` expression against a partial binding.
 
 Resolves only the `agent.id`/`agent.groups` predicates recognized by
-`policy.shadowing`'s extractor; every other CEL construct (taint, args, run,
+`policy.identity_ast`; every other CEL construct (taint, args, run,
 trifecta) is left as literal residual text, reconstructed as an exact
 substring of the original expression from the parsed node's source span.
 """
@@ -13,17 +13,17 @@ from dataclasses import dataclass
 
 import lark
 
-from interbolt.policy.shadowing import (
-    _GroupMembership,
-    _IdEquals,
-    _IdNotEquals,
-    _recognize_comparison,
-    _recognize_groups_exists,
-    _unwrap,
+from interbolt.policy.identity_ast import (
+    GroupMembership,
+    IdEquals,
+    IdNotEquals,
+    recognize_comparison,
+    recognize_groups_exists,
+    unwrap_node,
 )
 
 _Node = lark.Tree[lark.Token] | lark.Token
-_Leaf = _IdEquals | _IdNotEquals | _GroupMembership
+_Leaf = IdEquals | IdNotEquals | GroupMembership
 LeafResolver = Callable[[_Leaf], bool | None]
 
 
@@ -121,7 +121,7 @@ def partial_eval(
         `True`/`False` if the whole expression resolves under this binding,
         else a `Residual` describing what remains.
     """
-    node = _unwrap(node)
+    node = unwrap_node(node)
     if (
         isinstance(node, lark.Tree)
         and node.data in ("conditionaland", "conditionalor")
@@ -143,9 +143,9 @@ def partial_eval(
         and node.data == "relation"
         and len(node.children) == 2
     ):
-        leaf = _recognize_comparison(node.children[0], node.children[1])
+        leaf = recognize_comparison(node.children[0], node.children[1])
     elif isinstance(node, lark.Tree) and node.data == "member_dot_arg":
-        leaf = _recognize_groups_exists(node)
+        leaf = recognize_groups_exists(node)
 
     if leaf is not None:
         resolved = resolve_leaf(leaf)
@@ -170,9 +170,9 @@ def resolve_leaf_for_agent(agent_id: str, groups: frozenset[str]) -> LeafResolve
     """
 
     def _resolve(leaf: _Leaf) -> bool:
-        if isinstance(leaf, _IdEquals):
+        if isinstance(leaf, IdEquals):
             return agent_id == leaf.literal
-        if isinstance(leaf, _IdNotEquals):
+        if isinstance(leaf, IdNotEquals):
             return agent_id != leaf.literal
         return leaf.group in groups
 
@@ -194,7 +194,7 @@ def resolve_leaf_for_group(bound_group: str) -> LeafResolver:
     """
 
     def _resolve(leaf: _Leaf) -> bool | None:
-        if isinstance(leaf, _GroupMembership):
+        if isinstance(leaf, GroupMembership):
             return True if leaf.group == bound_group else None
         return None
 

@@ -4,12 +4,10 @@ import lark
 import pytest
 
 from interbolt.models.core import Action, Label, TrustLevel
+from interbolt.policy.cel import _ENV, _rewrite_any_to_exists, compile_cel_expression
 from interbolt.policy.compile import (
-    _ENV,
     CompiledRule,
     CompiledSink,
-    _rewrite_any_to_exists,
-    compile_cel_expression,
     compile_policy,
 )
 from interbolt.policy.evaluate import (

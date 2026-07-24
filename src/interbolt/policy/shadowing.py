@@ -3,22 +3,29 @@
 Every other lint in `policy/schema.py` is a regex or substring scan over a
 `when` string. This one is not: whether an earlier rule's identity predicate
 makes a later one unreachable depends on how `&&`/`||`/`!` combine
-sub-predicates, which a text scan cannot decide. This module recognizes a
-small, deliberately narrow set of CEL shapes built only from `agent.id`/
-`agent.groups` predicates, resolves each recognized rule's predicate to the
-concrete set of agent ids it matches, and reports a later rule as unreachable
-when an earlier rule's matched set is a superset of it. A rule whose `when`
-is not built purely from these shapes is skipped, never guessed at.
+sub-predicates, which a text scan cannot decide. This module resolves each
+recognized rule's identity predicate (`policy/identity_ast.py`) to the
+concrete set of agent ids it matches, and reports a later rule as
+unreachable when an earlier rule's matched set is a superset of it. A rule
+whose `when` is not built purely from these shapes is skipped, never
+guessed at.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import lark
-from celpy.evaluation import celstr
+from interbolt.policy.identity_ast import (
+    Conjunction,
+    Disjunction,
+    GroupMembership,
+    IdentityPredicate,
+    IdEquals,
+    IdNotEquals,
+    Negation,
+    recognize_identity_when,
+)
 
 if TYPE_CHECKING:
     from interbolt.policy.schema import SinkRule
@@ -35,231 +42,35 @@ _AgentSetElement = str | _UndeclaredAgent
 _UNDECLARED_AGENT_LABEL = "an undeclared agent"
 
 
-@dataclass(frozen=True)
-class _IdEquals:
-    literal: str
-
-
-@dataclass(frozen=True)
-class _IdNotEquals:
-    literal: str
-
-
-@dataclass(frozen=True)
-class _GroupMembership:
-    group: str
-
-
-@dataclass(frozen=True)
-class _Negation:
-    operand: _IdentityPredicate
-
-
-@dataclass(frozen=True)
-class _Conjunction:
-    left: _IdentityPredicate
-    right: _IdentityPredicate
-
-
-@dataclass(frozen=True)
-class _Disjunction:
-    left: _IdentityPredicate
-    right: _IdentityPredicate
-
-
-_IdentityPredicate = (
-    _IdEquals
-    | _IdNotEquals
-    | _GroupMembership
-    | _Negation
-    | _Conjunction
-    | _Disjunction
-)
-
-# Grammar levels that wrap exactly one child when no operator is present at
-# that precedence level; `_unwrap` strips through them to reach the node that
-# actually carries meaning. `ident` and `literal` are deliberately excluded:
-# both terminate a walk, since their single child is the leaf value itself,
-# not another node to recurse into.
-_PASSTHROUGH_NODES = frozenset(
-    {
-        "expr",
-        "conditionalor",
-        "conditionaland",
-        "relation",
-        "addition",
-        "multiplication",
-        "unary",
-        "member",
-        "primary",
-        "paren_expr",
-    }
-)
-
-_Node = lark.Tree[lark.Token] | lark.Token
-
-
-def _unwrap(node: _Node) -> _Node:
-    while (
-        isinstance(node, lark.Tree)
-        and node.data in _PASSTHROUGH_NODES
-        and len(node.children) == 1
-    ):
-        node = node.children[0]
-    return node
-
-
-def _agent_field(node: _Node) -> str | None:
-    """Return `"id"`/`"groups"` if `node` is exactly a bare `agent.<field>` access."""
-    node = _unwrap(node)
-    if not (isinstance(node, lark.Tree) and node.data == "member_dot"):
-        return None
-    receiver, field_token = node.children
-    receiver = _unwrap(receiver)
-    if not (isinstance(receiver, lark.Tree) and receiver.data == "ident"):
-        return None
-    ident_token = receiver.children[0]
-    if not (isinstance(ident_token, lark.Token) and ident_token.value == "agent"):
-        return None
-    return field_token.value if isinstance(field_token, lark.Token) else None
-
-
-def _string_literal(node: _Node) -> str | None:
-    node = _unwrap(node)
-    if not (isinstance(node, lark.Tree) and node.data == "literal"):
-        return None
-    token = node.children[0]
-    if not (
-        isinstance(token, lark.Token) and token.type in ("STRING_LIT", "MLSTRING_LIT")
-    ):
-        return None
-    return str(celstr(token))
-
-
-def _recognize_comparison(
-    op_node: _Node, rhs_node: _Node
-) -> _IdEquals | _IdNotEquals | None:
-    if not (
-        isinstance(op_node, lark.Tree)
-        and op_node.data in ("relation_eq", "relation_ne")
-    ):
-        return None
-    if _agent_field(op_node.children[0]) != "id":
-        return None
-    literal = _string_literal(rhs_node)
-    if literal is None:
-        return None
-    return (
-        _IdEquals(literal) if op_node.data == "relation_eq" else _IdNotEquals(literal)
-    )
-
-
-def _recognize_groups_exists(
-    node: lark.Tree[lark.Token],
-) -> _GroupMembership | None:
-    if len(node.children) != 3:
-        return None
-    receiver, method_token, exprlist_node = node.children
-    if not (isinstance(method_token, lark.Token) and method_token.value == "exists"):
-        return None
-    if _agent_field(receiver) != "groups":
-        return None
-    if not (
-        isinstance(exprlist_node, lark.Tree)
-        and exprlist_node.data == "exprlist"
-        and len(exprlist_node.children) == 2
-    ):
-        return None
-    bound_expr, predicate_expr = exprlist_node.children
-    bound_ident = _unwrap(bound_expr)
-    if not (isinstance(bound_ident, lark.Tree) and bound_ident.data == "ident"):
-        return None
-    bound_token = bound_ident.children[0]
-    if not isinstance(bound_token, lark.Token):
-        return None
-    predicate = _unwrap(predicate_expr)
-    if not (
-        isinstance(predicate, lark.Tree)
-        and predicate.data == "relation"
-        and len(predicate.children) == 2
-    ):
-        return None
-    op_node, rhs_node = predicate.children
-    if not (isinstance(op_node, lark.Tree) and op_node.data == "relation_eq"):
-        return None
-    lhs = _unwrap(op_node.children[0])
-    if not (isinstance(lhs, lark.Tree) and lhs.data == "ident"):
-        return None
-    lhs_token = lhs.children[0]
-    if not (isinstance(lhs_token, lark.Token) and lhs_token.value == bound_token.value):
-        return None
-    literal = _string_literal(rhs_node)
-    return _GroupMembership(literal) if literal is not None else None
-
-
-def _recognize_identity_expr(node: _Node) -> _IdentityPredicate | None:
-    node = _unwrap(node)
-    if not isinstance(node, lark.Tree):
-        return None
-    if node.data in ("conditionalor", "conditionaland") and len(node.children) == 2:
-        left = _recognize_identity_expr(node.children[0])
-        right = _recognize_identity_expr(node.children[1])
-        if left is None or right is None:
-            return None
-        return (
-            _Disjunction(left, right)
-            if node.data == "conditionalor"
-            else _Conjunction(left, right)
-        )
-    if node.data == "relation" and len(node.children) == 2:
-        return _recognize_comparison(node.children[0], node.children[1])
-    if node.data == "unary" and len(node.children) == 2:
-        operand = _recognize_identity_expr(node.children[1])
-        return _Negation(operand) if operand is not None else None
-    if node.data == "member_dot_arg":
-        return _recognize_groups_exists(node)
-    return None
-
-
-def _recognize_identity_when(when: str) -> _IdentityPredicate | None:
-    from interbolt.policy.compile import parse_normalized
-
-    try:
-        tree = parse_normalized(when)
-    except Exception:  # noqa: BLE001 -- any parse failure means "not identity-only"
-        return None
-    return _recognize_identity_expr(tree)
-
-
-def _literal_agent_ids(expr: _IdentityPredicate) -> frozenset[str]:
-    if isinstance(expr, (_IdEquals, _IdNotEquals)):
+def _literal_agent_ids(expr: IdentityPredicate) -> frozenset[str]:
+    if isinstance(expr, (IdEquals, IdNotEquals)):
         return frozenset({expr.literal})
-    if isinstance(expr, _Negation):
+    if isinstance(expr, Negation):
         return _literal_agent_ids(expr.operand)
-    if isinstance(expr, (_Conjunction, _Disjunction)):
+    if isinstance(expr, (Conjunction, Disjunction)):
         return _literal_agent_ids(expr.left) | _literal_agent_ids(expr.right)
     return frozenset()
 
 
 def _resolve(
-    expr: _IdentityPredicate,
+    expr: IdentityPredicate,
     universe: frozenset[_AgentSetElement],
     id_to_groups: Mapping[str, frozenset[str]],
 ) -> frozenset[_AgentSetElement]:
-    if isinstance(expr, _IdEquals):
+    if isinstance(expr, IdEquals):
         return frozenset({expr.literal})
-    if isinstance(expr, _IdNotEquals):
+    if isinstance(expr, IdNotEquals):
         return universe - {expr.literal}
-    if isinstance(expr, _GroupMembership):
+    if isinstance(expr, GroupMembership):
         return frozenset(
             agent_id
             for agent_id in universe
             if isinstance(agent_id, str)
             and expr.group in id_to_groups.get(agent_id, frozenset())
         )
-    if isinstance(expr, _Negation):
+    if isinstance(expr, Negation):
         return universe - _resolve(expr.operand, universe, id_to_groups)
-    if isinstance(expr, _Conjunction):
+    if isinstance(expr, Conjunction):
         return _resolve(expr.left, universe, id_to_groups) & _resolve(
             expr.right, universe, id_to_groups
         )
@@ -283,50 +94,48 @@ def _witness_label(witness: _AgentSetElement) -> str:
     )
 
 
-def _explain_membership(
-    expr: _IdentityPredicate,
+def explain_membership(
+    expr: IdentityPredicate,
     witness: _AgentSetElement,
     universe: frozenset[_AgentSetElement],
     id_to_groups: Mapping[str, frozenset[str]],
 ) -> str | None:
-    if isinstance(expr, _GroupMembership):
+    if isinstance(expr, GroupMembership):
         if isinstance(witness, str) and expr.group in id_to_groups.get(
             witness, frozenset()
         ):
             return f"{witness!r} is a member of group {expr.group!r}"
         return None
-    if isinstance(expr, _IdEquals):
+    if isinstance(expr, IdEquals):
         return (
             f"{_witness_label(witness)} matches agent.id == {expr.literal!r}"
             if witness == expr.literal
             else None
         )
-    if isinstance(expr, _IdNotEquals):
+    if isinstance(expr, IdNotEquals):
         if witness != expr.literal:
             return f"{_witness_label(witness)} is not {expr.literal!r}"
         return None
-    if isinstance(expr, _Conjunction):
-        return _explain_membership(
+    if isinstance(expr, Conjunction):
+        return explain_membership(
             expr.left, witness, universe, id_to_groups
-        ) or _explain_membership(expr.right, witness, universe, id_to_groups)
-    if isinstance(expr, _Disjunction):
+        ) or explain_membership(expr.right, witness, universe, id_to_groups)
+    if isinstance(expr, Disjunction):
         if witness in _resolve(expr.left, universe, id_to_groups):
-            explanation = _explain_membership(
-                expr.left, witness, universe, id_to_groups
-            )
+            explanation = explain_membership(expr.left, witness, universe, id_to_groups)
             if explanation is not None:
                 return explanation
         if witness in _resolve(expr.right, universe, id_to_groups):
-            return _explain_membership(expr.right, witness, universe, id_to_groups)
+            return explain_membership(expr.right, witness, universe, id_to_groups)
         return None
-    return None  # _Negation: no single positive fact explains it cleanly
+    return None  # Negation: no single positive fact explains it cleanly
 
 
 def _shadowing_message(
     sink_key: str,
     earlier: SinkRule,
     later: SinkRule,
-    earlier_expr: _IdentityPredicate,
+    earlier_expr: IdentityPredicate,
     universe: frozenset[_AgentSetElement],
     id_to_groups: Mapping[str, frozenset[str]],
     resolved_later: frozenset[_AgentSetElement],
@@ -339,7 +148,7 @@ def _shadowing_message(
     witness = _pick_witness(resolved_later)
     if witness is None:
         return base
-    explanation = _explain_membership(earlier_expr, witness, universe, id_to_groups)
+    explanation = explain_membership(earlier_expr, witness, universe, id_to_groups)
     if explanation is None:
         explanation = f"{_witness_label(witness)} satisfies rule {earlier.name!r}"
     return f"{base} ({explanation})"
@@ -367,7 +176,7 @@ def find_identity_shadowing(
     Args:
         sink_key: The dotted sink name, for the problem message.
         rules: The sink's ordered rule list.
-        whens: Each rule's effective `when` text (`_rule_when(rule)`), `None`
+        whens: Each rule's effective `when` text (`rule_when(rule)`), `None`
             for the catch-all; must be the same length as `rules`.
         declared_ids: Every agent id declared in the policy's `agents` section.
         id_to_groups: The declared agent-id-to-groups mapping.
@@ -376,7 +185,7 @@ def find_identity_shadowing(
         One problem string per rule proven unreachable this way.
     """
     recognized = [
-        _recognize_identity_when(when) if when is not None else None for when in whens
+        recognize_identity_when(when) if when is not None else None for when in whens
     ]
     problems: list[str] = []
     for earlier_idx, expr_i in enumerate(recognized):

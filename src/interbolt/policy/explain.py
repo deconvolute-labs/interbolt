@@ -1,7 +1,7 @@
 """Static per-agent, per-group, and per-tool policy explanation.
 
 Binds a concrete agent identity, a bare group, or neither (a per-tool scan)
-and reports which sink rules can still fire, reusing `policy.shadowing`'s
+and reports which sink rules can still fire, reusing `policy.identity_ast`'s
 identity-predicate recognizer so an identity shape is never re-derived.
 """
 
@@ -13,23 +13,23 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from interbolt.models.core import Action
-from interbolt.policy.compile import _rule_when, parse_normalized
+from interbolt.policy.cel import parse_normalized
 from interbolt.policy.evaluate import resolve_agent_groups
+from interbolt.policy.identity_ast import (
+    GroupMembership,
+    IdEquals,
+    IdNotEquals,
+    recognize_comparison,
+    recognize_groups_exists,
+    recognize_identity_when,
+)
 from interbolt.policy.partial_eval import (
     partial_eval,
     resolve_leaf_for_agent,
     resolve_leaf_for_group,
 )
-from interbolt.policy.schema import SinkRule
-from interbolt.policy.shadowing import (
-    _explain_membership,
-    _GroupMembership,
-    _IdEquals,
-    _IdNotEquals,
-    _recognize_comparison,
-    _recognize_groups_exists,
-    _recognize_identity_when,
-)
+from interbolt.policy.schema import SinkRule, rule_when
+from interbolt.policy.shadowing import explain_membership
 
 if TYPE_CHECKING:
     from interbolt.policy import Policy
@@ -130,10 +130,10 @@ def _shadow_reason_for_agent(
     agent_id: str, id_to_groups: Mapping[str, frozenset[str]]
 ) -> _ShadowReason:
     def _reason(when_text: str) -> str | None:
-        recognized = _recognize_identity_when(when_text)
+        recognized = recognize_identity_when(when_text)
         if recognized is None:
             return None
-        return _explain_membership(
+        return explain_membership(
             recognized, agent_id, frozenset({agent_id}), id_to_groups
         )
 
@@ -144,7 +144,7 @@ def _explain_sink(
     sink_key: str,
     rules: Sequence[SinkRule],
     default_action: Action,
-    resolve_leaf: Callable[[_IdEquals | _IdNotEquals | _GroupMembership], bool | None],
+    resolve_leaf: Callable[[IdEquals | IdNotEquals | GroupMembership], bool | None],
     shadow_reason: _ShadowReason,
 ) -> SinkExplanation:
     explanations: list[RuleExplanation] = []
@@ -163,7 +163,7 @@ def _explain_sink(
             )
             continue
 
-        when_text = _rule_when(rule)
+        when_text = rule_when(rule)
         if when_text is None:
             explanations.append(
                 RuleExplanation(rule.name, rule.action, RuleOutcome.UNCONDITIONAL)
@@ -263,12 +263,12 @@ def _mentions_in_when(when_text: str) -> tuple[frozenset[str], frozenset[str]]:
     groups: set[str] = set()
     for subtree in tree.iter_subtrees():
         if subtree.data == "relation" and len(subtree.children) == 2:
-            comparison = _recognize_comparison(subtree.children[0], subtree.children[1])
-            if isinstance(comparison, (_IdEquals, _IdNotEquals)):
+            comparison = recognize_comparison(subtree.children[0], subtree.children[1])
+            if isinstance(comparison, (IdEquals, IdNotEquals)):
                 agent_ids.add(comparison.literal)
         elif subtree.data == "member_dot_arg":
-            membership = _recognize_groups_exists(subtree)
-            if isinstance(membership, _GroupMembership):
+            membership = recognize_groups_exists(subtree)
+            if isinstance(membership, GroupMembership):
                 groups.add(membership.group)
     return frozenset(agent_ids), frozenset(groups)
 
@@ -293,7 +293,7 @@ def explain_for_tool(policy: Policy, sink_key: str) -> ToolExplanation | None:
         return None
     mentions: list[ToolMention] = []
     for rule in rules:
-        when_text = _rule_when(rule)
+        when_text = rule_when(rule)
         if when_text is None:
             mentions.append(
                 ToolMention(rule.name, rule.action, frozenset(), frozenset(), None)
