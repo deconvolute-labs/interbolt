@@ -44,7 +44,7 @@ class AuditRegistry:
     """The laundering audit's per-run registry of untrusted-resolving content.
 
     Advisory only: catches mechanical laundering, not model paraphrase. See
-    https://docs.deconvoluteai.com/docs/concepts/taint-propagation.
+    https://docs.deconvolutelabs.com/docs/concepts/taint-propagation.
     """
 
     def __init__(

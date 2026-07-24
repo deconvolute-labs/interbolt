@@ -154,4 +154,4 @@ See [`docs/`](docs/index.md) for [policies](docs/concepts/policies.md), the [pro
 
 ## License
 
-Apache-2.0. Built by [Deconvolute Labs](https://deconvoluteai.com).
+Apache-2.0. Built by [Deconvolute Labs](https://deconvolutelabs.com).
