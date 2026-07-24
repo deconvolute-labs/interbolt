@@ -20,6 +20,7 @@ from interbolt.constants import (
 )
 from interbolt.errors import InterboltConfigError, PolicyEvaluationError
 from interbolt.models.core import Action, Mode, TrustLevel
+from interbolt.policy.cel import compile_cel_expression
 from interbolt.policy.shadowing import find_identity_shadowing
 from interbolt.utils.names import (
     split_qualified_name,
@@ -82,7 +83,7 @@ class SinkRule(BaseModel):
 
     `require_endorsement` is sugar for the common "gate untrusted data
     lacking this endorsement kind" shape: setting it compiles to the
-    equivalent `when:` CEL text (`policy/compile.py:_require_endorsement_when`),
+    equivalent `when:` CEL text (`policy/schema.py:_require_endorsement_when`),
     so most rules needing this never hand-write CEL. Mutually exclusive with
     `when`; a rule may set at most one of the two.
     """
@@ -109,6 +110,25 @@ class SinkRule(BaseModel):
                 "mutually exclusive; set at most one"
             )
         return self
+
+
+def _require_endorsement_when(kind: str) -> str:
+    """Synthesize the `when:` text for a `require_endorsement: <kind>` rule.
+
+    Compiles to exactly the kind-matching idiom: gate untrusted data that
+    lacks the endorsement this sink requires, matching a source endorsed for
+    one kind but not this one (the sanitizer-mismatch case).
+    """
+    return (
+        'taint.any(t, t.trust == "untrusted" && '
+        f'!t.endorsements.exists(k, k == "{kind}"))'
+    )
+
+
+def rule_when(rule: SinkRule) -> str | None:
+    if rule.require_endorsement is not None:
+        return _require_endorsement_when(rule.require_endorsement)
+    return rule.when
 
 
 def _split_sink_key(key: str) -> tuple[str, str]:
@@ -212,8 +232,6 @@ def validate_policy(path: str) -> list[str]:
         A list of human-readable problem descriptions, empty if the policy
         is valid. Every error is captured here instead of raised.
     """
-    from interbolt.policy.compile import _rule_when, compile_cel_expression
-
     problems: list[str] = []
     try:
         with open(path, encoding="utf-8") as handle:
@@ -245,7 +263,7 @@ def validate_policy(path: str) -> list[str]:
                     f"sink {sink_key!r}: rule {rule.name!r} is unreachable, "
                     "placed after an unconditional catch-all rule"
                 )
-            when = _rule_when(rule)
+            when = rule_when(rule)
             if when is None:
                 if catch_all_seen:
                     problems.append(
@@ -321,7 +339,7 @@ def validate_policy(path: str) -> list[str]:
                     "size(taint) > 0 if labeled input is actually required"
                 )
 
-        whens = [_rule_when(rule) for rule in rules]
+        whens = [rule_when(rule) for rule in rules]
         problems.extend(
             find_identity_shadowing(
                 sink_key,

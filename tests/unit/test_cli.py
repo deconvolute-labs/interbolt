@@ -8,7 +8,9 @@ from pathlib import Path
 import pytest
 from pytest_mock import MockerFixture
 
-from interbolt.cli import _build_tree, _load_records, main
+from interbolt.cli import main
+from interbolt.cli.commands import _load_records
+from interbolt.cli.render import _build_tree
 from interbolt.constants import (
     EVENT_SCHEMA_VERSION,
     RECORD_TYPE_EVENT,
@@ -84,31 +86,35 @@ def _finding_line(*, run_id: str = "run-1", agent_id: str = "agent-a") -> str:
 
 class TestValidateSubcommand:
     def test_valid_policy_exits_zero(self, mocker: MockerFixture) -> None:
-        mocker.patch("interbolt.cli.Policy.validate", return_value=[])
+        mocker.patch("interbolt.cli.commands.Policy.validate", return_value=[])
         result = main(["validate", "policy.yaml"])
         assert result == 0
 
     def test_invalid_policy_exits_one(self, mocker: MockerFixture) -> None:
-        mocker.patch("interbolt.cli.Policy.validate", return_value=["problem A"])
+        mocker.patch(
+            "interbolt.cli.commands.Policy.validate", return_value=["problem A"]
+        )
         result = main(["validate", "policy.yaml"])
         assert result == 1
 
     def test_path_passed_to_policy_validate(self, mocker: MockerFixture) -> None:
-        mock_validate = mocker.patch("interbolt.cli.Policy.validate", return_value=[])
+        mock_validate = mocker.patch(
+            "interbolt.cli.commands.Policy.validate", return_value=[]
+        )
         main(["validate", "/some/path/policy.yaml"])
         mock_validate.assert_called_once_with("/some/path/policy.yaml")
 
     def test_multiple_problems_all_printed(self, mocker: MockerFixture) -> None:
         problems = ["issue one", "issue two"]
-        mocker.patch("interbolt.cli.Policy.validate", return_value=problems)
-        mock_print = mocker.patch("interbolt.cli._console.print")
+        mocker.patch("interbolt.cli.commands.Policy.validate", return_value=problems)
+        mock_print = mocker.patch("interbolt.cli.render._console.print")
         result = main(["validate", "policy.yaml"])
         assert result == 1
         assert mock_print.call_count == len(problems)
 
     def test_valid_policy_prints_success_message(self, mocker: MockerFixture) -> None:
-        mocker.patch("interbolt.cli.Policy.validate", return_value=[])
-        mock_print = mocker.patch("interbolt.cli._console.print")
+        mocker.patch("interbolt.cli.commands.Policy.validate", return_value=[])
+        mock_print = mocker.patch("interbolt.cli.render._console.print")
         main(["validate", "policy.yaml"])
         mock_print.assert_called_once()
         printed_text = str(mock_print.call_args)
@@ -116,7 +122,7 @@ class TestValidateSubcommand:
 
     def test_warnings_only_exits_zero(self, mocker: MockerFixture) -> None:
         mocker.patch(
-            "interbolt.cli.Policy.validate",
+            "interbolt.cli.commands.Policy.validate",
             return_value=["warning: rule 'r' compares t.source directly"],
         )
         result = main(["validate", "policy.yaml"])
@@ -126,17 +132,17 @@ class TestValidateSubcommand:
         self, mocker: MockerFixture
     ) -> None:
         mocker.patch(
-            "interbolt.cli.Policy.validate",
+            "interbolt.cli.commands.Policy.validate",
             return_value=["warning: rule 'r' compares t.source directly"],
         )
-        mock_print = mocker.patch("interbolt.cli._console.print")
+        mock_print = mocker.patch("interbolt.cli.render._console.print")
         main(["validate", "policy.yaml"])
         printed_text = str(mock_print.call_args_list)
         assert "t.source" in printed_text
 
     def test_warning_and_error_together_exits_one(self, mocker: MockerFixture) -> None:
         mocker.patch(
-            "interbolt.cli.Policy.validate",
+            "interbolt.cli.commands.Policy.validate",
             return_value=["warning: t.source used", "real error"],
         )
         result = main(["validate", "policy.yaml"])
@@ -181,7 +187,7 @@ class TestInitSubcommand:
     def test_packaged_resource_read_failure_exits_one(
         self, tmp_path: Path, mocker: MockerFixture
     ) -> None:
-        mock_files = mocker.patch("interbolt.cli.importlib.resources.files")
+        mock_files = mocker.patch("interbolt.cli.commands.importlib.resources.files")
         mock_files.return_value.joinpath.return_value.read_text.side_effect = OSError(
             "no package data"
         )
@@ -198,7 +204,7 @@ class TestInitSubcommand:
     def test_success_prints_wrote_message(
         self, tmp_path: Path, mocker: MockerFixture
     ) -> None:
-        mock_print = mocker.patch("interbolt.cli._console.print")
+        mock_print = mocker.patch("interbolt.cli.render._console.print")
         target = tmp_path / "policy.yaml"
         main(["init", str(target)])
         printed_text = str(mock_print.call_args)
@@ -227,7 +233,7 @@ class TestInspectSubcommand:
     def test_malformed_line_prints_warning(
         self, tmp_path: Path, mocker: MockerFixture
     ) -> None:
-        mock_print = mocker.patch("interbolt.cli._console.print")
+        mock_print = mocker.patch("interbolt.cli.render._console.print")
         log = tmp_path / "log.jsonl"
         log.write_text("{not valid json\n" + _event_line() + "\n", encoding="utf-8")
         main(["inspect", str(log)])
@@ -354,7 +360,7 @@ class TestExplainSubcommand:
 
     def test_policy_load_failure_exits_one(self, mocker: MockerFixture) -> None:
         mocker.patch(
-            "interbolt.cli.Policy.from_file",
+            "interbolt.cli.commands.Policy.from_file",
             side_effect=PolicyEvaluationError("bad policy"),
         )
         result = main(["explain", "policy.yaml", "--agent", "a"])
@@ -362,24 +368,24 @@ class TestExplainSubcommand:
 
     def test_policy_load_failure_prints_error(self, mocker: MockerFixture) -> None:
         mocker.patch(
-            "interbolt.cli.Policy.from_file",
+            "interbolt.cli.commands.Policy.from_file",
             side_effect=PolicyEvaluationError("bad policy"),
         )
-        mock_print = mocker.patch("interbolt.cli._console.print")
+        mock_print = mocker.patch("interbolt.cli.render._console.print")
         main(["explain", "policy.yaml", "--agent", "a"])
         printed_text = str(mock_print.call_args)
         assert "bad policy" in printed_text
 
     def test_unknown_tool_sink_exits_one(self, mocker: MockerFixture) -> None:
-        mocker.patch("interbolt.cli.Policy.from_file")
-        mocker.patch("interbolt.cli.explain_for_tool", return_value=None)
+        mocker.patch("interbolt.cli.commands.Policy.from_file")
+        mocker.patch("interbolt.cli.commands.explain_for_tool", return_value=None)
         result = main(["explain", "policy.yaml", "--tool", "ns.tool"])
         assert result == 1
 
     def test_agent_query_exits_zero_even_with_all_rules_eliminated(
         self, mocker: MockerFixture
     ) -> None:
-        mocker.patch("interbolt.cli.Policy.from_file")
+        mocker.patch("interbolt.cli.commands.Policy.from_file")
         explanation = AgentExplanation(
             agent_id="a",
             groups=frozenset(),
@@ -391,44 +397,52 @@ class TestExplainSubcommand:
                 ),
             ),
         )
-        mocker.patch("interbolt.cli.explain_for_agent", return_value=explanation)
+        mocker.patch(
+            "interbolt.cli.commands.explain_for_agent", return_value=explanation
+        )
         result = main(["explain", "policy.yaml", "--agent", "a"])
         assert result == 0
 
     def test_header_prints_agent_id_and_sorted_groups(
         self, mocker: MockerFixture
     ) -> None:
-        mocker.patch("interbolt.cli.Policy.from_file")
+        mocker.patch("interbolt.cli.commands.Policy.from_file")
         explanation = AgentExplanation(
             agent_id="billing-agent", groups=frozenset({"internal", "payer"}), sinks=()
         )
-        mocker.patch("interbolt.cli.explain_for_agent", return_value=explanation)
-        mock_print = mocker.patch("interbolt.cli._console.print")
+        mocker.patch(
+            "interbolt.cli.commands.explain_for_agent", return_value=explanation
+        )
+        mock_print = mocker.patch("interbolt.cli.render._console.print")
         main(["explain", "policy.yaml", "--agent", "billing-agent"])
         printed_text = str(mock_print.call_args_list[0])
         assert "billing-agent" in printed_text
         assert "internal, payer" in printed_text
 
     def test_header_prints_none_for_empty_groups(self, mocker: MockerFixture) -> None:
-        mocker.patch("interbolt.cli.Policy.from_file")
+        mocker.patch("interbolt.cli.commands.Policy.from_file")
         explanation = AgentExplanation(agent_id="a", groups=frozenset(), sinks=())
-        mocker.patch("interbolt.cli.explain_for_agent", return_value=explanation)
-        mock_print = mocker.patch("interbolt.cli._console.print")
+        mocker.patch(
+            "interbolt.cli.commands.explain_for_agent", return_value=explanation
+        )
+        mock_print = mocker.patch("interbolt.cli.render._console.print")
         main(["explain", "policy.yaml", "--agent", "a"])
         printed_text = str(mock_print.call_args_list[0])
         assert "none" in printed_text
 
     def test_group_header_prints_group_name(self, mocker: MockerFixture) -> None:
-        mocker.patch("interbolt.cli.Policy.from_file")
+        mocker.patch("interbolt.cli.commands.Policy.from_file")
         explanation = GroupExplanation(group="payer", sinks=())
-        mocker.patch("interbolt.cli.explain_for_group", return_value=explanation)
-        mock_print = mocker.patch("interbolt.cli._console.print")
+        mocker.patch(
+            "interbolt.cli.commands.explain_for_group", return_value=explanation
+        )
+        mock_print = mocker.patch("interbolt.cli.render._console.print")
         main(["explain", "policy.yaml", "--group", "payer"])
         printed_text = str(mock_print.call_args_list[0])
         assert "payer" in printed_text
 
     def test_eliminated_rules_hidden_by_default(self, mocker: MockerFixture) -> None:
-        mocker.patch("interbolt.cli.Policy.from_file")
+        mocker.patch("interbolt.cli.commands.Policy.from_file")
         explanation = AgentExplanation(
             agent_id="a",
             groups=frozenset(),
@@ -440,8 +454,10 @@ class TestExplainSubcommand:
                 ),
             ),
         )
-        mocker.patch("interbolt.cli.explain_for_agent", return_value=explanation)
-        mock_print = mocker.patch("interbolt.cli._console.print")
+        mocker.patch(
+            "interbolt.cli.commands.explain_for_agent", return_value=explanation
+        )
+        mock_print = mocker.patch("interbolt.cli.render._console.print")
         main(["explain", "policy.yaml", "--agent", "a"])
         printed_text = " ".join(str(c) for c in mock_print.call_args_list)
         assert "dead" not in printed_text
@@ -449,7 +465,7 @@ class TestExplainSubcommand:
     def test_show_eliminated_flag_prints_dimmed_rules_with_shadow_annotation(
         self, mocker: MockerFixture
     ) -> None:
-        mocker.patch("interbolt.cli.Policy.from_file")
+        mocker.patch("interbolt.cli.commands.Policy.from_file")
         explanation = AgentExplanation(
             agent_id="a",
             groups=frozenset(),
@@ -468,8 +484,10 @@ class TestExplainSubcommand:
                 ),
             ),
         )
-        mocker.patch("interbolt.cli.explain_for_agent", return_value=explanation)
-        mock_print = mocker.patch("interbolt.cli._console.print")
+        mocker.patch(
+            "interbolt.cli.commands.explain_for_agent", return_value=explanation
+        )
+        mock_print = mocker.patch("interbolt.cli.render._console.print")
         main(["explain", "policy.yaml", "--agent", "a", "--show-eliminated"])
         printed_text = " ".join(str(c) for c in mock_print.call_args_list)
         assert "dead" in printed_text
@@ -479,7 +497,7 @@ class TestExplainSubcommand:
     def test_conditional_rule_depends_on_member_label(
         self, mocker: MockerFixture
     ) -> None:
-        mocker.patch("interbolt.cli.Policy.from_file")
+        mocker.patch("interbolt.cli.commands.Policy.from_file")
         explanation = GroupExplanation(
             group="payer",
             sinks=(
@@ -497,8 +515,10 @@ class TestExplainSubcommand:
                 ),
             ),
         )
-        mocker.patch("interbolt.cli.explain_for_group", return_value=explanation)
-        mock_print = mocker.patch("interbolt.cli._console.print")
+        mocker.patch(
+            "interbolt.cli.commands.explain_for_group", return_value=explanation
+        )
+        mock_print = mocker.patch("interbolt.cli.render._console.print")
         main(["explain", "policy.yaml", "--group", "payer"])
         printed_text = " ".join(str(c) for c in mock_print.call_args_list)
         assert "depends on which member" in printed_text
@@ -506,7 +526,7 @@ class TestExplainSubcommand:
     def test_plain_conditional_rule_does_not_say_depends_on_member(
         self, mocker: MockerFixture
     ) -> None:
-        mocker.patch("interbolt.cli.Policy.from_file")
+        mocker.patch("interbolt.cli.commands.Policy.from_file")
         explanation = AgentExplanation(
             agent_id="a",
             groups=frozenset(),
@@ -525,8 +545,10 @@ class TestExplainSubcommand:
                 ),
             ),
         )
-        mocker.patch("interbolt.cli.explain_for_agent", return_value=explanation)
-        mock_print = mocker.patch("interbolt.cli._console.print")
+        mocker.patch(
+            "interbolt.cli.commands.explain_for_agent", return_value=explanation
+        )
+        mock_print = mocker.patch("interbolt.cli.render._console.print")
         main(["explain", "policy.yaml", "--agent", "a"])
         printed_text = " ".join(str(c) for c in mock_print.call_args_list)
         assert "depends on which member" not in printed_text
@@ -535,7 +557,7 @@ class TestExplainSubcommand:
     def test_tool_query_prints_mentions_and_default_action(
         self, mocker: MockerFixture
     ) -> None:
-        mocker.patch("interbolt.cli.Policy.from_file")
+        mocker.patch("interbolt.cli.commands.Policy.from_file")
         explanation = ToolExplanation(
             sink_key="payments.send_payment",
             mentions=(
@@ -549,8 +571,10 @@ class TestExplainSubcommand:
             ),
             default_action=Action.BLOCK,
         )
-        mocker.patch("interbolt.cli.explain_for_tool", return_value=explanation)
-        mock_print = mocker.patch("interbolt.cli._console.print")
+        mocker.patch(
+            "interbolt.cli.commands.explain_for_tool", return_value=explanation
+        )
+        mock_print = mocker.patch("interbolt.cli.render._console.print")
         result = main(["explain", "policy.yaml", "--tool", "payments.send_payment"])
         assert result == 0
         printed_text = " ".join(str(c) for c in mock_print.call_args_list)

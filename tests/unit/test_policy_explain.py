@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from interbolt.models.core import Action
 from interbolt.policy import Policy
-from interbolt.policy.compile import compile_policy, parse_normalized
+from interbolt.policy.cel import parse_normalized
+from interbolt.policy.compile import compile_policy
 from interbolt.policy.explain import (
     RuleOutcome,
     explain_for_agent,

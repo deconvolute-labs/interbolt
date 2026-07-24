@@ -78,7 +78,7 @@ target-version = "py312"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "S", "UP"] # pycodestyle, pyflakes, isort, bugbear
+select = ["E", "F", "I", "B", "S", "UP", "ANN", "BLE"] # pycodestyle, pyflakes, isort, bugbear
 ignore = [
   "S101", # Ignore "assert" warnings (we use them in pytest)
 ]

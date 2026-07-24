@@ -171,7 +171,7 @@ class Tainted(str):
         result = str.__getitem__(self, key)
         return _wrap(result, self.label)
 
-    def __format__(self, format_spec: str) -> Any:
+    def __format__(self, format_spec: str) -> str:
         if format_spec == "":
             return self
         return str.__format__(self, format_spec)
