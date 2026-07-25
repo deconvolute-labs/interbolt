@@ -7,7 +7,7 @@ installs: the `taint()`-time audit observer and the `endorse()`-time emitter.
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 from interbolt.models.core import Endorsement
 from interbolt.utils import current_run_id, get_logger
@@ -18,25 +18,28 @@ _run_ingress_sources: dict[str, set[str]] = {}
 _ingress_lock = threading.Lock()
 
 
-def _record_ingress(source: str) -> None:
-    """Record that `source` tainted data during the active run, if any.
+def record_ingress_sources(sources: Iterable[str]) -> None:
+    """Record that `sources` tainted data during the active run, if any.
 
-    Records the bare source name, keyed by the ambient `current_run_id`, for
-    `enforcement.check()` to resolve later against run-level gating
+    Records the bare source names, keyed by the ambient `current_run_id`,
+    for `enforcement.check()` to resolve later against run-level gating
     (`run.tainted`). Trust itself is resolved at the sink, from the policy's
     `sources` table.
     """
+    names = tuple(sources)
+    if not names:
+        return
     run_id = current_run_id.get()
     if run_id is None:
         _logger.debug(
-            "taint(source=%r) called with no active agent_context; this "
+            "taint(source in %r) called with no active agent_context; this "
             "ingress cannot be attributed to a run, so run.tainted will not "
             "reflect it for any policy that references it",
-            source,
+            names,
         )
         return
     with _ingress_lock:
-        _run_ingress_sources.setdefault(run_id, set()).add(source)
+        _run_ingress_sources.setdefault(run_id, set()).update(names)
 
 
 def run_ingress_sources(run_id: str) -> frozenset[str]:

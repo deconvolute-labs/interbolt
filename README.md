@@ -99,6 +99,8 @@ The label survives **direct passing** of a value to a tool argument and **operat
 
 This is an inherent limit of an in-process string-subclass carrier; see the full [propagation contract](docs/concepts/taint-propagation.md). Run the audit (below) to find a transformation that should have been re-tainted.
 
+Provenance does not survive an ordinary serialization or storage round trip either (a checkpoint write, a queue hop, a process boundary): re-entering data is fresh untrusted ingress. The one explicit exception is `pack`/`unpack` (and the `pack_into`/`unpack_from` sugar for a top-level state mapping), which carry a value's labels and run-scoped provenance across that boundary in a versioned, optionally MAC-authenticated envelope. See the [serialization guide](docs/guides/serialization.md).
+
 ## The model as a new source
 
 A call into an LLM is exactly this kind of boundary: whatever the model emits carries no label, even when its prompt or context was tainted. `taint(..., derived_from=...)` marks a value as derived from other values instead of as a fresh ingress point, so trust is inherited rather than assumed:
@@ -150,7 +152,7 @@ An `interbolt[mcp]` extra is planned to adapt an MCP client session directly. Un
 
 ## Documentation
 
-See [`docs/`](docs/index.md) for [policies](docs/concepts/policies.md), the [propagation contract](docs/concepts/taint-propagation.md), [identity and namespacing](docs/concepts/identity.md), [testing](docs/guides/testing.md), [auditing](docs/guides/auditing.md), [reporters](docs/reference/reporters.md), and the [API reference](docs/reference/api.md).
+See [`docs/`](docs/index.md) for [policies](docs/concepts/policies.md), the [propagation contract](docs/concepts/taint-propagation.md), [identity and namespacing](docs/concepts/identity.md), [testing](docs/guides/testing.md), [auditing](docs/guides/auditing.md), [serialization](docs/guides/serialization.md), [reporters](docs/reference/reporters.md), and the [API reference](docs/reference/api.md).
 
 ## License
 
