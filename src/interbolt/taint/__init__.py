@@ -15,6 +15,11 @@ from interbolt.taint.runstate import (
     install_endorsement_emitter as install_endorsement_emitter,
 )
 from interbolt.taint.runstate import install_taint_observer as install_taint_observer
+from interbolt.taint.runstate import record_ingress_sources as record_ingress_sources
 from interbolt.taint.runstate import run_ingress_sources as run_ingress_sources
 from interbolt.taint.walk import collect_labels as collect_labels
 from interbolt.taint.walk import unwrap as unwrap
+from interbolt.taint.wire import pack as pack
+from interbolt.taint.wire import pack_into as pack_into
+from interbolt.taint.wire import unpack as unpack
+from interbolt.taint.wire import unpack_from as unpack_from

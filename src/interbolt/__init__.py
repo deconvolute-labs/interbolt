@@ -77,8 +77,12 @@ from interbolt.taint import (
     Tainted,
     TaintedBytes,
     endorse,
+    pack,
+    pack_into,
     taint,
     track_model_call,
+    unpack,
+    unpack_from,
 )
 
 __all__ = [
@@ -94,6 +98,10 @@ __all__ = [
     "get_runtime",
     "AgentHandle",
     "track_model_call",
+    "pack",
+    "unpack",
+    "pack_into",
+    "unpack_from",
     "Runtime",
     "Policy",
     "Decision",

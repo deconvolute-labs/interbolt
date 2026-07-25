@@ -104,6 +104,8 @@ class Tainted(str):
     the label are immutable, so a copy safely returns `self`. Pickling
     (`__reduce__`) reduces to the plain underlying `str`, dropping the
     label: taint propagation does not survive the process/storage boundary.
+    Use `interbolt.pack` for the supported way to carry a `Tainted` value
+    across a serialization or process boundary.
     """
 
     # Narrows str's return type to Tainted (or list[Tainted]/TaintedBytes
@@ -284,7 +286,9 @@ class TaintedBytes(bytes):
     `copy.copy`/`copy.deepcopy` preserve the label by returning `self` (both
     the bytes value and the label are immutable). Pickling reduces to the
     plain underlying `bytes`, dropping the label, the same boundary-reset
-    behavior `Tainted` documents above.
+    behavior `Tainted` documents above. Use `interbolt.pack` for the
+    supported way to carry a `TaintedBytes` value across a serialization or
+    process boundary.
     """
 
     label: Label

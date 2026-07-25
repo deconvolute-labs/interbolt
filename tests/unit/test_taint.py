@@ -978,23 +978,23 @@ class TestContainerRecursionStringLeavesOnly:
 
 class TestTaintDerivedFrom:
     def test_none_behaves_like_plain_taint(self, mocker: MockerFixture) -> None:
-        spy = mocker.patch("interbolt.taint.ingress._record_ingress")
+        spy = mocker.patch("interbolt.taint.ingress.record_ingress_sources")
         result = taint("out", source="model", derived_from=None)
         assert isinstance(result, Tainted)
         assert result.label.lineage == ("model",)
-        spy.assert_called_once_with("model")
+        spy.assert_called_once_with(("model",))
 
     def test_empty_list_behaves_like_plain_taint(self, mocker: MockerFixture) -> None:
-        spy = mocker.patch("interbolt.taint.ingress._record_ingress")
+        spy = mocker.patch("interbolt.taint.ingress.record_ingress_sources")
         result = taint("out", source="model", derived_from=[])
         assert isinstance(result, Tainted)
         assert result.label.lineage == ("model",)
-        spy.assert_called_once_with("model")
+        spy.assert_called_once_with(("model",))
 
     def test_all_plain_inputs_returns_value_unwrapped(
         self, mocker: MockerFixture
     ) -> None:
-        spy = mocker.patch("interbolt.taint.ingress._record_ingress")
+        spy = mocker.patch("interbolt.taint.ingress.record_ingress_sources")
         value = "out"
         result = taint(value, source="model", derived_from=["plain prompt", 42])
         assert result is value
@@ -1045,7 +1045,7 @@ class TestTaintDerivedFrom:
     def test_does_not_record_ingress_for_derivation_hop(
         self, mocker: MockerFixture
     ) -> None:
-        spy = mocker.patch("interbolt.taint.ingress._record_ingress")
+        spy = mocker.patch("interbolt.taint.ingress.record_ingress_sources")
         untrusted = taint("attacker text", source="web_search")
         spy.reset_mock()  # drop the call recorded by the taint() call above
         taint("summary", source="model", derived_from=[untrusted])
