@@ -279,6 +279,19 @@ sinks:
       action: block
 """
 
+_POLICY_WITH_UNDECLARED_GROUP_BEHIND_NESTED_CALL = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: undeclared_group
+      when: >-
+        agent.groups.exists(g, g.startsWith("team-") && g == "team-payer")
+      action: block
+"""
+
 _POLICY_WITH_BAD_AGENT_ID_CHARSET = """\
 version: "1.0"
 defaults:
@@ -801,6 +814,25 @@ sinks:
         problems = validate_policy("fake.yaml")
         assert any(not p.startswith("warning:") and "exists" in p for p in problems)
         assert not any(p.startswith("warning:") and "'ghost'" in p for p in problems)
+
+    def test_undeclared_group_behind_nested_call_is_still_found(
+        self, mocker: MockerFixture
+    ) -> None:
+        # A regex spanning "exists(...)" by matching to the first ")" would
+        # truncate at startsWith("team-")'s closing paren and both misread
+        # "team-" as a group reference and miss the real, undeclared
+        # "team-payer" reference that follows it. The AST walk sees the
+        # `.exists(...)` call's actual argument boundary regardless of what
+        # nested calls appear inside the predicate.
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(
+                read_data=_POLICY_WITH_UNDECLARED_GROUP_BEHIND_NESTED_CALL
+            ),
+        )
+        problems = validate_policy("fake.yaml")
+        assert any(p.startswith("warning:") and "'team-payer'" in p for p in problems)
+        assert not any(p.startswith("warning:") and "'team-'" in p for p in problems)
 
     def test_agents_entry_bad_id_charset_rejected(self, mocker: MockerFixture) -> None:
         mocker.patch(

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from interbolt.errors import InterboltConfigError
+from interbolt.errors import InterboltConfigError, PolicyEvaluationError
 from interbolt.models.core import Action, Label, TrustLevel
 from interbolt.policy import Policy
 from interbolt.policy.cel import (
@@ -971,4 +971,26 @@ sinks:
 """
         )
         with pytest.raises(InterboltConfigError, match="exists"):
+            Policy.from_file(str(policy_path))
+
+
+class TestPolicyFromFileRejectsInvalidCel:
+    def test_raises_policy_evaluation_error_not_bare_celparseerror(
+        self, tmp_path: Path
+    ) -> None:
+        policy_path = tmp_path / "policy.yaml"
+        policy_path.write_text(
+            """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: r
+      when: '%%% not valid CEL'
+      action: block
+"""
+        )
+        with pytest.raises(PolicyEvaluationError):
             Policy.from_file(str(policy_path))

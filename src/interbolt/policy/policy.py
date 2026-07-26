@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from celpy.celparser import CELParseError
+
+from interbolt.errors import PolicyEvaluationError
 from interbolt.models.core import TrustLevel
 from interbolt.policy.compile import CompiledSink, compile_policy
 from interbolt.policy.schema import (
@@ -64,13 +67,17 @@ class Policy:
             A `Policy` ready to pass to `configure()`.
 
         Raises:
-            PolicyEvaluationError: If the file is missing, malformed, or
-                fails schema or CEL compilation.
+            PolicyEvaluationError: If the file is missing, malformed, fails
+                schema validation, or a rule's CEL expression fails to parse.
+            InterboltConfigError: If a rule's CEL expression uses a
+                disallowed construct, such as `.any(` in place of `exists`.
         """
         document = load_policy_document(path)
-        return cls(
-            document=document, compiled_sinks=compile_policy(document), source=path
-        )
+        try:
+            compiled_sinks = compile_policy(document)
+        except CELParseError as exc:
+            raise PolicyEvaluationError(f"policy file {path!r}: {exc}") from exc
+        return cls(document=document, compiled_sinks=compiled_sinks, source=path)
 
     @classmethod
     def validate(cls, path: str) -> list[str]:
