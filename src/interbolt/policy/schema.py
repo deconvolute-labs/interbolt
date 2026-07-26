@@ -31,7 +31,7 @@ from interbolt.utils.names import (
     validate_group_name,
 )
 
-_TRIFECTA_LEG_PATTERN = re.compile(r"trifecta\.contains\(\s*[\"']([^\"']+)[\"']\s*\)")
+_TRIFECTA_CONTAINS_PATTERN = re.compile(r"trifecta\.contains\(([^)]*)\)")
 _RUN_FIELD_PATTERN = re.compile(r"\brun\.(\w+)")
 _AGENT_FIELD_PATTERN = re.compile(r"\bagent\.(\w+)")
 _AGENT_GROUPS_MEMBERSHIP_PATTERN = re.compile(
@@ -40,6 +40,26 @@ _AGENT_GROUPS_MEMBERSHIP_PATTERN = re.compile(
 _STRING_LITERAL_PATTERN = re.compile(r"[\"']([^\"']+)[\"']")
 _SOURCE_EQUALITY_PATTERN = re.compile(r"\bt\.source\s*(==|!=)")
 _IDENTITY_ONLY_SIGNALS = ("taint", "max_trust", "sources", "run.")
+_LITERAL_SPAN = re.compile(
+    r"""[rRbB]{0,2}(?:'''(?:\\.|[^\\])*?'''|\"\"\"(?:\\.|[^\\])*?\"\"\""""
+    r"""|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")""",
+    re.S,
+)
+
+
+def _code_only(when: str) -> str:
+    """Blank every string literal in `when` to spaces of the same length.
+
+    So the text-level lints below cannot mistake a literal's contents for a
+    CEL reference. Match offsets into the blanked text still map onto the
+    original `when` string.
+
+    This does not make the lints exact: they remain heuristics over CEL text
+    rather than its AST, and a semantically equivalent expression written a
+    different way can still slip past them. It removes only the
+    literal-blindness failure mode, where quoted text was misread as code.
+    """
+    return _LITERAL_SPAN.sub(lambda m: " " * len(m.group()), when)
 
 
 class SourceDeclaration(BaseModel):
@@ -279,30 +299,34 @@ def validate_policy(path: str) -> list[str]:
                     f"sink {sink_key!r}: rule {rule.name!r} "
                     f"has an invalid CEL expression: {exc}"
                 )
-            for leg in _TRIFECTA_LEG_PATTERN.findall(when):
-                if leg not in TRIFECTA_COMPUTABLE_LEGS:
-                    problems.append(
-                        f"sink {sink_key!r}: rule {rule.name!r} references "
-                        f"trifecta leg {leg!r}, which is not computed in v1 "
-                        f"(trifecta.contains({leg!r}) always evaluates false); "
-                        f"computable legs are {sorted(TRIFECTA_COMPUTABLE_LEGS)}"
-                    )
-            for field in _RUN_FIELD_PATTERN.findall(when):
+            code = _code_only(when)
+            for match in _TRIFECTA_CONTAINS_PATTERN.finditer(code):
+                start, end = match.span(1)
+                for leg in _STRING_LITERAL_PATTERN.findall(when[start:end]):
+                    if leg not in TRIFECTA_COMPUTABLE_LEGS:
+                        problems.append(
+                            f"sink {sink_key!r}: rule {rule.name!r} references "
+                            f"trifecta leg {leg!r}, which is not computed in v1 "
+                            f"(trifecta.contains({leg!r}) always evaluates false); "
+                            f"computable legs are {sorted(TRIFECTA_COMPUTABLE_LEGS)}"
+                        )
+            for field in _RUN_FIELD_PATTERN.findall(code):
                 if field not in RUN_COMPUTABLE_FIELDS:
                     problems.append(
                         f"sink {sink_key!r}: rule {rule.name!r} references "
                         f"run.{field!r}, which does not exist; the only "
                         f"computable field is {sorted(RUN_COMPUTABLE_FIELDS)}"
                     )
-            for field in _AGENT_FIELD_PATTERN.findall(when):
+            for field in _AGENT_FIELD_PATTERN.findall(code):
                 if field not in AGENT_COMPUTABLE_FIELDS:
                     problems.append(
                         f"sink {sink_key!r}: rule {rule.name!r} references "
                         f"agent.{field!r}, which does not exist; the only "
                         f"computable field is {sorted(AGENT_COMPUTABLE_FIELDS)}"
                     )
-            for match in _AGENT_GROUPS_MEMBERSHIP_PATTERN.finditer(when):
-                for group in _STRING_LITERAL_PATTERN.findall(match.group(1)):
+            for match in _AGENT_GROUPS_MEMBERSHIP_PATTERN.finditer(code):
+                start, end = match.span(1)
+                for group in _STRING_LITERAL_PATTERN.findall(when[start:end]):
                     if group not in declared_groups:
                         problems.append(
                             f"warning: sink {sink_key!r}: rule {rule.name!r} "
@@ -310,7 +334,7 @@ def validate_policy(path: str) -> list[str]:
                             "membership check, which is not declared for "
                             "any agent in the policy's 'agents' section"
                         )
-            if _SOURCE_EQUALITY_PATTERN.search(when):
+            if _SOURCE_EQUALITY_PATTERN.search(code):
                 problems.append(
                     f"warning: sink {sink_key!r}: rule {rule.name!r} compares "
                     "t.source directly; a merged label's source is only its "
@@ -320,8 +344,8 @@ def validate_policy(path: str) -> list[str]:
                 )
             if (
                 rule.action is Action.ALLOW
-                and "agent." in when
-                and not any(signal in when for signal in _IDENTITY_ONLY_SIGNALS)
+                and "agent." in code
+                and not any(signal in code for signal in _IDENTITY_ONLY_SIGNALS)
             ):
                 problems.append(
                     f"warning: sink {sink_key!r}: rule {rule.name!r} allows "
@@ -330,7 +354,7 @@ def validate_policy(path: str) -> list[str]:
                     "access to this sink for that agent regardless of "
                     "provenance"
                 )
-            if rule.action is Action.ALLOW and "taint.all(" in when:
+            if rule.action is Action.ALLOW and "taint.all(" in code:
                 problems.append(
                     f"warning: sink {sink_key!r}: rule {rule.name!r} uses "
                     "taint.all(...) in an allow rule; taint.all evaluates "

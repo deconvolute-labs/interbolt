@@ -144,6 +144,54 @@ sinks:
       action: block
 """
 
+_POLICY_WITH_AGENT_FIELD_INSIDE_STRING_LITERAL = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: path_literal
+      when: 'args.path == "/etc/agent.conf" && taint.any(t, t.trust == "untrusted")'
+      action: block
+"""
+
+_POLICY_WITH_RUN_FIELD_INSIDE_STRING_LITERAL = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: contains_literal
+      when: 'args.path.contains("run.foobar")'
+      action: block
+"""
+
+_POLICY_WITH_IDENTITY_ONLY_ALLOW_SIGNAL_WORD_IN_LITERAL = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: suppressed
+      when: 'agent.id == "mailer" && args.note == "no sources here"'
+      action: allow
+"""
+
+_POLICY_WITH_RUN_FIELD_VIOLATION_OUTSIDE_LITERAL = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: real_violation
+      when: 'agent.id == "x" && run.bogus'
+      action: block
+"""
+
 _POLICY_WITH_IDENTITY_ONLY_ALLOW = """\
 version: "1.0"
 defaults:
@@ -626,6 +674,46 @@ sinks:
         problems = validate_policy("fake.yaml")
         assert problems == []
 
+    def test_agent_field_inside_string_literal_not_flagged(
+        self, mocker: MockerFixture
+    ) -> None:
+        # "/etc/agent.conf" is a string literal, not a reference to an
+        # agent.conf field; the regex lint must not match inside quotes.
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_AGENT_FIELD_INSIDE_STRING_LITERAL),
+        )
+        problems = validate_policy("fake.yaml")
+        assert problems == []
+
+    def test_run_field_inside_string_literal_not_flagged(
+        self, mocker: MockerFixture
+    ) -> None:
+        # "run.foobar" here is the argument to contains(), not a run.foobar
+        # field reference.
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_RUN_FIELD_INSIDE_STRING_LITERAL),
+        )
+        problems = validate_policy("fake.yaml")
+        assert problems == []
+
+    def test_run_field_violation_outside_literal_still_flagged(
+        self, mocker: MockerFixture
+    ) -> None:
+        # Guards against blanking string literals from swallowing a genuine
+        # run.<field> violation that appears outside of any literal.
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(
+                read_data=_POLICY_WITH_RUN_FIELD_VIOLATION_OUTSIDE_LITERAL
+            ),
+        )
+        problems = validate_policy("fake.yaml")
+        assert any(
+            not p.startswith("warning:") and "run.'bogus'" in p for p in problems
+        )
+
     def test_identity_only_allow_produces_warning(self, mocker: MockerFixture) -> None:
         mocker.patch(
             "builtins.open",
@@ -645,6 +733,23 @@ sinks:
         )
         problems = validate_policy("fake.yaml")
         assert not any("unconditional access" in p for p in problems)
+
+    def test_identity_only_allow_flagged_despite_signal_word_in_literal(
+        self, mocker: MockerFixture
+    ) -> None:
+        # "no sources here" is a string literal that happens to contain the
+        # substring "sources"; it is not a taint/max_trust/sources/run.
+        # condition and must not suppress the identity-only-allow warning.
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(
+                read_data=_POLICY_WITH_IDENTITY_ONLY_ALLOW_SIGNAL_WORD_IN_LITERAL
+            ),
+        )
+        problems = validate_policy("fake.yaml")
+        assert any(
+            p.startswith("warning:") and "unconditional access" in p for p in problems
+        )
 
     def test_vacuous_taint_all_in_allow_produces_warning(
         self, mocker: MockerFixture
