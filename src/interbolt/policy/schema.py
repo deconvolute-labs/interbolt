@@ -34,9 +34,7 @@ from interbolt.utils.names import (
 _TRIFECTA_CONTAINS_PATTERN = re.compile(r"trifecta\.contains\(([^)]*)\)")
 _RUN_FIELD_PATTERN = re.compile(r"\brun\.(\w+)")
 _AGENT_FIELD_PATTERN = re.compile(r"\bagent\.(\w+)")
-_AGENT_GROUPS_MEMBERSHIP_PATTERN = re.compile(
-    r"agent\.groups\.(?:exists|any)\(([^)]*)\)"
-)
+_AGENT_GROUPS_MEMBERSHIP_PATTERN = re.compile(r"agent\.groups\.exists\(([^)]*)\)")
 _STRING_LITERAL_PATTERN = re.compile(r"[\"']([^\"']+)[\"']")
 _SOURCE_EQUALITY_PATTERN = re.compile(r"\bt\.source\s*(==|!=)")
 _IDENTITY_ONLY_SIGNALS = ("taint", "max_trust", "sources", "run.")
@@ -76,7 +74,7 @@ class AgentDeclaration(BaseModel):
 
     Carries no permissions itself; sink rules already grant those. A group
     is a label on the acting principal that a rule's `when:` can test via
-    `agent.groups.any(...)`.
+    `agent.groups.exists(...)`.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -142,7 +140,8 @@ def _require_endorsement_when(kind: str) -> str:
     one kind but not this one (the sanitizer-mismatch case).
     """
     return (
-        f'taint.any(t, t.trust == "untrusted" && !t.endorsements.any(k, k == "{kind}"))'
+        f'taint.exists(t, t.trust == "untrusted" && '
+        f'!t.endorsements.exists(k, k == "{kind}"))'
     )
 
 
@@ -294,6 +293,8 @@ def validate_policy(path: str) -> list[str]:
                 continue
             try:
                 compile_cel_expression(when)
+            except InterboltConfigError as exc:
+                problems.append(f"sink {sink_key!r}: rule {rule.name!r} {exc}")
             except Exception as exc:  # noqa: BLE001 -- surfacing any compile failure
                 problems.append(
                     f"sink {sink_key!r}: rule {rule.name!r} "
@@ -340,7 +341,7 @@ def validate_policy(path: str) -> list[str]:
                     "t.source directly; a merged label's source is only its "
                     "first contributor, so this can silently miss a value "
                     "formed by merging two differently-sourced inputs; use "
-                    "t.lineage.any(s, s == ...) instead"
+                    "t.lineage.exists(s, s == ...) instead"
                 )
             if (
                 rule.action is Action.ALLOW
@@ -360,7 +361,7 @@ def validate_policy(path: str) -> list[str]:
                     "taint.all(...) in an allow rule; taint.all evaluates "
                     "true on a call with zero labels (CEL's empty-list fold), "
                     "so this can allow an unlabeled or laundered call; use "
-                    '!taint.any(t, t.trust == "untrusted") or combine with '
+                    '!taint.exists(t, t.trust == "untrusted") or combine with '
                     "size(taint) > 0 if labeled input is actually required"
                 )
 

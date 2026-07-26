@@ -52,7 +52,7 @@ def span_text(node: _Node, when_text: str) -> str:
     """Reconstruct one AST node's exact source substring from its span.
 
     Args:
-        node: A `lark.Tree` or `lark.Token` produced by `parse_normalized`.
+        node: A `lark.Tree` or `lark.Token` produced by `parse_cel_expression`.
         when_text: The original CEL source the node was parsed from.
 
     Returns:

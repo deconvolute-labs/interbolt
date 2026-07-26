@@ -17,14 +17,14 @@ sources:
 sinks:
   default.send_email:
     - name: block_untrusted_exfil
-      when: taint.any(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
+      when: taint.exists(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
       action: block
     - name: default
       action: require_approval
 
   default.fs_write:
     - name: approve_untrusted_to_disk
-      when: taint.any(t, t.trust == "untrusted")
+      when: taint.exists(t, t.trust == "untrusted")
       action: require_approval
     - name: default
       action: allow

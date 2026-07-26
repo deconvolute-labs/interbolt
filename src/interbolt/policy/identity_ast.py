@@ -14,7 +14,7 @@ from dataclasses import dataclass
 import lark
 from celpy.evaluation import celstr
 
-from interbolt.policy.cel import parse_normalized
+from interbolt.policy.cel import parse_cel_expression
 
 
 @dataclass(frozen=True)
@@ -33,7 +33,7 @@ class IdNotEquals:
 
 @dataclass(frozen=True)
 class GroupMembership:
-    """`agent.groups.any(g, g == "<group>")`."""
+    """`agent.groups.exists(g, g == "<group>")`."""
 
     group: str
 
@@ -146,7 +146,7 @@ def recognize_comparison(
 def recognize_groups_exists(
     node: lark.Tree[lark.Token],
 ) -> GroupMembership | None:
-    """Recognize `agent.groups.any(g, g == "...")`, `None` otherwise."""
+    """Recognize `agent.groups.exists(g, g == "...")`, `None` otherwise."""
     if len(node.children) != 3:
         return None
     receiver, method_token, exprlist_node = node.children
@@ -215,7 +215,7 @@ def recognize_identity_expr(node: _Node) -> IdentityPredicate | None:
 def recognize_identity_when(when: str) -> IdentityPredicate | None:
     """Parse and recognize raw `when` text as an identity predicate, else `None`."""
     try:
-        tree = parse_normalized(when)
+        tree = parse_cel_expression(when)
     except Exception:  # noqa: BLE001 -- any parse failure means "not identity-only"
         return None
     return recognize_identity_expr(tree)

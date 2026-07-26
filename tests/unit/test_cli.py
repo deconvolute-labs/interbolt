@@ -537,7 +537,7 @@ class TestExplainSubcommand:
                         _rule(
                             name="taint_rule",
                             outcome=RuleOutcome.CONDITIONAL,
-                            residual='taint.any(t, t.trust == "untrusted")',
+                            residual='taint.exists(t, t.trust == "untrusted")',
                             depends_on_member=False,
                         ),
                     ),

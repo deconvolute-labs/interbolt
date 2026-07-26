@@ -200,15 +200,15 @@ def build_context(
         else TrustLevel.TRUSTED
     )
 
-    # `taint` stays a plain CEL list so `taint.any(...)`/`taint.all(...)` work
-    # as macros. `sources` and `max_trust` are top-level siblings, not
+    # `taint` stays a plain CEL list so `taint.exists(...)`/`taint.all(...)`
+    # work as macros. `sources` and `max_trust` are top-level siblings, not
     # `taint.sources`/`taint.max_trust`, because CEL can't make one variable
     # both a list and a map. `run` and `agent` are maps since `run.tainted`
     # and `agent.id` only ever need dotted access, never quantification.
     # `agent.groups` is a list-typed value nested inside the `agent` map, the
     # same shape `t.lineage`/`t.ingested_by`/`t.endorsements` already use
     # inside each `taint` entry: a CEL map can hold a list value, so
-    # `agent.groups.any(...)` quantifies over that nested list without
+    # `agent.groups.exists(...)` quantifies over that nested list without
     # `agent` itself needing to be a list.
     return {
         "tool": celtypes.StringType(tool),

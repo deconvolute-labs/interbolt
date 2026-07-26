@@ -152,7 +152,7 @@ sources: []
 sinks:
   default.tool:
     - name: path_literal
-      when: 'args.path == "/etc/agent.conf" && taint.any(t, t.trust == "untrusted")'
+      when: 'args.path == "/etc/agent.conf" && taint.exists(t, t.trust == "untrusted")'
       action: block
 """
 
@@ -402,7 +402,7 @@ sinks:
     - name: payers_need_approval
       when: >
         agent.groups.exists(g, g == "payer") &&
-        taint.any(t, t.trust == "untrusted")
+        taint.exists(t, t.trust == "untrusted")
       action: require_approval
     - name: billing_agent_blocked
       when: 'agent.id == "billing-agent"'
@@ -788,18 +788,19 @@ sinks:
         problems = validate_policy("fake.yaml")
         assert any(p.startswith("warning:") and "'ghost'" in p for p in problems)
 
-    def test_undeclared_group_in_any_spelling_produces_warning(
+    def test_any_spelling_rejected_at_error_level_not_undeclared_group_warning(
         self, mocker: MockerFixture
     ) -> None:
-        # agent.groups.any(...) is functionally identical to
-        # agent.groups.exists(...) (.any is rewritten to exists at compile
-        # time regardless of receiver), so the typo lint must catch both.
+        # agent.groups.any(...) is no longer a recognized alias for
+        # agent.groups.exists(...); it must fail CEL compilation at error
+        # level rather than fall through to the undeclared-group warning.
         mocker.patch(
             "builtins.open",
             mocker.mock_open(read_data=_POLICY_WITH_UNDECLARED_GROUP_ANY_SPELLING),
         )
         problems = validate_policy("fake.yaml")
-        assert any(p.startswith("warning:") and "'ghost'" in p for p in problems)
+        assert any(not p.startswith("warning:") and "exists" in p for p in problems)
+        assert not any(p.startswith("warning:") and "'ghost'" in p for p in problems)
 
     def test_agents_entry_bad_id_charset_rejected(self, mocker: MockerFixture) -> None:
         mocker.patch(
@@ -1028,7 +1029,7 @@ sources:
 sinks:
   default.tool:
     - name: block_untrusted
-      when: 'taint.any(t, t.trust == "untrusted")'
+      when: 'taint.exists(t, t.trust == "untrusted")'
       action: block
     - name: default
       action: allow
@@ -1074,7 +1075,7 @@ sources:
     name: web_search
 sinks:
   default.tool:
-    - when: 'taint.any(t, t.trust == "untrusted")'
+    - when: 'taint.exists(t, t.trust == "untrusted")'
       name: block_untrusted
       action: block
     - name: default
@@ -1101,7 +1102,7 @@ sinks:
     - name: default
       action: allow
     - name: block_untrusted
-      when: 'taint.any(t, t.trust == "untrusted")'
+      when: 'taint.exists(t, t.trust == "untrusted")'
       action: block
 """
         original = self._fingerprint_of(mocker, self._BASE_YAML)

@@ -12,7 +12,7 @@
     },
     "AgentDeclaration": {
       "additionalProperties": false,
-      "description": "One declared agent's group membership.\n\nCarries no permissions itself; sink rules already grant those. A group\nis a label on the acting principal that a rule's `when:` can test via\n`agent.groups.any(...)`.",
+      "description": "One declared agent's group membership.\n\nCarries no permissions itself; sink rules already grant those. A group\nis a label on the acting principal that a rule's `when:` can test via\n`agent.groups.exists(...)`.",
       "properties": {
         "groups": {
           "default": [],

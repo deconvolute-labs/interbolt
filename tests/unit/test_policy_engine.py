@@ -1,10 +1,17 @@
 from __future__ import annotations
 
-import lark
+from pathlib import Path
+
 import pytest
 
+from interbolt.errors import InterboltConfigError
 from interbolt.models.core import Action, Label, TrustLevel
-from interbolt.policy.cel import _ENV, _rewrite_any_to_exists, compile_cel_expression
+from interbolt.policy import Policy
+from interbolt.policy.cel import (
+    compile_cel_expression,
+    contains_any_macro,
+    parse_cel_expression,
+)
 from interbolt.policy.compile import (
     CompiledRule,
     CompiledSink,
@@ -62,41 +69,50 @@ def _simple_doc(
     )
 
 
-class TestRewriteAnyToExists:
-    def _method_tokens(self, tree: lark.Tree[lark.Token]) -> list[str]:
-        tokens: list[str] = []
-        for t in tree.iter_subtrees():
-            if t.data != "member_dot_arg":
-                continue
-            method_token = t.children[1]
-            assert isinstance(method_token, lark.Token)
-            tokens.append(method_token.value)
-        return tokens
+class TestContainsAnyMacro:
+    def test_true_for_bare_any_call(self) -> None:
+        tree = parse_cel_expression("taint.any(t, true)")
+        assert contains_any_macro(tree) is True
 
-    def test_replaces_any_with_exists(self) -> None:
-        tree = _ENV.compile("taint.any(t, true)")
-        _rewrite_any_to_exists(tree)
-        assert self._method_tokens(tree) == ["exists"]
+    def test_true_for_nested_any_call(self) -> None:
+        tree = parse_cel_expression('taint.exists(t, t.endorsements.any(k, k == "x"))')
+        assert contains_any_macro(tree) is True
 
-    def test_no_any_unchanged(self) -> None:
-        tree = _ENV.compile('args.x == "y"')
-        before = tree.pretty()
-        _rewrite_any_to_exists(tree)
-        assert tree.pretty() == before
+    def test_false_when_no_any_call(self) -> None:
+        tree = parse_cel_expression('args.x == "y"')
+        assert contains_any_macro(tree) is False
 
-    def test_multiple_occurrences_all_replaced(self) -> None:
-        tree = _ENV.compile("taint.any(t, t.trust == 'x') && taint.any(t, true)")
-        _rewrite_any_to_exists(tree)
-        assert self._method_tokens(tree) == ["exists", "exists"]
+    def test_false_for_double_quoted_literal(self) -> None:
+        tree = parse_cel_expression('args.path.contains("backup.any(x)")')
+        assert contains_any_macro(tree) is False
 
-    def test_any_inside_literal_only_is_untouched(self) -> None:
-        tree = _ENV.compile('args.path.contains("backup.any(x)")')
-        before = tree.pretty()
-        _rewrite_any_to_exists(tree)
-        assert tree.pretty() == before
+    def test_false_for_single_quoted_literal(self) -> None:
+        tree = parse_cel_expression("args.path.contains('backup.any(x)')")
+        assert contains_any_macro(tree) is False
+
+    def test_false_for_double_quoted_literal_with_escaped_quotes(self) -> None:
+        tree = parse_cel_expression(r'args.path.contains("backup.any(\"x\")")')
+        assert contains_any_macro(tree) is False
+
+    def test_false_for_raw_string_literal(self) -> None:
+        tree = parse_cel_expression(r'args.path.contains(r"backup.any(\d)")')
+        assert contains_any_macro(tree) is False
+
+    def test_false_for_literal_with_unbalanced_paren(self) -> None:
+        tree = parse_cel_expression('args.path.contains("backup.any(")')
+        assert contains_any_macro(tree) is False
 
 
-class TestAnyRewriteLiteralPreservation:
+class TestCompileCelExpressionRejectsAnyMacro:
+    def test_raises_interbolt_config_error(self) -> None:
+        with pytest.raises(InterboltConfigError, match="exists"):
+            compile_cel_expression("taint.any(t, true)")
+
+    def test_literal_any_does_not_raise(self) -> None:
+        compile_cel_expression('args.path.contains("backup.any(x)")')
+
+
+class TestAnyMacroLiteralSafety:
     def _eval(
         self,
         expr: str,
@@ -116,10 +132,10 @@ class TestAnyRewriteLiteralPreservation:
         )
         return bool(runner.evaluate(ctx))
 
-    def test_double_quoted_literal_preserved_and_real_call_rewritten(self) -> None:
+    def test_double_quoted_literal_preserved_and_real_call_evaluated(self) -> None:
         expr = (
             'args.path.contains("backup.any(x)") || '
-            'taint.any(t, t.trust == "untrusted")'
+            'taint.exists(t, t.trust == "untrusted")'
         )
         assert self._eval(expr, "prefix backup.any(x) suffix") is True
         assert (
@@ -458,9 +474,11 @@ class TestLineageVsSourceAfterMerge:
         }
 
         lineage_expr = compile_cel_expression(
-            'taint.any(t, t.lineage.any(s, s == "web_search"))'
+            'taint.exists(t, t.lineage.exists(s, s == "web_search"))'
         )
-        source_expr = compile_cel_expression('taint.any(t, t.source == "web_search")')
+        source_expr = compile_cel_expression(
+            'taint.exists(t, t.source == "web_search")'
+        )
         ctx = build_context(
             tool="t",
             args={},
@@ -494,6 +512,8 @@ class TestRequireEndorsementSugar:
         rule = compiled["default.tool"].rules[0]
         assert rule.when is not None
         assert "recipient_allowlisted" in rule.when
+        assert ".exists(" in rule.when
+        assert ".any(" not in rule.when
         assert rule.program is not None
 
     def test_endorsed_with_required_kind_does_not_match(self) -> None:
@@ -664,7 +684,8 @@ class TestIngestedByInCel:
                     {
                         "name": "r",
                         "when": (
-                            'taint.any(t, t.ingested_by.any(a, a == "researcher"))'
+                            "taint.exists(t, "
+                            't.ingested_by.exists(a, a == "researcher"))'
                         ),
                         "action": "block",
                     },
@@ -732,7 +753,7 @@ class TestAgentGroupsInCel:
                 "default.tool": [
                     {
                         "name": "r",
-                        "when": 'agent.groups.any(g, g == "payer")',
+                        "when": 'agent.groups.exists(g, g == "payer")',
                         "action": "block",
                     },
                     {"name": "default", "action": "allow"},
@@ -779,7 +800,7 @@ class TestAgentGroupsInCel:
                 "default.tool": [
                     {
                         "name": "r",
-                        "when": 'agent.groups.any(g, g == "payer")',
+                        "when": 'agent.groups.exists(g, g == "payer")',
                         "action": "block",
                     },
                     {"name": "default", "action": "allow"},
@@ -823,12 +844,12 @@ class TestAgentGroupsInCel:
                 "default.tool": [
                     {
                         "name": "payer_rule",
-                        "when": 'agent.groups.any(g, g == "payer")',
+                        "when": 'agent.groups.exists(g, g == "payer")',
                         "action": "block",
                     },
                     {
                         "name": "internal_rule",
-                        "when": 'agent.groups.any(g, g == "internal")',
+                        "when": 'agent.groups.exists(g, g == "internal")',
                         "action": "require_approval",
                     },
                     {"name": "default", "action": "allow"},
@@ -931,3 +952,23 @@ class TestEvaluateSink:
         assert name is None
         assert action is Action.ALLOW
         assert condition is None
+
+
+class TestPolicyFromFileRejectsAnyMacro:
+    def test_raises_at_load_before_any_guarded_call(self, tmp_path: Path) -> None:
+        policy_path = tmp_path / "policy.yaml"
+        policy_path.write_text(
+            """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: r
+      when: 'taint.any(t, true)'
+      action: block
+"""
+        )
+        with pytest.raises(InterboltConfigError, match="exists"):
+            Policy.from_file(str(policy_path))
