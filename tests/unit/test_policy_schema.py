@@ -192,6 +192,18 @@ sinks:
       action: block
 """
 
+_POLICY_WITH_TWO_RUN_FIELD_VIOLATIONS = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: real_violation
+      when: 'run.a && run.b'
+      action: block
+"""
+
 _POLICY_WITH_IDENTITY_ONLY_ALLOW = """\
 version: "1.0"
 defaults:
@@ -723,9 +735,25 @@ sinks:
             ),
         )
         problems = validate_policy("fake.yaml")
-        assert any(
-            not p.startswith("warning:") and "run.'bogus'" in p for p in problems
+        matches = [
+            p for p in problems if not p.startswith("warning:") and "run.'bogus'" in p
+        ]
+        # A single `run.bogus` reference must be reported exactly once, not
+        # once per grammar precedence level the AST walk passes through.
+        assert len(matches) == 1
+
+    def test_two_distinct_run_field_violations_each_flagged_once(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_TWO_RUN_FIELD_VIOLATIONS),
         )
+        problems = validate_policy("fake.yaml")
+        a_matches = [p for p in problems if "run.'a'" in p]
+        b_matches = [p for p in problems if "run.'b'" in p]
+        assert len(a_matches) == 1
+        assert len(b_matches) == 1
 
     def test_identity_only_allow_produces_warning(self, mocker: MockerFixture) -> None:
         mocker.patch(

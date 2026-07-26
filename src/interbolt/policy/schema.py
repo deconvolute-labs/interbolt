@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Callable
 
 import lark
 import yaml
@@ -23,7 +24,7 @@ from interbolt.constants import (
 )
 from interbolt.errors import InterboltConfigError, PolicyEvaluationError
 from interbolt.models.core import Action, Mode, TrustLevel
-from interbolt.policy.cel import compile_cel_expression, parse_cel_expression
+from interbolt.policy.cel import compile_parsed, parse_cel_expression
 from interbolt.policy.identity_ast import member_field, string_literal, unwrap_node
 from interbolt.policy.shadowing import find_identity_shadowing
 from interbolt.utils.names import (
@@ -68,15 +69,12 @@ def _bare_ident(node: lark.Tree[lark.Token] | lark.Token) -> str | None:
 def _call_args(
     tree: lark.Tree[lark.Token],
     method: str,
-    *,
-    receiver_ident: str | None = None,
-    receiver_field: tuple[str, str] | None = None,
+    matches_receiver: Callable[[lark.Tree[lark.Token] | lark.Token], bool],
 ) -> list[lark.Tree[lark.Token]]:
-    """Find every `<receiver>.<method>(...)` call in `tree`, returning its arg list.
+    """Find every `<receiver>.<method>(...)` call in `tree` whose receiver matches.
 
-    `receiver_ident` matches a bare identifier receiver (e.g. `trifecta`);
-    `receiver_field` matches a `<name>.<field>` receiver (e.g. `("agent",
-    "groups")`). Exactly one of the two should be passed.
+    `matches_receiver` is applied to the call's receiver node; the call is
+    included only when it returns `True`.
     """
     matches: list[lark.Tree[lark.Token]] = []
     for subtree in tree.iter_subtrees():
@@ -85,12 +83,8 @@ def _call_args(
         receiver, method_token, exprlist_node = subtree.children
         if not (isinstance(method_token, lark.Token) and method_token.value == method):
             continue
-        if receiver_ident is not None and _bare_ident(receiver) != receiver_ident:
+        if not matches_receiver(receiver):
             continue
-        if receiver_field is not None:
-            name, field = receiver_field
-            if member_field(receiver, name) != field:
-                continue
         if isinstance(exprlist_node, lark.Tree):
             matches.append(exprlist_node)
     return matches
@@ -157,8 +151,10 @@ def _bare_fields(tree: lark.Tree[lark.Token], receiver: str) -> list[str]:
     """Every `<receiver>.<field>` bare access found anywhere in `tree`."""
     fields = []
     for subtree in tree.iter_subtrees():
+        if subtree.data != "member_dot":
+            continue
         field = member_field(subtree, receiver)
-        if field is not None:
+        if field is not None and field not in fields:
             fields.append(field)
     return fields
 
@@ -409,70 +405,81 @@ def validate_policy(path: str) -> list[str]:
                     )
                 catch_all_seen = True
                 continue
+            tree: lark.Tree[lark.Token] | None = None
             try:
-                compile_cel_expression(when)
-            except InterboltConfigError as exc:
-                problems.append(f"sink {sink_key!r}: rule {rule.name!r} {exc}")
-            except Exception as exc:  # noqa: BLE001 -- surfacing any compile failure
+                parsed_tree = parse_cel_expression(when)
+            except Exception as exc:  # noqa: BLE001 -- surfacing any parse failure
                 problems.append(
                     f"sink {sink_key!r}: rule {rule.name!r} "
                     f"has an invalid CEL expression: {exc}"
                 )
             else:
                 try:
-                    tree: lark.Tree[lark.Token] | None = parse_cel_expression(when)
-                except Exception:  # noqa: BLE001 -- already reported above if reached
-                    tree = None
-                if tree is not None:
-                    for exprlist in _call_args(
-                        tree, "contains", receiver_ident="trifecta"
-                    ):
-                        for leg in _string_literals_in(exprlist):
-                            if leg not in TRIFECTA_COMPUTABLE_LEGS:
-                                problems.append(
-                                    f"sink {sink_key!r}: rule {rule.name!r} "
-                                    f"references trifecta leg {leg!r}, which is "
-                                    "not computed in v1 "
-                                    f"(trifecta.contains({leg!r}) always "
-                                    "evaluates false); computable legs are "
-                                    f"{sorted(TRIFECTA_COMPUTABLE_LEGS)}"
-                                )
-                    for field in _bare_fields(tree, "run"):
-                        if field not in RUN_COMPUTABLE_FIELDS:
+                    compile_parsed(parsed_tree)
+                except InterboltConfigError as exc:
+                    problems.append(f"sink {sink_key!r}: rule {rule.name!r} {exc}")
+                except Exception as exc:  # noqa: BLE001 -- surfacing any compile failure
+                    problems.append(
+                        f"sink {sink_key!r}: rule {rule.name!r} "
+                        f"has an invalid CEL expression: {exc}"
+                    )
+                else:
+                    tree = parsed_tree
+            if tree is not None:
+                for exprlist in _call_args(
+                    tree, "contains", lambda r: _bare_ident(r) == "trifecta"
+                ):
+                    for leg in _string_literals_in(exprlist):
+                        if leg not in TRIFECTA_COMPUTABLE_LEGS:
                             problems.append(
-                                f"sink {sink_key!r}: rule {rule.name!r} references "
-                                f"run.{field!r}, which does not exist; the only "
-                                f"computable field is {sorted(RUN_COMPUTABLE_FIELDS)}"
+                                f"sink {sink_key!r}: rule {rule.name!r} "
+                                f"references trifecta leg {leg!r}, which is "
+                                "not computed in v1 "
+                                f"(trifecta.contains({leg!r}) always "
+                                "evaluates false); computable legs are "
+                                f"{sorted(TRIFECTA_COMPUTABLE_LEGS)}"
                             )
-                    for field in _bare_fields(tree, "agent"):
-                        if field not in AGENT_COMPUTABLE_FIELDS:
-                            problems.append(
-                                f"sink {sink_key!r}: rule {rule.name!r} references "
-                                f"agent.{field!r}, which does not exist; the only "
-                                "computable field is "
-                                f"{sorted(AGENT_COMPUTABLE_FIELDS)}"
-                            )
-                    for exprlist in _call_args(
-                        tree, "exists", receiver_field=("agent", "groups")
-                    ):
-                        for group in _bound_comparison_literals(exprlist):
-                            if group not in declared_groups:
-                                problems.append(
-                                    f"warning: sink {sink_key!r}: rule "
-                                    f"{rule.name!r} references group {group!r} "
-                                    "in an agent.groups membership check, which "
-                                    "is not declared for any agent in the "
-                                    "policy's 'agents' section"
-                                )
-                    if _has_relation(tree, "t", "source"):
+                for field in _bare_fields(tree, "run"):
+                    if field not in RUN_COMPUTABLE_FIELDS:
                         problems.append(
-                            f"warning: sink {sink_key!r}: rule {rule.name!r} "
-                            "compares t.source directly; a merged label's "
-                            "source is only its first contributor, so this can "
-                            "silently miss a value formed by merging two "
-                            "differently-sourced inputs; use "
-                            "t.lineage.exists(s, s == ...) instead"
+                            f"sink {sink_key!r}: rule {rule.name!r} references "
+                            f"run.{field!r}, which does not exist; the only "
+                            f"computable field is {sorted(RUN_COMPUTABLE_FIELDS)}"
                         )
+                for field in _bare_fields(tree, "agent"):
+                    if field not in AGENT_COMPUTABLE_FIELDS:
+                        problems.append(
+                            f"sink {sink_key!r}: rule {rule.name!r} references "
+                            f"agent.{field!r}, which does not exist; the only "
+                            f"computable field is {sorted(AGENT_COMPUTABLE_FIELDS)}"
+                        )
+                for exprlist in _call_args(
+                    tree,
+                    "exists",
+                    lambda r: member_field(r, "agent") == "groups",
+                ):
+                    for group in _bound_comparison_literals(exprlist):
+                        if group not in declared_groups:
+                            problems.append(
+                                f"warning: sink {sink_key!r}: rule "
+                                f"{rule.name!r} references group {group!r} "
+                                "in an agent.groups membership check, which "
+                                "is not declared for any agent in the "
+                                "policy's 'agents' section"
+                            )
+                if _has_relation(tree, "t", "source"):
+                    problems.append(
+                        f"warning: sink {sink_key!r}: rule {rule.name!r} "
+                        "compares t.source directly; a merged label's "
+                        "source is only its first contributor, so this can "
+                        "silently miss a value formed by merging two "
+                        "differently-sourced inputs; use "
+                        "t.lineage.exists(s, s == ...) instead"
+                    )
+            # The identity-only-allow and taint.all(...) checks below ask
+            # about a rule's overall shape rather than resolving a specific
+            # reference, which is genuinely fuzzy; they stay text heuristics
+            # rather than AST recognizers for that reason.
             code = _code_only(when)
             if (
                 rule.action is Action.ALLOW

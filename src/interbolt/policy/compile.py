@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import celpy
+from celpy.celparser import CELParseError
 
+from interbolt.errors import InterboltConfigError
 from interbolt.models.core import Action
 from interbolt.policy.cel import compile_cel_expression
 from interbolt.policy.schema import PolicyDocument, rule_when
@@ -42,17 +44,35 @@ def compile_policy(document: PolicyDocument) -> dict[str, CompiledSink]:
 
     Returns:
         A mapping of dotted sink key to its compiled rule list.
+
+    Raises:
+        celpy.CELParseError: If a rule's CEL expression fails to parse, with
+            the sink and rule name prefixed onto the message.
+        InterboltConfigError: If a rule's CEL expression uses a disallowed
+            construct, such as `.any(`, with the same prefix.
     """
     compiled: dict[str, CompiledSink] = {}
     for sink_key, rules in document.sinks.items():
         compiled_rules = []
         for rule in rules:
             when = rule_when(rule)
+            program = None
+            if when is not None:
+                try:
+                    program = compile_cel_expression(when)
+                except InterboltConfigError as exc:
+                    raise InterboltConfigError(
+                        f"sink {sink_key!r}: rule {rule.name!r} {exc}"
+                    ) from exc
+                except CELParseError as exc:
+                    raise CELParseError(
+                        f"sink {sink_key!r}: rule {rule.name!r}: {exc}"
+                    ) from exc
             compiled_rules.append(
                 CompiledRule(
                     name=rule.name,
                     action=rule.action,
-                    program=compile_cel_expression(when) if when is not None else None,
+                    program=program,
                     when=when,
                 )
             )

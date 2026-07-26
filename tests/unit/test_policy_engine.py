@@ -970,8 +970,13 @@ sinks:
       action: block
 """
         )
-        with pytest.raises(InterboltConfigError, match="exists"):
+        with pytest.raises(InterboltConfigError, match="exists") as excinfo:
             Policy.from_file(str(policy_path))
+        # The bare celpy/InterboltConfigError message alone gives no clue
+        # which rule in a large policy is at fault; the sink and rule name
+        # must be prefixed the same way `interbolt validate` prefixes them.
+        assert "'default.tool'" in str(excinfo.value)
+        assert "'r'" in str(excinfo.value)
 
 
 class TestPolicyFromFileRejectsInvalidCel:
@@ -992,5 +997,7 @@ sinks:
       action: block
 """
         )
-        with pytest.raises(PolicyEvaluationError):
+        with pytest.raises(PolicyEvaluationError) as excinfo:
             Policy.from_file(str(policy_path))
+        assert "'default.tool'" in str(excinfo.value)
+        assert "'r'" in str(excinfo.value)
