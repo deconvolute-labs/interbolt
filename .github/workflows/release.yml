@@ -71,8 +71,8 @@ jobs:
           # 2. Check if the version string is present in the file
           if ! grep -Fq "${{ inputs.version }}" CHANGELOG.md; then
             echo "ERROR: CHANGELOG.md does not contain version ${{ inputs.version }}."
-            echo "Please run locally: uv run git-cliff --tag ${{ inputs.version }} --output CHANGELOG.md"
-            echo "Then commit and push the changes."
+            echo "Please run locally: git cliff --unreleased --tag ${{ inputs.version }} --prepend CHANGELOG.md"
+            echo "Then hand-edit the new section, commit, and push."
             exit 1
           fi
           echo "SUCCESS: Found version ${{ inputs.version }} in CHANGELOG.md"
@@ -98,3 +98,18 @@ jobs:
           git config user.email "actions@github.com"
           git tag -a "v${{ inputs.version }}" -m "Release v${{ inputs.version }}"
           git push origin "v${{ inputs.version }}"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Pull just this version's section out of CHANGELOG.md for the body
+          awk -v ver="## [${{ inputs.version }}]" '
+            index($0, ver) == 1 { flag = 1; next }
+            /^## \[/ && flag { exit }
+            flag { print }
+          ' CHANGELOG.md > release-notes.md
+          gh release create "v${{ inputs.version }}" \
+            --title "v${{ inputs.version }}" \
+            --notes-file release-notes.md \
+            --verify-tag

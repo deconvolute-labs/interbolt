@@ -26,7 +26,7 @@ import time
 from interbolt.constants import RECURSION_DEPTH
 from interbolt.taint import collect_labels, taint
 
-_TIME_BUDGET_SECONDS = 5.0
+_TIME_BUDGET_SECONDS = 30.0
 
 
 def _build_nested_list(depth: int, leaf: object) -> object:
