@@ -1,11 +1,10 @@
 """CEL compilation: policy conditions are plain CEL, nothing more.
 
-`when` expressions use CEL's own macro set (`map`, `filter`, `all`, `exists`,
-`exists_one`, `reduce`). The DSL previously accepted `.any(` as an alias for
-`exists`, retargeted via an AST-level rewrite at compile time. The alias is
-gone; `contains_any_macro` detects `.any(` at compile time so a policy still
-written with it fails at load, with a message naming the fix, instead of
-failing silently at evaluation.
+`when` expressions use CEL's own macro set (`map`, `filter`, `all`,
+`exists`, `exists_one`, `reduce`). `contains_any_macro` rejects `.any(` at
+compile time: celpy accepts it at parse (there is no such macro) and only
+fails once evaluated, so without this check a rule using it would compile
+cleanly and then silently never match.
 """
 
 from __future__ import annotations
@@ -60,6 +59,28 @@ def parse_cel_expression(source: str) -> lark.Tree[lark.Token]:
     return _ENV.compile(source)
 
 
+def compile_parsed(tree: lark.Tree[lark.Token]) -> celpy.Runner:
+    """Finish compiling an already-parsed CEL tree into a runnable program.
+
+    The shared second half of `compile_cel_expression`, exposed on its own
+    for callers that already hold the parsed tree (for example a static
+    analysis that also walks it) and would otherwise parse the same source
+    twice.
+
+    Args:
+        tree: A tree from `parse_cel_expression`.
+
+    Returns:
+        A compiled celpy program, ready for repeated `evaluate()` calls.
+
+    Raises:
+        InterboltConfigError: If the expression calls `.any(`.
+    """
+    if contains_any_macro(tree):
+        raise InterboltConfigError(_ANY_MACRO_MESSAGE)
+    return _ENV.program(tree)
+
+
 def compile_cel_expression(source: str) -> celpy.Runner:
     """Compile one CEL `when` expression into a reusable, evaluate-many program.
 
@@ -73,7 +94,4 @@ def compile_cel_expression(source: str) -> celpy.Runner:
         celpy.CELParseError: If the expression is not valid CEL.
         InterboltConfigError: If the expression calls `.any(`.
     """
-    tree = parse_cel_expression(source)
-    if contains_any_macro(tree):
-        raise InterboltConfigError(_ANY_MACRO_MESSAGE)
-    return _ENV.program(tree)
+    return compile_parsed(parse_cel_expression(source))

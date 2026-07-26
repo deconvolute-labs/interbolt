@@ -99,22 +99,23 @@ def unwrap_node(node: _Node) -> _Node:
     return node
 
 
-def _agent_field(node: _Node) -> str | None:
-    """Return `"id"`/`"groups"` if `node` is exactly a bare `agent.<field>` access."""
+def member_field(node: _Node, receiver: str) -> str | None:
+    """Return the field name if `node` is exactly a bare `<receiver>.<field>` access."""
     node = unwrap_node(node)
     if not (isinstance(node, lark.Tree) and node.data == "member_dot"):
         return None
-    receiver, field_token = node.children
-    receiver = unwrap_node(receiver)
-    if not (isinstance(receiver, lark.Tree) and receiver.data == "ident"):
+    receiver_node, field_token = node.children
+    receiver_node = unwrap_node(receiver_node)
+    if not (isinstance(receiver_node, lark.Tree) and receiver_node.data == "ident"):
         return None
-    ident_token = receiver.children[0]
-    if not (isinstance(ident_token, lark.Token) and ident_token.value == "agent"):
+    ident_token = receiver_node.children[0]
+    if not (isinstance(ident_token, lark.Token) and ident_token.value == receiver):
         return None
     return field_token.value if isinstance(field_token, lark.Token) else None
 
 
-def _string_literal(node: _Node) -> str | None:
+def string_literal(node: _Node) -> str | None:
+    """Return `node`'s decoded value if it's a string literal, `None` otherwise."""
     node = unwrap_node(node)
     if not (isinstance(node, lark.Tree) and node.data == "literal"):
         return None
@@ -135,9 +136,9 @@ def recognize_comparison(
         and op_node.data in ("relation_eq", "relation_ne")
     ):
         return None
-    if _agent_field(op_node.children[0]) != "id":
+    if member_field(op_node.children[0], "agent") != "id":
         return None
-    literal = _string_literal(rhs_node)
+    literal = string_literal(rhs_node)
     if literal is None:
         return None
     return IdEquals(literal) if op_node.data == "relation_eq" else IdNotEquals(literal)
@@ -152,7 +153,7 @@ def recognize_groups_exists(
     receiver, method_token, exprlist_node = node.children
     if not (isinstance(method_token, lark.Token) and method_token.value == "exists"):
         return None
-    if _agent_field(receiver) != "groups":
+    if member_field(receiver, "agent") != "groups":
         return None
     if not (
         isinstance(exprlist_node, lark.Tree)
@@ -183,7 +184,7 @@ def recognize_groups_exists(
     lhs_token = lhs.children[0]
     if not (isinstance(lhs_token, lark.Token) and lhs_token.value == bound_token.value):
         return None
-    literal = _string_literal(rhs_node)
+    literal = string_literal(rhs_node)
     return GroupMembership(literal) if literal is not None else None
 
 
