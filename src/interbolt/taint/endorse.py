@@ -113,7 +113,7 @@ def endorse(value: Any, *, kind: str, note: str | None = None) -> Any:  # noqa: 
     Args:
         value: The value to endorse.
         kind: The name of the validation that ran. Match it in a policy with
-            `t.endorsements.any(k, k == "...")` or a rule's
+            `t.endorsements.exists(k, k == "...")` or a rule's
             `require_endorsement`. Letters, digits, `_`, `.`, and `-`.
         note: Free text recorded on the emitted `Endorsement`. It is not
             attached to the value.

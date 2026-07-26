@@ -38,7 +38,7 @@ def _make_policy() -> Policy:
             "default.tool": (
                 SinkRule(
                     name="block_untrusted",
-                    when='taint.any(t, t.trust == "untrusted")',
+                    when='taint.exists(t, t.trust == "untrusted")',
                     action=Action.REQUIRE_APPROVAL,
                 ),
                 SinkRule(name="default", action=Action.ALLOW),

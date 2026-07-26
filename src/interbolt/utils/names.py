@@ -35,7 +35,7 @@ def validate_group_name(value: str) -> None:
     """Reject a group name with characters outside the safe identifier set.
 
     A group name is matched as a string literal inside a policy's `when:`
-    CEL text (`agent.groups.any(g, g == "...")`); constraining its
+    CEL text (`agent.groups.exists(g, g == "...")`); constraining its
     charset keeps every declared group name expressible as a plain CEL
     string literal with no escaping question.
 

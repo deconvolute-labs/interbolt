@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from interbolt.models.core import Action
 from interbolt.policy import Policy
-from interbolt.policy.cel import parse_normalized
+from interbolt.policy.cel import parse_cel_expression
 from interbolt.policy.compile import compile_policy
 from interbolt.policy.explain import (
     RuleOutcome,
@@ -49,43 +49,44 @@ def _simple_policy(
 
 class TestPartialEval:
     def test_and_short_circuits_on_false(self) -> None:
-        when = 'agent.id == "x" && taint.any(t, t.trust == "untrusted")'
-        tree = parse_normalized(when)
+        when = 'agent.id == "x" && taint.exists(t, t.trust == "untrusted")'
+        tree = parse_cel_expression(when)
         result = partial_eval(tree, when, resolve_leaf_for_agent("y", frozenset()))
         assert result is False
 
     def test_or_short_circuits_on_true(self) -> None:
-        when = 'agent.id == "x" || taint.any(t, t.trust == "untrusted")'
-        tree = parse_normalized(when)
+        when = 'agent.id == "x" || taint.exists(t, t.trust == "untrusted")'
+        tree = parse_cel_expression(when)
         result = partial_eval(tree, when, resolve_leaf_for_agent("x", frozenset()))
         assert result is True
 
     def test_negation_of_resolved_leaf_flips(self) -> None:
         when = '!(agent.id == "x")'
-        tree = parse_normalized(when)
+        tree = parse_cel_expression(when)
         result = partial_eval(tree, when, resolve_leaf_for_agent("x", frozenset()))
         assert result is False
 
     def test_negation_of_residual_wraps_text(self) -> None:
-        when = '!(taint.any(t, t.trust == "untrusted"))'
-        tree = parse_normalized(when)
+        when = '!(taint.exists(t, t.trust == "untrusted"))'
+        tree = parse_cel_expression(when)
         result = partial_eval(tree, when, resolve_leaf_for_agent("x", frozenset()))
         assert isinstance(result, Residual)
-        assert result.text == '!(taint.any(t, t.trust == "untrusted"))'
+        assert result.text == '!(taint.exists(t, t.trust == "untrusted"))'
         assert result.member_dependent is False
 
     def test_residual_text_is_exact_source_substring(self) -> None:
-        when = 'taint.any(t, t.trust == "untrusted")'
-        tree = parse_normalized(when)
+        when = 'taint.exists(t, t.trust == "untrusted")'
+        tree = parse_cel_expression(when)
         result = partial_eval(tree, when, resolve_leaf_for_agent("x", frozenset()))
         assert isinstance(result, Residual)
         assert result.text == when
 
     def test_depends_on_member_always_false_under_agent_mode(self) -> None:
         when = (
-            'agent.groups.any(g, g == "payer") && taint.any(t, t.trust == "untrusted")'
+            'agent.groups.exists(g, g == "payer") '
+            '&& taint.exists(t, t.trust == "untrusted")'
         )
-        tree = parse_normalized(when)
+        tree = parse_cel_expression(when)
         result = partial_eval(
             tree, when, resolve_leaf_for_agent("x", frozenset({"payer"}))
         )
@@ -94,14 +95,14 @@ class TestPartialEval:
 
     def test_group_mode_unbound_id_is_member_dependent(self) -> None:
         when = 'agent.id == "billing-agent"'
-        tree = parse_normalized(when)
+        tree = parse_cel_expression(when)
         result = partial_eval(tree, when, resolve_leaf_for_group("payer"))
         assert isinstance(result, Residual)
         assert result.member_dependent is True
 
     def test_group_mode_mixed_residual_not_member_dependent(self) -> None:
-        when = 'agent.id == "billing-agent" && taint.any(t, t.trust == "untrusted")'
-        tree = parse_normalized(when)
+        when = 'agent.id == "billing-agent" && taint.exists(t, t.trust == "untrusted")'
+        tree = parse_cel_expression(when)
         result = partial_eval(tree, when, resolve_leaf_for_group("payer"))
         assert isinstance(result, Residual)
         assert result.member_dependent is False
@@ -116,7 +117,7 @@ class TestExplainForAgent:
                         "name": "other_agent_gate",
                         "when": (
                             'agent.id == "other-agent" '
-                            '&& taint.any(t, t.trust == "untrusted")'
+                            '&& taint.exists(t, t.trust == "untrusted")'
                         ),
                         "action": "block",
                     }
@@ -130,7 +131,7 @@ class TestExplainForAgent:
     def test_rule_with_no_identity_reference_reported_conditional_unchanged(
         self,
     ) -> None:
-        when = 'taint.any(t, t.trust == "untrusted")'
+        when = 'taint.exists(t, t.trust == "untrusted")'
         policy = _simple_policy(
             sinks={
                 "default.tool": [
@@ -154,7 +155,7 @@ class TestExplainForAgent:
                     },
                     {
                         "name": "taint_gate",
-                        "when": 'taint.any(t, t.trust == "untrusted")',
+                        "when": 'taint.exists(t, t.trust == "untrusted")',
                         "action": "block",
                     },
                 ]
@@ -166,7 +167,7 @@ class TestExplainForAgent:
         assert rules[1].shadowed_by == "id_rule"
 
     def test_identity_in_disjunction_reported_conditional_not_eliminated(self) -> None:
-        when = 'agent.id == "other-agent" || taint.any(t, t.trust == "untrusted")'
+        when = 'agent.id == "other-agent" || taint.exists(t, t.trust == "untrusted")'
         policy = _simple_policy(
             sinks={
                 "default.tool": [
@@ -176,7 +177,7 @@ class TestExplainForAgent:
         )
         rule = explain_for_agent(policy, "billing-agent").sinks[0].rules[0]
         assert rule.outcome is RuleOutcome.CONDITIONAL
-        assert rule.residual == 'taint.any(t, t.trust == "untrusted")'
+        assert rule.residual == 'taint.exists(t, t.trust == "untrusted")'
 
     def test_empty_sink_reports_default_action(self) -> None:
         policy = _simple_policy(
@@ -194,7 +195,7 @@ class TestExplainForAgent:
                 "default.tool": [
                     {
                         "name": "payer_rule",
-                        "when": 'agent.groups.any(g, g == "payer")',
+                        "when": 'agent.groups.exists(g, g == "payer")',
                         "action": "allow",
                     }
                 ]
@@ -212,7 +213,7 @@ class TestExplainForAgent:
                 "default.tool": [
                     {
                         "name": "payer_rule",
-                        "when": 'agent.groups.any(g, g == "payer")',
+                        "when": 'agent.groups.exists(g, g == "payer")',
                         "action": "allow",
                     }
                 ]
@@ -228,7 +229,7 @@ class TestExplainForAgent:
                 "default.tool": [
                     {
                         "name": "payers_need_approval",
-                        "when": 'agent.groups.any(g, g == "payer")',
+                        "when": 'agent.groups.exists(g, g == "payer")',
                         "action": "require_approval",
                     },
                     {
@@ -252,7 +253,7 @@ class TestExplainForAgent:
                 "default.tool": [
                     {
                         "name": "payers_need_approval",
-                        "when": 'agent.groups.any(g, g == "payer")',
+                        "when": 'agent.groups.exists(g, g == "payer")',
                         "action": "require_approval",
                     },
                     {
@@ -280,12 +281,12 @@ class TestExplainForAgent:
                 "default.tool": [
                     {
                         "name": "payers_need_approval",
-                        "when": 'agent.groups.any(g, g == "payer")',
+                        "when": 'agent.groups.exists(g, g == "payer")',
                         "action": "require_approval",
                     },
                     {
                         "name": "generic_block",
-                        "when": 'taint.any(t, t.trust == "untrusted")',
+                        "when": 'taint.exists(t, t.trust == "untrusted")',
                         "action": "block",
                     },
                 ]
@@ -310,12 +311,12 @@ class TestExplainForGroup:
                     },
                     {
                         "name": "bound_group_rule",
-                        "when": 'agent.groups.any(g, g == "payer")',
+                        "when": 'agent.groups.exists(g, g == "payer")',
                         "action": "allow",
                     },
                     {
                         "name": "other_group_rule",
-                        "when": 'agent.groups.any(g, g == "internal")',
+                        "when": 'agent.groups.exists(g, g == "internal")',
                         "action": "block",
                     },
                 ]
@@ -348,7 +349,7 @@ class TestExplainForTool:
     def test_collects_ids_and_groups_across_disjunction_and_conjunction(self) -> None:
         when = (
             'agent.id == "billing-agent" || '
-            '(agent.groups.any(g, g == "payer") && agent.id != "support-agent")'
+            '(agent.groups.exists(g, g == "payer") && agent.id != "support-agent")'
         )
         policy = _simple_policy(
             sinks={"default.tool": [{"name": "mixed", "when": when, "action": "block"}]}
@@ -358,7 +359,7 @@ class TestExplainForTool:
         assert mention.groups == {"payer"}
 
     def test_zero_arg_dotted_call_does_not_crash(self) -> None:
-        when = 'agent.groups.size() && agent.groups.any(g, g == "payer")'
+        when = 'agent.groups.size() && agent.groups.exists(g, g == "payer")'
         policy = _simple_policy(
             sinks={"default.tool": [{"name": "mixed", "when": when, "action": "block"}]}
         )

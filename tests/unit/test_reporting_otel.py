@@ -39,7 +39,7 @@ def _make_decision(**overrides: object) -> Decision:
     defaults: dict[str, object] = dict(
         action=Action.BLOCK,
         matched_rule="block_untrusted_exfil",
-        matched_condition='taint.any(t, t.trust == "untrusted")',
+        matched_condition='taint.exists(t, t.trust == "untrusted")',
         tool="default.send_email",
         contributing_labels=(),
         trifecta=frozenset({"from_untrusted"}),

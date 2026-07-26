@@ -339,10 +339,10 @@ class TestDescribeDecision:
         text = describe_decision(
             _decision(
                 matched_rule="block_exfil",
-                matched_condition="taint.any(t, t.trust == 'untrusted')",
+                matched_condition="taint.exists(t, t.trust == 'untrusted')",
             )
         )
-        assert "taint.any(t, t.trust == 'untrusted')" in text
+        assert "taint.exists(t, t.trust == 'untrusted')" in text
 
     def test_matched_condition_absent_when_none(self) -> None:
         text = describe_decision(_decision(matched_condition=None))

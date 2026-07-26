@@ -13,7 +13,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from interbolt.models.core import Action
-from interbolt.policy.cel import parse_normalized
+from interbolt.policy.cel import parse_cel_expression
 from interbolt.policy.evaluate import resolve_agent_groups
 from interbolt.policy.identity_ast import (
     GroupMembership,
@@ -171,7 +171,7 @@ def _explain_sink(
             shadowed_by, shadowed_by_reason = rule.name, None
             continue
 
-        tree = parse_normalized(when_text)
+        tree = parse_cel_expression(when_text)
         result = partial_eval(tree, when_text, resolve_leaf)
         if result is False:
             explanations.append(
@@ -258,7 +258,7 @@ def explain_for_group(policy: Policy, group: str) -> GroupExplanation:
 
 
 def _mentions_in_when(when_text: str) -> tuple[frozenset[str], frozenset[str]]:
-    tree = parse_normalized(when_text)
+    tree = parse_cel_expression(when_text)
     agent_ids: set[str] = set()
     groups: set[str] = set()
     for subtree in tree.iter_subtrees():

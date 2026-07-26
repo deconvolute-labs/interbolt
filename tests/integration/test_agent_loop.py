@@ -254,7 +254,8 @@ class TestIngestedByGatesAcrossAgents:
                     SinkRule(
                         name="block_researcher_ingested",
                         when=(
-                            'taint.any(t, t.ingested_by.exists(a, a == "researcher"))'
+                            "taint.exists(t, "
+                            't.ingested_by.exists(a, a == "researcher"))'
                         ),
                         action=Action.BLOCK,
                     ),
