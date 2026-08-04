@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from interbolt.errors import InterboltConfigError, PolicyEvaluationError
-from interbolt.models.core import Action, Label, TrustLevel
+from interbolt.models.core import Action, Label, RunIngressEntry, TrustLevel
 from interbolt.policy import Policy
 from interbolt.policy.cel import (
     compile_cel_expression,
@@ -126,7 +126,7 @@ class TestAnyMacroLiteralSafety:
             args={"path": path},
             resolved_labels=resolve_labels(labels, sources_table or {}),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -181,7 +181,7 @@ class TestAnyMacroLiteralSafety:
             args={"path": "a backup.any( file"},
             resolved_labels=(),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -195,7 +195,7 @@ class TestAnyMacroLiteralSafety:
             args={"path": "clean"},
             resolved_labels=(),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -301,7 +301,7 @@ class TestBuildContext:
             args={},
             resolved_labels=(),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -323,7 +323,7 @@ class TestBuildContext:
             args={},
             resolved_labels=(),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="billing-agent",
             groups=frozenset(),
         )
@@ -335,7 +335,7 @@ class TestBuildContext:
             args={},
             resolved_labels=(),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -347,7 +347,7 @@ class TestBuildContext:
             args={},
             resolved_labels=(),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="billing-agent",
             groups=frozenset({"payer", "internal"}),
         )
@@ -361,7 +361,7 @@ class TestBuildContext:
             args={},
             resolved_labels=resolve_labels(labels, {"web": TrustLevel.UNTRUSTED}),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -374,7 +374,7 @@ class TestBuildContext:
             args={},
             resolved_labels=resolve_labels(labels, {"kb": TrustLevel.TRUSTED}),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -386,7 +386,7 @@ class TestBuildContext:
             args={},
             resolved_labels=(),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -400,7 +400,7 @@ class TestBuildContext:
             args={},
             resolved_labels=resolve_labels((lbl1, lbl2), {}),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -414,7 +414,7 @@ class TestBuildContext:
             args={},
             resolved_labels=resolve_labels((merged,), {}),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -434,7 +434,7 @@ class TestBuildContext:
             args={},
             resolved_labels=resolve_labels((lbl,), {}),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -450,7 +450,7 @@ class TestBuildContext:
             args={},
             resolved_labels=resolve_labels((lbl,), {}),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -484,7 +484,7 @@ class TestLineageVsSourceAfterMerge:
             args={},
             resolved_labels=resolve_labels((merged,), sources_table),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -544,7 +544,7 @@ class TestRequireEndorsementSugar:
             args={},
             resolved_labels=resolve_labels((lbl,), {}),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -583,7 +583,7 @@ class TestRequireEndorsementSugar:
             args={},
             resolved_labels=resolve_labels((lbl,), {}),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -615,7 +615,7 @@ class TestAgentIdInCel:
             args={},
             resolved_labels=(),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="billing-agent",
             groups=frozenset(),
         )
@@ -643,7 +643,7 @@ class TestAgentIdInCel:
             args={},
             resolved_labels=(),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="support-agent",
             groups=frozenset(),
         )
@@ -665,11 +665,107 @@ class TestAgentIdInCel:
             args={},
             resolved_labels=(),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="x",
             groups=frozenset(),
         )
         assert bool(expr.evaluate(ctx)) is True
+
+
+class TestRunFieldsInCel:
+    """`run.sources`/`run.untrusted_sources`/`run.ingested_by`, alongside
+    `run.tainted`."""
+
+    def _evaluate(
+        self,
+        when: str,
+        run_ingress: tuple[RunIngressEntry, ...],
+        *,
+        agent_id: str = "x",
+    ) -> Action:
+        doc = _simple_doc(
+            sinks={
+                "default.tool": [
+                    {"name": "r", "when": when, "action": "block"},
+                    {"name": "default", "action": "allow"},
+                ]
+            }
+        )
+        compiled = compile_policy(doc)
+        ctx = build_context(
+            tool="default.tool",
+            args={},
+            resolved_labels=(),
+            trifecta=frozenset(),
+            run_ingress=run_ingress,
+            agent_id=agent_id,
+            groups=frozenset(),
+        )
+        _, action, _ = evaluate_sink(
+            compiled["default.tool"], ctx, default_action=Action.ALLOW
+        )
+        return action
+
+    def test_run_untrusted_sources_exists_fires_when_source_ingested(self) -> None:
+        entries = (
+            RunIngressEntry(
+                source="web_search", trust=TrustLevel.UNTRUSTED, ingested_by=()
+            ),
+        )
+        action = self._evaluate(
+            'run.untrusted_sources.exists(s, s == "web_search")', entries
+        )
+        assert action is Action.BLOCK
+
+    def test_run_untrusted_sources_exists_does_not_fire_when_not_ingested(self) -> None:
+        action = self._evaluate(
+            'run.untrusted_sources.exists(s, s == "web_search")', ()
+        )
+        assert action is Action.ALLOW
+
+    def test_run_sources_includes_trusted_source_untrusted_sources_excludes(
+        self,
+    ) -> None:
+        entries = (
+            RunIngressEntry(
+                source="internal_kb", trust=TrustLevel.TRUSTED, ingested_by=()
+            ),
+        )
+        ctx = build_context(
+            tool="default.tool",
+            args={},
+            resolved_labels=(),
+            trifecta=frozenset(),
+            run_ingress=entries,
+            agent_id="x",
+            groups=frozenset(),
+        )
+        assert [str(s) for s in ctx["run"]["sources"]] == ["internal_kb"]
+        assert list(ctx["run"]["untrusted_sources"]) == []
+
+    def test_run_ingested_by_names_ingesting_agent_when_different_from_acting_agent(
+        self,
+    ) -> None:
+        entries = (
+            RunIngressEntry(
+                source="internal_kb",
+                trust=TrustLevel.TRUSTED,
+                ingested_by=("research-agent",),
+            ),
+        )
+        action = self._evaluate(
+            'run.ingested_by.exists(a, a == "research-agent")',
+            entries,
+            agent_id="support-agent",
+        )
+        assert action is Action.BLOCK
+
+    def test_run_sources_exists_false_and_all_true_on_run_with_no_ingress(self) -> None:
+        # The empty-list-fold hazard `validate_policy`'s new lint warns about.
+        exists_action = self._evaluate('run.sources.exists(s, s == "web_search")', ())
+        assert exists_action is Action.ALLOW
+        all_action = self._evaluate('run.sources.all(s, s == "web_search")', ())
+        assert all_action is Action.BLOCK
 
 
 class TestIngestedByInCel:
@@ -710,7 +806,7 @@ class TestIngestedByInCel:
             args={},
             resolved_labels=resolve_labels((lbl,), {}),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="support-agent",
             groups=frozenset(),
         )
@@ -732,7 +828,7 @@ class TestIngestedByInCel:
             args={},
             resolved_labels=resolve_labels((lbl,), {}),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="support-agent",
             groups=frozenset(),
         )
@@ -769,7 +865,7 @@ class TestAgentGroupsInCel:
             args={},
             resolved_labels=(),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="billing-agent",
             groups=frozenset({"payer", "internal"}),
         )
@@ -785,7 +881,7 @@ class TestAgentGroupsInCel:
             args={},
             resolved_labels=(),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="unknown-agent",
             groups=frozenset(),
         )
@@ -813,7 +909,7 @@ class TestAgentGroupsInCel:
             args={},
             resolved_labels=(),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="billing-agent",
             groups=frozenset(),
         )
@@ -832,7 +928,7 @@ class TestAgentGroupsInCel:
             args={},
             resolved_labels=(),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="researcher",
             groups=frozenset(),
         )
@@ -863,7 +959,7 @@ class TestAgentGroupsInCel:
             args={},
             resolved_labels=(),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="billing-agent",
             groups=frozenset({"payer", "internal"}),
         )
@@ -897,7 +993,7 @@ class TestEvaluateSink:
             args={},
             resolved_labels=(),
             trifecta=frozenset(),
-            run_tainted=False,
+            run_ingress=(),
             agent_id="agent-1",
             groups=frozenset(),
         )

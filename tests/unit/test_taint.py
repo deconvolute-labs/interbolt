@@ -18,14 +18,17 @@ from interbolt.taint import (
     TaintedBytes,
     _fresh_label,
     _merge_labels,
+    clear_run_ingress,
     collect_labels,
     endorse,
     install_endorsement_emitter,
+    record_ingress,
+    run_ingress,
     taint,
     track_model_call,
     unwrap,
 )
-from interbolt.utils import current_agent_id
+from interbolt.utils import current_agent_id, current_run_id
 
 Point = namedtuple("Point", "x y")
 
@@ -978,23 +981,23 @@ class TestContainerRecursionStringLeavesOnly:
 
 class TestTaintDerivedFrom:
     def test_none_behaves_like_plain_taint(self, mocker: MockerFixture) -> None:
-        spy = mocker.patch("interbolt.taint.ingress.record_ingress_sources")
+        spy = mocker.patch("interbolt.taint.ingress.record_ingress")
         result = taint("out", source="model", derived_from=None)
         assert isinstance(result, Tainted)
         assert result.label.lineage == ("model",)
-        spy.assert_called_once_with(("model",))
+        spy.assert_called_once_with({"model": (DEFAULT_AGENT_ID,)})
 
     def test_empty_list_behaves_like_plain_taint(self, mocker: MockerFixture) -> None:
-        spy = mocker.patch("interbolt.taint.ingress.record_ingress_sources")
+        spy = mocker.patch("interbolt.taint.ingress.record_ingress")
         result = taint("out", source="model", derived_from=[])
         assert isinstance(result, Tainted)
         assert result.label.lineage == ("model",)
-        spy.assert_called_once_with(("model",))
+        spy.assert_called_once_with({"model": (DEFAULT_AGENT_ID,)})
 
     def test_all_plain_inputs_returns_value_unwrapped(
         self, mocker: MockerFixture
     ) -> None:
-        spy = mocker.patch("interbolt.taint.ingress.record_ingress_sources")
+        spy = mocker.patch("interbolt.taint.ingress.record_ingress")
         value = "out"
         result = taint(value, source="model", derived_from=["plain prompt", 42])
         assert result is value
@@ -1045,7 +1048,7 @@ class TestTaintDerivedFrom:
     def test_does_not_record_ingress_for_derivation_hop(
         self, mocker: MockerFixture
     ) -> None:
-        spy = mocker.patch("interbolt.taint.ingress.record_ingress_sources")
+        spy = mocker.patch("interbolt.taint.ingress.record_ingress")
         untrusted = taint("attacker text", source="web_search")
         spy.reset_mock()  # drop the call recorded by the taint() call above
         taint("summary", source="model", derived_from=[untrusted])
@@ -1062,6 +1065,59 @@ class TestTaintDerivedFrom:
         untrusted = taint("attacker text", source="web_search")
         result = taint("summary", source="model", derived_from=[{"nested": untrusted}])
         assert result.label.lineage == ("web_search",)
+
+
+# ---------------------------------------------------------------------------
+# The run-ingress registry (taint/runstate.py)
+# ---------------------------------------------------------------------------
+
+
+class TestRunIngressRegistry:
+    def test_taint_credits_ambient_agent_id(self) -> None:
+        run_token = current_run_id.set("run-registry-a")
+        agent_token = current_agent_id.set("researcher")
+        try:
+            taint("doc", source="web_search")
+        finally:
+            current_run_id.reset(run_token)
+            current_agent_id.reset(agent_token)
+        assert run_ingress("run-registry-a") == {"web_search": ("researcher",)}
+
+    def test_taint_credits_default_agent_id_with_no_active_agent_context(self) -> None:
+        assert current_agent_id.get() is None
+        run_token = current_run_id.set("run-registry-b")
+        try:
+            taint("doc", source="web_search")
+        finally:
+            current_run_id.reset(run_token)
+        assert run_ingress("run-registry-b") == {"web_search": (DEFAULT_AGENT_ID,)}
+
+    def test_two_agents_ingesting_same_source_both_appear_first_seen_deduped(
+        self,
+    ) -> None:
+        run_token = current_run_id.set("run-registry-c")
+        try:
+            record_ingress({"web_search": ("agent_a",)})
+            record_ingress({"web_search": ("agent_b",)})
+            record_ingress({"web_search": ("agent_a",)})  # repeat, deduped
+        finally:
+            current_run_id.reset(run_token)
+        assert run_ingress("run-registry-c") == {"web_search": ("agent_a", "agent_b")}
+
+    def test_ingress_with_no_active_run_is_dropped(self) -> None:
+        assert current_run_id.get() is None
+        record_ingress({"web_search": ("agent_a",)})  # must not raise
+        assert run_ingress("no-such-run") == {}
+
+    def test_clear_run_ingress_drops_the_runs_entries(self) -> None:
+        run_token = current_run_id.set("run-registry-d")
+        try:
+            record_ingress({"web_search": ("agent_a",)})
+        finally:
+            current_run_id.reset(run_token)
+        assert run_ingress("run-registry-d") != {}
+        clear_run_ingress("run-registry-d")
+        assert run_ingress("run-registry-d") == {}
 
 
 # ---------------------------------------------------------------------------

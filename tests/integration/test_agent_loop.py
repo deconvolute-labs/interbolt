@@ -13,6 +13,8 @@ from interbolt import (
     Mode,
     Policy,
     PolicyViolation,
+    Tainted,
+    TrustLevel,
     configure,
     taint,
 )
@@ -299,3 +301,65 @@ class TestIngestedByGatesAcrossAgents:
         )
 
         assert decision.action is Action.ALLOW
+
+
+class TestRunIngressExplainsHandoffAcrossAgents:
+    """The case run-level gating exists for: a model-mediated handoff that
+    launders value-level taint away. `contributing_labels`, `sources`, and
+    `untrusted_sources` are all empty on the deciding call, so
+    `decision.run_ingress` is the only place the record still explains why
+    `run.tainted` fired.
+    """
+
+    def _policy(self, make_policy: Callable[..., Policy]) -> Policy:
+        return make_policy(
+            sink_action=Action.ALLOW,
+            sinks={
+                "default.send_summary": (
+                    SinkRule(
+                        name="block_run_tainted",
+                        when="run.tainted",
+                        action=Action.BLOCK,
+                    ),
+                    SinkRule(name="default", action=Action.ALLOW),
+                )
+            },
+        )
+
+    async def test_run_ingress_names_source_and_agent_after_laundering_handoff(
+        self, make_policy: Callable[..., Policy]
+    ) -> None:
+        policy = self._policy(make_policy)
+        reporter = InMemoryReporter()
+        rt = configure(policy=policy, reporter=reporter, mode="enforce")
+
+        async with rt.agent_context("agent-a"):
+            # Agent A taints a retrieved document from an untrusted source.
+            document = taint("attacker-controlled finding", source="web_search")
+
+            # Laundered through an f-string with literal text: the
+            # propagation contract drops the label here, simulating
+            # model-authored output that carries no provenance.
+            summary = f"Summary: {document}"
+            assert not isinstance(summary, Tainted)
+
+            # Agent B calls the guarded sink with plain, unlabeled
+            # arguments, still inside agent A's run.
+            decision = rt.check(
+                tool="default.send_summary",
+                args={"summary": summary},
+                agent_id="agent-b",
+            )
+
+        assert decision.action is Action.BLOCK
+        assert decision.matched_rule == "block_run_tainted"
+        assert decision.contributing_labels == ()
+        assert decision.trifecta == frozenset()
+        assert decision.untrusted_sources == frozenset()
+        assert decision.run_tainted is True
+        assert len(decision.run_ingress) == 1
+        entry = decision.run_ingress[0]
+        assert entry.source == "web_search"
+        assert entry.trust is TrustLevel.UNTRUSTED
+        assert entry.ingested_by == ("agent-a",)
+        assert reporter.decisions[-1].decision_id == decision.decision_id

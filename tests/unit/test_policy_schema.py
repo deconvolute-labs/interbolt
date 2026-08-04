@@ -204,6 +204,69 @@ sinks:
       action: block
 """
 
+_POLICY_WITH_ALL_FOUR_RUN_FIELDS = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: run_fields
+      when: >-
+        run.tainted && run.sources.exists(s, s == "x") &&
+        run.untrusted_sources.exists(s, s == "x") &&
+        run.ingested_by.exists(a, a == "x")
+      action: block
+"""
+
+_POLICY_WITH_RUN_SOURCES_ALL_ALLOW = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: vacuous_run_allow
+      when: 'agent.id == "x" && run.sources.all(s, s == "web_search")'
+      action: allow
+"""
+
+_POLICY_WITH_RUN_SOURCES_ALL_BLOCK = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: run_sources_all_block
+      when: 'run.sources.all(s, s == "web_search")'
+      action: block
+"""
+
+_POLICY_WITH_IDENTITY_ONLY_ALLOW_RUN_INGESTED_BY = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: identity_only_allow_ingested_by
+      when: 'agent.id == "x" && run.ingested_by.exists(a, a == "y")'
+      action: allow
+"""
+
+_POLICY_WITH_IDENTITY_ALLOW_RUN_UNTRUSTED_SOURCES = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: identity_allow_untrusted_sources
+      when: 'agent.id == "x" && run.untrusted_sources.exists(s, s == "web_search")'
+      action: allow
+"""
+
 _POLICY_WITH_IDENTITY_ONLY_ALLOW = """\
 version: "1.0"
 defaults:
@@ -754,6 +817,78 @@ sinks:
         b_matches = [p for p in problems if "run.'b'" in p]
         assert len(a_matches) == 1
         assert len(b_matches) == 1
+
+    def test_all_four_run_fields_validate_clean(self, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_ALL_FOUR_RUN_FIELDS),
+        )
+        problems = validate_policy("fake.yaml")
+        assert not any(not p.startswith("warning:") for p in problems)
+
+    def test_run_nonsense_field_errors_with_widened_field_list(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(
+                read_data=_POLICY_WITH_RUN_FIELD_VIOLATION_OUTSIDE_LITERAL
+            ),
+        )
+        problems = validate_policy("fake.yaml")
+        matches = [p for p in problems if "run.'bogus'" in p]
+        assert len(matches) == 1
+        assert "computable fields are" in matches[0]
+        assert "'ingested_by'" in matches[0]
+        assert "'sources'" in matches[0]
+        assert "'tainted'" in matches[0]
+        assert "'untrusted_sources'" in matches[0]
+
+    def test_run_sources_all_in_allow_rule_warns(self, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_RUN_SOURCES_ALL_ALLOW),
+        )
+        problems = validate_policy("fake.yaml")
+        assert any(
+            p.startswith("warning:") and "run.sources.all(" in p for p in problems
+        )
+
+    def test_run_sources_all_in_block_rule_not_flagged(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_RUN_SOURCES_ALL_BLOCK),
+        )
+        problems = validate_policy("fake.yaml")
+        assert problems == []
+
+    def test_identity_only_allow_with_run_ingested_by_still_warns(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(
+                read_data=_POLICY_WITH_IDENTITY_ONLY_ALLOW_RUN_INGESTED_BY
+            ),
+        )
+        problems = validate_policy("fake.yaml")
+        assert any(
+            p.startswith("warning:") and "unconditional access" in p for p in problems
+        )
+
+    def test_identity_allow_with_run_untrusted_sources_not_flagged(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(
+                read_data=_POLICY_WITH_IDENTITY_ALLOW_RUN_UNTRUSTED_SOURCES
+            ),
+        )
+        problems = validate_policy("fake.yaml")
+        assert not any("unconditional access" in p for p in problems)
 
     def test_identity_only_allow_produces_warning(self, mocker: MockerFixture) -> None:
         mocker.patch(

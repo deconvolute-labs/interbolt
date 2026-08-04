@@ -12,9 +12,10 @@ from celpy.evaluation import CELEvalError, CELUnsupportedError
 from interbolt.constants import EVENT_SCHEMA_VERSION, RECURSION_DEPTH
 from interbolt.enforcement.audit import AuditRegistry
 from interbolt.enforcement.signals import (
-    _compute_run_tainted,
     _compute_trifecta,
     _compute_untrusted_sources,
+    _resolve_run_ingress,
+    _run_tainted,
 )
 from interbolt.errors import PolicyEvaluationError
 from interbolt.models.core import (
@@ -25,6 +26,7 @@ from interbolt.models.core import (
     Label,
     Mode,
     Outcome,
+    RunIngressEntry,
     TrustLevel,
 )
 from interbolt.models.protocols import Reporter
@@ -86,14 +88,14 @@ def check(
     trifecta = _compute_trifecta(resolved_labels)
     untrusted_sources = _compute_untrusted_sources(resolved_labels)
     resolved_run_id = run_id if run_id is not None else str(uuid.uuid4())
-    run_tainted = _compute_run_tainted(resolved_run_id, sources_table)
+    run_ingress = _resolve_run_ingress(resolved_run_id, sources_table)
 
     action, matched_rule, matched_condition, evaluation_error = _evaluate(
         tool=tool,
         plain_args=plain_args,
         resolved_labels=resolved_labels,
         trifecta=trifecta,
-        run_tainted=run_tainted,
+        run_ingress=run_ingress,
         agent_id=agent_id,
         policy=policy,
     )
@@ -115,7 +117,7 @@ def check(
         labels=labels,
         trifecta=trifecta,
         untrusted_sources=untrusted_sources,
-        run_tainted=run_tainted,
+        run_ingress=run_ingress,
         mode=mode,
         final_action=final_action,
         matched_rule=matched_rule,
@@ -153,7 +155,7 @@ def _evaluate(
     plain_args: Mapping[str, Any],
     resolved_labels: tuple[ResolvedLabel, ...],
     trifecta: frozenset[str],
-    run_tainted: bool,
+    run_ingress: tuple[RunIngressEntry, ...],
     agent_id: str,
     policy: Policy,
 ) -> tuple[Action, str | None, str | None, CELEvalError | CELUnsupportedError | None]:
@@ -171,7 +173,7 @@ def _evaluate(
                 args=plain_args,
                 resolved_labels=resolved_labels,
                 trifecta=trifecta,
-                run_tainted=run_tainted,
+                run_ingress=run_ingress,
                 agent_id=agent_id,
                 groups=groups,
             )
@@ -209,7 +211,7 @@ def _build_records(
     labels: tuple[Label, ...],
     trifecta: frozenset[str],
     untrusted_sources: frozenset[str],
-    run_tainted: bool,
+    run_ingress: tuple[RunIngressEntry, ...],
     mode: Mode,
     final_action: Action,
     matched_rule: str | None,
@@ -229,7 +231,8 @@ def _build_records(
         contributing_labels=labels,
         trifecta=trifecta,
         untrusted_sources=untrusted_sources,
-        run_tainted=run_tainted,
+        run_tainted=_run_tainted(run_ingress),
+        run_ingress=run_ingress,
         mode=mode,
         decision_id=str(uuid.uuid4()),
         agent_id=agent_id,

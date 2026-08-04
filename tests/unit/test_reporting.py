@@ -18,6 +18,8 @@ from interbolt.models.core import (
     Finding,
     Mode,
     Outcome,
+    RunIngressEntry,
+    TrustLevel,
 )
 from interbolt.reporting import (
     CompositeReporter,
@@ -37,6 +39,8 @@ def _decision(
     matched_rule: str | None = None,
     matched_condition: str | None = None,
     untrusted_sources: frozenset[str] = frozenset(),
+    run_tainted: bool = False,
+    run_ingress: tuple[RunIngressEntry, ...] = (),
 ) -> Decision:
     return Decision(
         action=action,
@@ -46,7 +50,8 @@ def _decision(
         contributing_labels=(),
         trifecta=frozenset(),
         untrusted_sources=untrusted_sources,
-        run_tainted=False,
+        run_tainted=run_tainted,
+        run_ingress=run_ingress,
         mode=Mode.ENFORCE,
         decision_id=str(uuid.uuid4()),
         agent_id="agent",
@@ -293,6 +298,31 @@ class TestDescribeEvent:
     def test_includes_matched_rule_or_default(self) -> None:
         assert "default" in describe_event(_event())
 
+    def test_omits_run_untrusted_when_run_not_tainted(self) -> None:
+        text = describe_event(_event())
+        assert "run_untrusted=" not in text
+
+    def test_includes_run_untrusted_source_and_agent_when_run_tainted(self) -> None:
+        decision = _decision(
+            run_tainted=True,
+            run_ingress=(
+                RunIngressEntry(
+                    source="web_search",
+                    trust=TrustLevel.UNTRUSTED,
+                    ingested_by=("research-agent",),
+                ),
+            ),
+        )
+        event = Event(
+            schema_version=EVENT_SCHEMA_VERSION,
+            decision=decision,
+            sources=frozenset(),
+            outcome=Outcome.ALLOW,
+            timestamp=datetime.now(UTC),
+        )
+        text = describe_event(event)
+        assert "run_untrusted={web_search(research-agent)}" in text
+
 
 class TestDescribeFinding:
     def test_includes_source_tool_and_argument(self) -> None:
@@ -347,3 +377,21 @@ class TestDescribeDecision:
     def test_matched_condition_absent_when_none(self) -> None:
         text = describe_decision(_decision(matched_condition=None))
         assert "when=" not in text
+
+    def test_omits_run_untrusted_when_run_not_tainted(self) -> None:
+        text = describe_decision(_decision())
+        assert "run_untrusted=" not in text
+
+    def test_includes_run_untrusted_source_and_agent_when_run_tainted(self) -> None:
+        decision = _decision(
+            run_tainted=True,
+            run_ingress=(
+                RunIngressEntry(
+                    source="web_search",
+                    trust=TrustLevel.UNTRUSTED,
+                    ingested_by=("research-agent",),
+                ),
+            ),
+        )
+        text = describe_decision(decision)
+        assert "run_untrusted={web_search(research-agent)}" in text

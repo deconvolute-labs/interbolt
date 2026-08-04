@@ -15,6 +15,7 @@ from interbolt.models.core import (
     Label,
     Mode,
     Outcome,
+    RunIngressEntry,
     TrustLevel,
 )
 from interbolt.runtime import auto_deny
@@ -39,12 +40,17 @@ def _decision(action: Action = Action.ALLOW) -> Decision:
         trifecta=frozenset(),
         untrusted_sources=frozenset(),
         run_tainted=False,
+        run_ingress=(),
         mode=Mode.ENFORCE,
         decision_id=str(uuid.uuid4()),
         agent_id="agent",
         run_id="run",
         session_id=None,
     )
+
+
+def _run_ingress_entry(source: str = "web_search") -> RunIngressEntry:
+    return RunIngressEntry(source=source, trust=TrustLevel.UNTRUSTED, ingested_by=())
 
 
 def test_validate_qualified_name_part_with_dot_raises() -> None:
@@ -104,6 +110,31 @@ def test_decision_is_frozen() -> None:
     d = _decision()
     with pytest.raises((ValidationError, TypeError)):
         d.action = Action.BLOCK
+
+
+def test_run_ingress_entry_is_frozen() -> None:
+    entry = _run_ingress_entry()
+    with pytest.raises((ValidationError, TypeError)):
+        entry.source = "other"
+
+
+def test_decision_missing_run_ingress_raises_validation_error() -> None:
+    with pytest.raises(ValidationError):
+        Decision(  # type: ignore[call-arg]
+            action=Action.ALLOW,
+            matched_rule=None,
+            matched_condition=None,
+            tool="default.tool",
+            contributing_labels=(),
+            trifecta=frozenset(),
+            untrusted_sources=frozenset(),
+            run_tainted=False,
+            mode=Mode.ENFORCE,
+            decision_id=str(uuid.uuid4()),
+            agent_id="agent",
+            run_id="run",
+            session_id=None,
+        )
 
 
 def test_mode_str_enum_values() -> None:

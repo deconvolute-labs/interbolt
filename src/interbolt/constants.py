@@ -15,12 +15,12 @@ ENV_RECURSION_DEPTH: str = "INTERBOLT_RECURSION_DEPTH"
 
 DEFAULT_RECURSION_DEPTH: int = 4
 RECURSION_DEPTH_MAX: int = 10
-EVENT_SCHEMA_VERSION: int = 9
+EVENT_SCHEMA_VERSION: int = 10
 AUDIT_MIN_MATCH_LENGTH: int = 12
 AUDIT_FINDINGS_MAX: int = 10_000
 AUDIT_MAX_TRACKED_RUNS: int = 1_000
 
-WIRE_SCHEMA_VERSION: int = 1
+WIRE_SCHEMA_VERSION: int = 2
 WIRE_ENVELOPE_KEY: str = "__interbolt__"
 WIRE_MAX_ENTRIES: int = 100_000
 WIRE_MAX_NAME_LENGTH: int = 256
@@ -42,7 +42,9 @@ CONTAINER_TYPES = (list, tuple, set, frozenset)
 TRIFECTA_FROM_UNTRUSTED: str = "from_untrusted"
 TRIFECTA_COMPUTABLE_LEGS: frozenset[str] = frozenset({TRIFECTA_FROM_UNTRUSTED})
 
-RUN_COMPUTABLE_FIELDS: frozenset[str] = frozenset({"tainted"})
+RUN_COMPUTABLE_FIELDS: frozenset[str] = frozenset(
+    {"tainted", "sources", "untrusted_sources", "ingested_by"}
+)
 AGENT_COMPUTABLE_FIELDS: frozenset[str] = frozenset({"id", "groups"})
 
 

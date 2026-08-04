@@ -34,7 +34,14 @@ from interbolt.utils.names import (
     validate_group_name,
 )
 
-_IDENTITY_ONLY_SIGNALS = ("taint", "max_trust", "sources", "run.")
+_IDENTITY_ONLY_SIGNALS = (
+    "taint",
+    "max_trust",
+    "sources",
+    "run.tainted",
+    "run.sources",
+    "run.untrusted_sources",
+)
 _LITERAL_SPAN = re.compile(
     r"""[rRbB]{0,2}(?:'''(?:\\.|[^\\])*?'''|\"\"\"(?:\\.|[^\\])*?\"\"\""""
     r"""|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")""",
@@ -443,8 +450,8 @@ def validate_policy(path: str) -> list[str]:
                     if field not in RUN_COMPUTABLE_FIELDS:
                         problems.append(
                             f"sink {sink_key!r}: rule {rule.name!r} references "
-                            f"run.{field!r}, which does not exist; the only "
-                            f"computable field is {sorted(RUN_COMPUTABLE_FIELDS)}"
+                            f"run.{field!r}, which does not exist; the "
+                            f"computable fields are {sorted(RUN_COMPUTABLE_FIELDS)}"
                         )
                 for field in _bare_fields(tree, "agent"):
                     if field not in AGENT_COMPUTABLE_FIELDS:
@@ -476,6 +483,24 @@ def validate_policy(path: str) -> list[str]:
                         "differently-sourced inputs; use "
                         "t.lineage.exists(s, s == ...) instead"
                     )
+                if rule.action is Action.ALLOW:
+                    for field in ("sources", "untrusted_sources", "ingested_by"):
+
+                        def _matches_run_field(
+                            r: lark.Tree[lark.Token] | lark.Token, field: str = field
+                        ) -> bool:
+                            return member_field(r, "run") == field
+
+                        if _call_args(tree, "all", _matches_run_field):
+                            problems.append(
+                                f"warning: sink {sink_key!r}: rule "
+                                f"{rule.name!r} uses run.{field}.all(...) in "
+                                "an allow rule; all evaluates true on a run "
+                                "with no recorded ingress (CEL's empty-list "
+                                "fold), so this can allow a call in a run "
+                                "whose ingress was never recorded; use "
+                                f"run.{field}.exists(...) instead"
+                            )
             # The identity-only-allow and taint.all(...) checks below ask
             # about a rule's overall shape rather than resolving a specific
             # reference, which is genuinely fuzzy; they stay text heuristics

@@ -13,6 +13,7 @@ from interbolt.constants import (
     WIRE_MAX_ENTRIES,
     WIRE_MAX_LIST_LENGTH,
     WIRE_MAX_NAME_LENGTH,
+    WIRE_SCHEMA_VERSION,
 )
 from interbolt.errors import InterboltConfigError
 from interbolt.taint import (
@@ -23,6 +24,7 @@ from interbolt.taint import (
     endorse,
     pack,
     pack_into,
+    run_ingress,
     taint,
     unpack,
     unpack_from,
@@ -30,7 +32,7 @@ from interbolt.taint import (
 )
 from interbolt.taint.wire import _warn_unauthenticated_once
 from interbolt.taint.wire_walk import replace_at_path, resolve_path, strip_to_json
-from interbolt.utils import current_agent_id
+from interbolt.utils import current_agent_id, current_run_id
 
 Point = namedtuple("Point", "x y")
 
@@ -360,6 +362,48 @@ class TestPackRoundTrip:
         assert leaf.label.source == "web"
 
 
+class TestRunBlockRoundTrip:
+    def test_v2_round_trip_preserves_source_to_agent_attribution(self) -> None:
+        pack_token = current_run_id.set("run-pack-side")
+        agent_token = current_agent_id.set("research-agent")
+        try:
+            envelope = pack(taint("doc", source="web_search"))
+        finally:
+            current_run_id.reset(pack_token)
+            current_agent_id.reset(agent_token)
+
+        unpack_token = current_run_id.set("run-unpack-side")
+        try:
+            unpack(envelope)
+            assert run_ingress("run-unpack-side") == {"web_search": ("research-agent",)}
+        finally:
+            current_run_id.reset(unpack_token)
+
+    def test_hand_built_v1_envelope_rejected(self) -> None:
+        envelope = _minimal_envelope()
+        envelope["version"] = 1
+        envelope["run"] = {"sources": ["web_search"]}
+        with pytest.raises(InterboltConfigError):
+            unpack(envelope)
+
+    def test_v2_versioned_envelope_with_v1_bare_string_shape_rejected(self) -> None:
+        envelope = _minimal_envelope()
+        envelope["version"] = WIRE_SCHEMA_VERSION
+        envelope["run"] = {"sources": ["web_search"]}
+        with pytest.raises(InterboltConfigError):
+            unpack(envelope)
+
+    def test_mac_verifies_for_v2_envelope_carrying_run_block(self) -> None:
+        run_token = current_run_id.set("run-mac")
+        try:
+            envelope = pack(taint("doc", source="web_search"), key="secret")
+        finally:
+            current_run_id.reset(run_token)
+        assert envelope["run"] is not None
+        revived = unpack(envelope, key="secret")
+        assert revived == "doc"
+
+
 class TestLabelFidelityAndInterning:
     def test_every_label_field_round_trips(self) -> None:
         original = _fully_populated_tainted()
@@ -595,7 +639,31 @@ class TestValidation:
     def test_run_sources_over_list_length_cap_rejected(self) -> None:
         envelope = _minimal_envelope()
         envelope["run"] = {
-            "sources": [f"s{i}" for i in range(WIRE_MAX_LIST_LENGTH + 1)]
+            "sources": [
+                {"name": f"s{i}", "ingested_by": []}
+                for i in range(WIRE_MAX_LIST_LENGTH + 1)
+            ]
+        }
+        with pytest.raises(InterboltConfigError):
+            unpack(envelope)
+
+    def test_run_sources_ingested_by_over_list_length_cap_rejected(self) -> None:
+        envelope = _minimal_envelope()
+        envelope["run"] = {
+            "sources": [
+                {
+                    "name": "web_search",
+                    "ingested_by": [f"a{i}" for i in range(WIRE_MAX_LIST_LENGTH + 1)],
+                }
+            ]
+        }
+        with pytest.raises(InterboltConfigError):
+            unpack(envelope)
+
+    def test_run_sources_ingested_by_over_name_length_cap_rejected(self) -> None:
+        envelope = _minimal_envelope()
+        envelope["run"] = {
+            "sources": [{"name": "web_search", "ingested_by": ["a" * 10_000]}]
         }
         with pytest.raises(InterboltConfigError):
             unpack(envelope)
@@ -692,7 +760,7 @@ class TestAtomicity:
         )
         del envelope["payload"]["b"]
 
-        record_spy = mocker.patch("interbolt.taint.wire.record_ingress_sources")
+        record_spy = mocker.patch("interbolt.taint.wire.record_ingress")
         replay_spy = mocker.patch("interbolt.taint.wire._replay_audit")
 
         with pytest.raises(InterboltConfigError):

@@ -13,7 +13,7 @@ from interbolt.taint.carriers import LabeledValue as LabeledValue
 from interbolt.taint.carriers import Tainted as Tainted
 from interbolt.taint.carriers import TaintedBytes as TaintedBytes
 from interbolt.taint.carriers import _fresh_label, _merge_labels, _new_value_id
-from interbolt.taint.runstate import get_taint_observer, record_ingress_sources
+from interbolt.taint.runstate import get_taint_observer, record_ingress
 from interbolt.taint.walk import (
     collect_labels,
     is_container,
@@ -78,7 +78,7 @@ def taint(
     """
     derived_items = None if derived_from is None else list(derived_from)
     if not derived_items:
-        record_ingress_sources((source,))
+        record_ingress({source: (current_agent_id.get() or DEFAULT_AGENT_ID,)})
         observer = get_taint_observer()
         if observer is not None:
             run_id = current_run_id.get()

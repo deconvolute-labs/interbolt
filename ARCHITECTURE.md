@@ -138,6 +138,9 @@ formatters, and the optional OpenTelemetry reporter.
   dotted form is surface only. A namespace or tool containing a dot is rejected.
 - Every `Decision` carries `agent_id`, `run_id`, and optional `session_id`. A
   durable `agent_id` is never fabricated.
+- A `Decision` carries the run's ingested sources (`run_ingress`, one entry
+  per source with its resolved trust and ingesting agents) alongside the
+  `run_tainted` boolean derived from the same entries.
 - `agent_id` is never accepted from a taint carrier. It is an authorization
   input once a policy reads `agent.id`, so it comes from deterministic dispatch
   rather than model output. Charset, carrier rejection, and rejection of the

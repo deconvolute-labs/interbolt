@@ -5,10 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from interbolt.constants import TRIFECTA_FROM_UNTRUSTED
-from interbolt.models.core import TrustLevel
+from interbolt.models.core import RunIngressEntry, TrustLevel
 from interbolt.policy import ResolvedLabel
 from interbolt.policy.evaluate import resolve_source_trust
-from interbolt.taint import run_ingress_sources
+from interbolt.taint import run_ingress
 
 
 def _compute_trifecta(resolved_labels: tuple[ResolvedLabel, ...]) -> frozenset[str]:
@@ -38,15 +38,28 @@ def _compute_untrusted_sources(
     )
 
 
-def _compute_run_tainted(run_id: str, sources_table: Mapping[str, TrustLevel]) -> bool:
-    """Resolve whether the active run has ingested untrusted data via `taint()`.
+def _resolve_run_ingress(
+    run_id: str, sources_table: Mapping[str, TrustLevel]
+) -> tuple[RunIngressEntry, ...]:
+    """Resolve the active run's ingested sources against the policy's trust table.
 
-    Reads the run's recorded ingress source names (`taint.run_ingress_sources`,
-    independent of this call's own arguments) and resolves each the same way
-    `resolve_label_trust` resolves a label's lineage. This lets `run.tainted`
-    catch a model-mediated handoff that launders value-level taint away.
+    Reads the run's recorded ingress (`taint.run_ingress`, independent of
+    this call's own arguments) and resolves each source name the same way
+    `resolve_label_trust` resolves a label's lineage, pairing it with the
+    agent ids that ingested it. This is what `run.tainted` and the
+    `Decision.run_ingress` record read to catch a model-mediated handoff
+    that launders value-level taint away.
     """
-    return any(
-        resolve_source_trust(name, sources_table) is TrustLevel.UNTRUSTED
-        for name in run_ingress_sources(run_id)
+    return tuple(
+        RunIngressEntry(
+            source=name,
+            trust=resolve_source_trust(name, sources_table),
+            ingested_by=agent_ids,
+        )
+        for name, agent_ids in run_ingress(run_id).items()
     )
+
+
+def _run_tainted(entries: tuple[RunIngressEntry, ...]) -> bool:
+    """Whether any resolved run-ingress entry is untrusted."""
+    return any(entry.trust is TrustLevel.UNTRUSTED for entry in entries)

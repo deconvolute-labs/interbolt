@@ -44,6 +44,7 @@ def _decision(
         trifecta=frozenset(),
         untrusted_sources=frozenset(),
         run_tainted=False,
+        run_ingress=(),
         mode=Mode.ENFORCE,
         decision_id=str(uuid.uuid4()),
         agent_id=agent_id,
@@ -307,6 +308,21 @@ class TestLoadRecords:
         assert isinstance(event, Event)
         assert event.trace_id is None
         assert event.span_id is None
+
+    def test_skips_schema_version_9_shaped_event_missing_run_ingress(
+        self, tmp_path: Path
+    ) -> None:
+        """A record written before `Decision.run_ingress` existed (schema_version
+        9) has no `run_ingress` key under `decision` at all. Unlike the
+        schema_version 5 case above (a tolerated, defaulted omission), this
+        field is required, so the line is skipped rather than parsed."""
+        payload = json.loads(_event_line())
+        payload["schema_version"] = 9
+        del payload["decision"]["run_ingress"]
+        log = tmp_path / "log.jsonl"
+        log.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        records = _load_records(log)
+        assert records == []
 
 
 class TestBuildTree:
