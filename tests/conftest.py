@@ -11,7 +11,7 @@ from pytest_mock import MockerFixture
 
 import interbolt.runtime.current as _current_module
 from interbolt import InMemoryReporter, Policy, Runtime, configure
-from interbolt.models.core import Action, Decision, Label, Mode
+from interbolt.models.core import Action, Decision, Label, Mode, RunIngressEntry
 from interbolt.policy import Policy as _Policy
 from interbolt.policy.compile import compile_policy
 from interbolt.policy.schema import (
@@ -82,6 +82,7 @@ def make_decision() -> Callable[..., Decision]:
         trifecta: frozenset[str] = frozenset(),
         untrusted_sources: frozenset[str] = frozenset(),
         run_tainted: bool = False,
+        run_ingress: tuple[RunIngressEntry, ...] = (),
         mode: Mode = Mode.ENFORCE,
         agent_id: str = "test-agent",
         run_id: str = "test-run",
@@ -96,6 +97,7 @@ def make_decision() -> Callable[..., Decision]:
             trifecta=trifecta,
             untrusted_sources=untrusted_sources,
             run_tainted=run_tainted,
+            run_ingress=run_ingress,
             mode=mode,
             decision_id=str(uuid.uuid4()),
             agent_id=agent_id,

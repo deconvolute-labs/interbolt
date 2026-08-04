@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from interbolt.models.core import Action, Decision, Endorsement, Event, Finding
+from interbolt.models.core import (
+    Action,
+    Decision,
+    Endorsement,
+    Event,
+    Finding,
+    TrustLevel,
+)
 
 _ACTION_COLOR = {
     Action.ALLOW: "green",
@@ -15,6 +22,18 @@ def _ingested_by(decision: Decision) -> set[str]:
     return {
         agent for label in decision.contributing_labels for agent in label.ingested_by
     }
+
+
+def _run_untrusted_segment(decision: Decision) -> str | None:
+    """The `run_untrusted={...}` segment, or `None` if not `run_tainted`."""
+    if not decision.run_tainted:
+        return None
+    parts = []
+    for entry in decision.run_ingress:
+        if entry.trust is TrustLevel.UNTRUSTED:
+            agents = ", ".join(entry.ingested_by)
+            parts.append(f"{entry.source}({agents})" if agents else entry.source)
+    return "{" + ", ".join(parts) + "}"
 
 
 def describe_event(event: Event) -> str:
@@ -36,12 +55,14 @@ def describe_event(event: Event) -> str:
     sources = ", ".join(sorted(event.sources)) or "-"
     ingested_by = ", ".join(sorted(_ingested_by(event.decision))) or "-"
     run_tainted = "[red bold]True[/red bold]" if event.decision.run_tainted else "False"
+    run_untrusted = _run_untrusted_segment(event.decision)
+    run_untrusted_part = f"  run_untrusted={run_untrusted}" if run_untrusted else ""
     return (
         f"{event.decision.tool}  "
         f"[{color}]{event.decision.action.value}[/{color}]  "
         f"rule={rule}  mode={event.decision.mode.value}  "
         f"untrusted_sources={{{untrusted}}}  "
-        f"run_tainted={run_tainted}  sources={{{sources}}}  "
+        f"run_tainted={run_tainted}{run_untrusted_part}  sources={{{sources}}}  "
         f"ingested_by={{{ingested_by}}}"
     )
 
@@ -68,10 +89,13 @@ def describe_decision(decision: Decision) -> str:
     )
     untrusted = ", ".join(sorted(decision.untrusted_sources)) or "-"
     ingested_by = ", ".join(sorted(_ingested_by(decision))) or "-"
+    run_untrusted = _run_untrusted_segment(decision)
+    run_untrusted_part = f"  run_untrusted={run_untrusted}" if run_untrusted else ""
     return (
         f"{decision.tool}  [{color}]{decision.action.value}[/{color}]  "
         f"rule={rule}{condition}  mode={decision.mode.value}  "
-        f"untrusted_sources={{{untrusted}}}  ingested_by={{{ingested_by}}}"
+        f"untrusted_sources={{{untrusted}}}{run_untrusted_part}  "
+        f"ingested_by={{{ingested_by}}}"
     )
 
 

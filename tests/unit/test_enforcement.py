@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import uuid
 import warnings
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Generator, Mapping
+from contextlib import contextmanager
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -23,6 +24,7 @@ from interbolt.policy.evaluate import resolve_labels
 from interbolt.policy.schema import SinkRule, SourceDeclaration
 from interbolt.reporting import InMemoryReporter, NullReporter
 from interbolt.taint import _fresh_label, taint
+from interbolt.utils import current_agent_id, current_run_id
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -55,6 +57,18 @@ def _run_check(
         reporter=reporter or NullReporter(),
         mode=mode,
     )
+
+
+@contextmanager
+def _bound_run(run_id: str, *, agent_id: str = "agent") -> Generator[None, None, None]:
+    """Bind `current_run_id`/`current_agent_id` so `taint()` records ingress."""
+    run_token = current_run_id.set(run_id)
+    agent_token = current_agent_id.set(agent_id)
+    try:
+        yield
+    finally:
+        current_run_id.reset(run_token)
+        current_agent_id.reset(agent_token)
 
 
 # ---------------------------------------------------------------------------
@@ -605,6 +619,93 @@ class TestCheckFunction:
 
 
 # ---------------------------------------------------------------------------
+# TestCheckRunIngress
+# ---------------------------------------------------------------------------
+
+
+class TestCheckRunIngress:
+    def test_untrusted_source_produces_entry_and_run_tainted(
+        self, make_policy: Callable[..., Policy]
+    ) -> None:
+        policy = make_policy(
+            sources=(SourceDeclaration(name="web_search", trust=TrustLevel.UNTRUSTED),)
+        )
+        with _bound_run("run-x", agent_id="research-agent"):
+            taint("doc", source="web_search")
+            decision = _run_check(policy, run_id="run-x", agent_id="research-agent")
+        assert isinstance(decision, Decision)
+        assert len(decision.run_ingress) == 1
+        entry = decision.run_ingress[0]
+        assert entry.source == "web_search"
+        assert entry.trust is TrustLevel.UNTRUSTED
+        assert entry.ingested_by == ("research-agent",)
+        assert decision.run_tainted is True
+
+    def test_trusted_only_source_produces_entry_without_run_tainted(
+        self, make_policy: Callable[..., Policy]
+    ) -> None:
+        policy = make_policy(
+            sources=(SourceDeclaration(name="internal_kb", trust=TrustLevel.TRUSTED),)
+        )
+        with _bound_run("run-y", agent_id="support-agent"):
+            taint("doc", source="internal_kb")
+            decision = _run_check(policy, run_id="run-y", agent_id="support-agent")
+        assert isinstance(decision, Decision)
+        assert len(decision.run_ingress) == 1
+        entry = decision.run_ingress[0]
+        assert entry.source == "internal_kb"
+        assert entry.trust is TrustLevel.TRUSTED
+        assert decision.run_tainted is False
+
+    def test_call_outside_agent_context_has_empty_run_ingress(
+        self, make_policy: Callable[..., Policy]
+    ) -> None:
+        policy = make_policy()
+        decision = _run_check(policy, run_id="run-untouched")
+        assert isinstance(decision, Decision)
+        assert decision.run_ingress == ()
+        assert decision.run_tainted is False
+
+    def test_run_tainted_equals_any_entry_untrusted(
+        self, make_policy: Callable[..., Policy]
+    ) -> None:
+        policy = make_policy(
+            sources=(
+                SourceDeclaration(name="internal_kb", trust=TrustLevel.TRUSTED),
+                SourceDeclaration(name="web_search", trust=TrustLevel.UNTRUSTED),
+            )
+        )
+        with _bound_run("run-z"):
+            taint("doc", source="internal_kb")
+            taint("more", source="web_search")
+            decision = _run_check(policy, run_id="run-z")
+        assert isinstance(decision, Decision)
+        assert decision.run_tainted == any(
+            entry.trust is TrustLevel.UNTRUSTED for entry in decision.run_ingress
+        )
+        assert decision.run_tainted is True
+
+    def test_entry_order_matches_ingestion_order(
+        self, make_policy: Callable[..., Policy]
+    ) -> None:
+        policy = make_policy(
+            sources=(
+                SourceDeclaration(name="first_source", trust=TrustLevel.TRUSTED),
+                SourceDeclaration(name="second_source", trust=TrustLevel.TRUSTED),
+            )
+        )
+        with _bound_run("run-order"):
+            taint("a", source="first_source")
+            taint("b", source="second_source")
+            decision = _run_check(policy, run_id="run-order")
+        assert isinstance(decision, Decision)
+        assert [entry.source for entry in decision.run_ingress] == [
+            "first_source",
+            "second_source",
+        ]
+
+
+# ---------------------------------------------------------------------------
 # trace-context join keys (trace_id/span_id)
 # ---------------------------------------------------------------------------
 
@@ -1129,6 +1230,7 @@ class TestEmit:
             trifecta=frozenset(),
             untrusted_sources=frozenset(),
             run_tainted=False,
+            run_ingress=(),
             mode=Mode.ENFORCE,
             decision_id=str(uuid.uuid4()),
             agent_id="a",
@@ -1162,6 +1264,7 @@ class TestEmit:
             trifecta=frozenset(),
             untrusted_sources=frozenset(),
             run_tainted=False,
+            run_ingress=(),
             mode=Mode.ENFORCE,
             decision_id=str(uuid.uuid4()),
             agent_id="a",

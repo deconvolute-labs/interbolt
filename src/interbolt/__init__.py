@@ -33,6 +33,7 @@ from interbolt.models.core import (
     Finding,
     Label,
     Mode,
+    RunIngressEntry,
     TrustLevel,
 )
 from interbolt.models.protocols import ApprovalResolver, Reporter
@@ -111,6 +112,7 @@ __all__ = [
     "Action",
     "Mode",
     "Label",
+    "RunIngressEntry",
     "TrustLevel",
     "AgentExplanation",
     "GroupExplanation",

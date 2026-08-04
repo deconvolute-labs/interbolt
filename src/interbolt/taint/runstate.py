@@ -7,27 +7,26 @@ installs: the `taint()`-time audit observer and the `endorse()`-time emitter.
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 
 from interbolt.models.core import Endorsement
 from interbolt.utils import current_run_id, get_logger
 
 _logger = get_logger("taint.runstate")
 
-_run_ingress_sources: dict[str, set[str]] = {}
+_run_ingress: dict[str, dict[str, dict[str, None]]] = {}
 _ingress_lock = threading.Lock()
 
 
-def record_ingress_sources(sources: Iterable[str]) -> None:
-    """Record that `sources` tainted data during the active run, if any.
+def record_ingress(entries: Mapping[str, Iterable[str]]) -> None:
+    """Record that each source in `entries` tainted data during the active run.
 
-    Records the bare source names, keyed by the ambient `current_run_id`,
-    for `enforcement.check()` to resolve later against run-level gating
-    (`run.tainted`). Trust itself is resolved at the sink, from the policy's
-    `sources` table.
+    `entries` maps a source name to the agent ids to credit with ingesting
+    it. Keyed by the ambient `current_run_id`, for `enforcement.check()` to
+    resolve later against run-level gating. Trust itself is resolved at the
+    sink, from the policy's `sources` table.
     """
-    names = tuple(sources)
-    if not names:
+    if not entries:
         return
     run_id = current_run_id.get()
     if run_id is None:
@@ -35,23 +34,32 @@ def record_ingress_sources(sources: Iterable[str]) -> None:
             "taint(source in %r) called with no active agent_context; this "
             "ingress cannot be attributed to a run, so run.tainted will not "
             "reflect it for any policy that references it",
-            names,
+            tuple(entries),
         )
         return
     with _ingress_lock:
-        _run_ingress_sources.setdefault(run_id, set()).update(names)
+        run_sources = _run_ingress.setdefault(run_id, {})
+        for source, agent_ids in entries.items():
+            run_sources.setdefault(source, {}).update(dict.fromkeys(agent_ids))
 
 
-def run_ingress_sources(run_id: str) -> frozenset[str]:
-    """Every source name passed to `taint()` while `run_id` was active."""
+def run_ingress(run_id: str) -> dict[str, tuple[str, ...]]:
+    """Every source passed to `taint()` while `run_id` was active, with its agents.
+
+    Ordered by first-seen source name, each source's agent ids ordered by
+    first-seen agent.
+    """
     with _ingress_lock:
-        return frozenset(_run_ingress_sources.get(run_id, ()))
+        return {
+            source: tuple(agent_ids)
+            for source, agent_ids in _run_ingress.get(run_id, {}).items()
+        }
 
 
 def clear_run_ingress(run_id: str) -> None:
     """Drop the recorded ingress sources for a finished run."""
     with _ingress_lock:
-        _run_ingress_sources.pop(run_id, None)
+        _run_ingress.pop(run_id, None)
 
 
 _taint_observer: Callable[[str, str, str], None] | None = None

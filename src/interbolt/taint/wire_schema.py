@@ -150,19 +150,42 @@ class ShapeEntry(BaseModel):
         return _validate_path(value)
 
 
-class RunBlock(BaseModel):
-    """Run-scoped provenance: the source names active at pack time."""
+class RunSourceEntry(BaseModel):
+    """One source active at pack time, with the agent ids that ingested it."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    sources: tuple[str, ...]
+    name: str
+    ingested_by: tuple[str, ...]
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, value: str) -> str:
+        return _validate_name_length(value, field="run.sources entry")
+
+    @field_validator("ingested_by")
+    @classmethod
+    def _validate_ingested_by(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        for agent_id in value:
+            _validate_name_length(agent_id, field="run.sources ingested_by entry")
+        return _validate_list_length(value, field="run.sources ingested_by")
+
+
+class RunBlock(BaseModel):
+    """Run-scoped provenance: the sources active at pack time, with their agents."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    sources: tuple[RunSourceEntry, ...]
 
     @field_validator("sources")
     @classmethod
-    def _validate_sources(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        for name in value:
-            _validate_name_length(name, field="run.sources entry")
-        return _validate_list_length(value, field="run.sources")
+    def _validate_sources_length(
+        cls, value: tuple[RunSourceEntry, ...]
+    ) -> tuple[RunSourceEntry, ...]:
+        if len(value) > WIRE_MAX_LIST_LENGTH:
+            raise ValueError(f"run.sources exceeds {WIRE_MAX_LIST_LENGTH} entries")
+        return value
 
 
 class WireEnvelope(BaseModel):

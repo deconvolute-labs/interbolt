@@ -12,7 +12,7 @@ from typing import Any
 from celpy import celtypes
 from celpy.adapter import json_to_cel
 
-from interbolt.models.core import Action, Label, TrustLevel
+from interbolt.models.core import Action, Label, RunIngressEntry, TrustLevel
 from interbolt.policy.compile import CompiledSink
 
 
@@ -126,7 +126,7 @@ def build_context(
     args: Mapping[str, Any],
     resolved_labels: tuple[ResolvedLabel, ...],
     trifecta: frozenset[str],
-    run_tainted: bool,
+    run_ingress: tuple[RunIngressEntry, ...],
     agent_id: str,
     groups: frozenset[str],
 ) -> dict[str, Any]:
@@ -145,9 +145,11 @@ def build_context(
         resolved_labels: Every label collected from the call's original
             arguments, with trust already resolved.
         trifecta: The trifecta legs satisfied by this call.
-        run_tainted: Whether the active run has ingested untrusted data via
-            `taint()` at any point, resolved by `enforcement` from the
-            per-run ingress registry (run-level gating).
+        run_ingress: Every source ingested by the active run before this
+            call, with resolved trust and ingesting agents; `run.tainted`,
+            `run.sources`, `run.untrusted_sources`, and `run.ingested_by`
+            are all derived from this. Run-scoped, not value-scoped: use
+            `taint`/`t.lineage` for a claim about this call's own arguments.
         agent_id: The acting agent's durable identity, the same value
             resolved once in `Runtime.check` and stamped on `Decision`, so
             the CEL context and the audit record never disagree.
@@ -194,6 +196,15 @@ def build_context(
         for name in resolved.label.lineage:
             all_sources.setdefault(name, None)
 
+    run_tainted = any(entry.trust is TrustLevel.UNTRUSTED for entry in run_ingress)
+    run_untrusted_sources = [
+        entry.source for entry in run_ingress if entry.trust is TrustLevel.UNTRUSTED
+    ]
+    run_ingested_by: dict[str, None] = {}
+    for entry in run_ingress:
+        for agent in entry.ingested_by:
+            run_ingested_by.setdefault(agent, None)
+
     max_trust = (
         TrustLevel.UNTRUSTED
         if any(resolved.trust is TrustLevel.UNTRUSTED for resolved in resolved_labels)
@@ -205,11 +216,11 @@ def build_context(
     # `taint.sources`/`taint.max_trust`, because CEL can't make one variable
     # both a list and a map. `run` and `agent` are maps since `run.tainted`
     # and `agent.id` only ever need dotted access, never quantification.
-    # `agent.groups` is a list-typed value nested inside the `agent` map, the
-    # same shape `t.lineage`/`t.ingested_by`/`t.endorsements` already use
-    # inside each `taint` entry: a CEL map can hold a list value, so
-    # `agent.groups.exists(...)` quantifies over that nested list without
-    # `agent` itself needing to be a list.
+    # `run.sources`/`run.untrusted_sources`/`run.ingested_by` and
+    # `agent.groups` are list-typed values nested inside their maps: a CEL
+    # map can hold a list value, so `run.untrusted_sources.exists(...)` and
+    # `agent.groups.exists(...)` quantify over those nested lists without
+    # `run`/`agent` themselves needing to be lists.
     return {
         "tool": celtypes.StringType(tool),
         "args": _convert_args(args),
@@ -220,7 +231,18 @@ def build_context(
         "max_trust": celtypes.StringType(max_trust.value),
         "trifecta": celtypes.ListType([celtypes.StringType(leg) for leg in trifecta]),
         "run": celtypes.MapType(
-            {celtypes.StringType("tainted"): celtypes.BoolType(run_tainted)}
+            {
+                celtypes.StringType("tainted"): celtypes.BoolType(run_tainted),
+                celtypes.StringType("sources"): celtypes.ListType(
+                    [celtypes.StringType(entry.source) for entry in run_ingress]
+                ),
+                celtypes.StringType("untrusted_sources"): celtypes.ListType(
+                    [celtypes.StringType(name) for name in run_untrusted_sources]
+                ),
+                celtypes.StringType("ingested_by"): celtypes.ListType(
+                    [celtypes.StringType(agent) for agent in run_ingested_by]
+                ),
+            }
         ),
         "agent": celtypes.MapType(
             {

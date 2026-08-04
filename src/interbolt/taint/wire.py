@@ -11,12 +11,13 @@ from pydantic import ValidationError
 from interbolt.constants import WIRE_ENVELOPE_KEY, WIRE_SCHEMA_VERSION
 from interbolt.errors import InterboltConfigError
 from interbolt.models.core import Label
-from interbolt.taint.runstate import record_ingress_sources, run_ingress_sources
+from interbolt.taint.runstate import record_ingress, run_ingress
 from interbolt.taint.wire_rebuild import _rebuild, _replay_audit
 from interbolt.taint.wire_schema import (
     LabelEntry,
     PooledLabel,
     RunBlock,
+    RunSourceEntry,
     ShapeEntry,
     WireEnvelope,
     compute_mac,
@@ -98,8 +99,9 @@ def pack(
         key_id: An opaque identifier for `key`, carried in the envelope and
             covered by the MAC. Reserved for future key rotation; no
             semantics beyond that today.
-        include_run: Whether to record the active run's ingested source
-            names in the envelope, for replay into whatever run unpacks it.
+        include_run: Whether to record the active run's ingested sources and
+            their agents in the envelope, sorted for reproducibility, for
+            replay into whatever run unpacks it.
 
     Returns:
         A plain, JSON-representable envelope dict.
@@ -122,7 +124,13 @@ def pack(
     if include_run:
         run_id = current_run_id.get()
         if run_id is not None:
-            run_block = RunBlock(sources=tuple(sorted(run_ingress_sources(run_id))))
+            entries = run_ingress(run_id)
+            run_block = RunBlock(
+                sources=tuple(
+                    RunSourceEntry(name=name, ingested_by=tuple(sorted(entries[name])))
+                    for name in sorted(entries)
+                )
+            )
 
     envelope = WireEnvelope(
         version=WIRE_SCHEMA_VERSION,
@@ -199,7 +207,7 @@ def unpack(
     rehydrated, rebuilt_by_path = _rebuild(parsed, pool)
 
     if parsed.run is not None:
-        record_ingress_sources(parsed.run.sources)
+        record_ingress({entry.name: entry.ingested_by for entry in parsed.run.sources})
     _replay_audit(parsed, pool, rebuilt_by_path)
 
     return rehydrated

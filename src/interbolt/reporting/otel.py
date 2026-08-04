@@ -12,7 +12,7 @@ from collections.abc import Sequence
 
 from interbolt import __version__ as _version
 from interbolt.errors import InterboltConfigError
-from interbolt.models.core import Endorsement, Event, Finding
+from interbolt.models.core import Endorsement, Event, Finding, TrustLevel
 from interbolt.utils import get_logger
 
 try:
@@ -35,9 +35,10 @@ _AttributeValue = str | int | bool | Sequence[str]
 def _event_attributes(event: Event) -> dict[str, _AttributeValue]:
     """Flatten an `Event` to primitive OTel span-event attributes.
 
-    Excludes `contributing_labels` (unbounded after fan-out) and
-    `matched_condition` (may embed sensitive literal text from the policy).
-    The full record remains available through the native reporters.
+    Excludes `contributing_labels` (unbounded after fan-out),
+    `matched_condition` (may embed sensitive policy literals), and the
+    source-to-agent pairing in `decision.run_ingress` (not flattenable). The
+    full record remains available through the native reporters.
     """
     decision = event.decision
     attrs: dict[str, _AttributeValue] = {
@@ -53,6 +54,17 @@ def _event_attributes(event: Event) -> dict[str, _AttributeValue]:
         "interbolt.sources": sorted(event.sources),
         "interbolt.untrusted_sources": sorted(decision.untrusted_sources),
         "interbolt.trifecta": sorted(decision.trifecta),
+        "interbolt.run_ingested_sources": sorted(
+            entry.source for entry in decision.run_ingress
+        ),
+        "interbolt.run_untrusted_sources": sorted(
+            entry.source
+            for entry in decision.run_ingress
+            if entry.trust is TrustLevel.UNTRUSTED
+        ),
+        "interbolt.run_ingested_by": sorted(
+            {agent for entry in decision.run_ingress for agent in entry.ingested_by}
+        ),
     }
     if event.policy_fingerprint is not None:
         attrs["interbolt.policy_fingerprint"] = event.policy_fingerprint

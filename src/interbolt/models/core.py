@@ -64,6 +64,24 @@ class Label(BaseModel):
     endorsements: tuple[str, ...] = ()
 
 
+class RunIngressEntry(BaseModel):
+    """One source that entered a run, and the agents that brought it in.
+
+    Attributes:
+        source: The source name, as passed to `taint()`.
+        trust: This source's trust, resolved against the policy's `sources`
+            table at decision time.
+        ingested_by: The de-duplicated set of agent ids that called `taint()`
+            with this source during the run, in first-seen order.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    source: str
+    trust: TrustLevel
+    ingested_by: tuple[str, ...]
+
+
 class Action(StrEnum):
     """The three possible policy decisions."""
 
@@ -104,7 +122,13 @@ class Decision(BaseModel):
             `taint()` at any point before this call, regardless of whether
             this call's own arguments carry a label (run-level gating).
             Catches a model-mediated handoff that launders value-level
-            taint away.
+            taint away. Equivalent to
+            `any(e.trust is TrustLevel.UNTRUSTED for e in run_ingress)`.
+        run_ingress: Every source that entered the active run before this
+            call, one entry per source, in first-ingested order, with the
+            ingesting agent ids. Empty outside any `agent_context`. Explains
+            a `run_tainted`-driven decision when `contributing_labels` is
+            empty.
         mode: The enforcement mode in effect when this decision was made.
         decision_id: A unique id for this decision, for the audit trail.
         agent_id: The durable, integrator-supplied agent identity.
@@ -122,6 +146,7 @@ class Decision(BaseModel):
     trifecta: frozenset[str]
     untrusted_sources: frozenset[str]
     run_tainted: bool
+    run_ingress: tuple[RunIngressEntry, ...]
     mode: Mode
     decision_id: str
     agent_id: str

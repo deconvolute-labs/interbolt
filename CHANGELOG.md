@@ -1,3 +1,43 @@
+## [Unreleased]
+
+### ⚠️ Breaking Changes
+
+- **`Decision` gains a required `run_ingress` field, bumping
+  `EVENT_SCHEMA_VERSION` from 9 to 10.** A schema-version-9 JSONL log no
+  longer parses: `interbolt inspect` skips each such line with a warning and
+  reads on, rather than failing the whole file. Migrate an existing log by
+  inserting an empty list, which reads as "this run's ingress was never
+  recorded":
+
+  ```
+  jq -c 'if .record_type == "event" then .decision.run_ingress = [] else . end' old.jsonl > new.jsonl
+  ```
+
+- **The `pack`/`unpack` wire envelope's `run` block now carries per-source
+  agent attribution, bumping `WIRE_SCHEMA_VERSION` from 1 to 2.** A
+  version-1 envelope is rejected outright; there is no compatibility path.
+
+### 🚀 Features
+
+- **`Decision.run_ingress`**, naming every source that entered the active run
+  before a call, the trust each resolved to, and the agent ids that ingested
+  it. This is what explains a `run.tainted`-driven decision after the fact
+  when a model-mediated handoff leaves `contributing_labels`,
+  `sources`, and `untrusted_sources` empty on the record; previously only the
+  boolean `run_tainted` survived onto the record, with the resolved sources
+  discarded.
+- **Three new CEL fields on `run`**: `run.sources`, `run.untrusted_sources`,
+  and `run.ingested_by`, alongside the existing `run.tainted`. `interbolt
+  validate` widens its `run.<field>` check accordingly and adds a
+  warning-level lint for `run.sources.all(...)`/`run.untrusted_sources.all(...)`/
+  `run.ingested_by.all(...)` inside an `allow` rule, which folds to `true` on
+  a run with no recorded ingress; use `.exists(...)` instead.
+- `describe_event`/`describe_decision` append a `run_untrusted={...}` segment
+  when `run_tainted` is true, and `OTelReporter` exports
+  `interbolt.run_ingested_sources`, `interbolt.run_untrusted_sources`, and
+  `interbolt.run_ingested_by` as sorted string lists (the source-to-agent
+  pairing itself is not exported to OpenTelemetry).
+
 ## [0.2.0] - 2026-07-26
 
 ### ⚠️ Breaking Changes

@@ -18,7 +18,16 @@ from pytest_mock import MockerFixture
 from interbolt.constants import EVENT_SCHEMA_VERSION
 from interbolt.enforcement.check import _emit
 from interbolt.errors import InterboltConfigError
-from interbolt.models.core import Action, Decision, Endorsement, Event, Finding, Mode
+from interbolt.models.core import (
+    Action,
+    Decision,
+    Endorsement,
+    Event,
+    Finding,
+    Mode,
+    RunIngressEntry,
+    TrustLevel,
+)
 from interbolt.reporting.otel import OTelReporter
 
 _exporter = InMemorySpanExporter()
@@ -45,6 +54,7 @@ def _make_decision(**overrides: object) -> Decision:
         trifecta=frozenset({"from_untrusted"}),
         untrusted_sources=frozenset({"web_search"}),
         run_tainted=False,
+        run_ingress=(),
         mode=Mode.ENFORCE,
         decision_id=str(uuid.uuid4()),
         agent_id="test-agent",
@@ -124,6 +134,43 @@ class TestActiveSpan:
         assert tuple(attrs["interbolt.sources"]) == ("web_search",)
         assert tuple(attrs["interbolt.untrusted_sources"]) == ("web_search",)
         assert tuple(attrs["interbolt.trifecta"]) == ("from_untrusted",)
+        assert tuple(attrs["interbolt.run_ingested_sources"]) == ()
+        assert tuple(attrs["interbolt.run_untrusted_sources"]) == ()
+        assert tuple(attrs["interbolt.run_ingested_by"]) == ()
+
+    def test_run_ingress_attributes_present_sorted_and_pairing_absent(self) -> None:
+        reporter = OTelReporter()
+        decision = _make_decision(
+            run_tainted=True,
+            run_ingress=(
+                RunIngressEntry(
+                    source="web_search",
+                    trust=TrustLevel.UNTRUSTED,
+                    ingested_by=("research-agent",),
+                ),
+                RunIngressEntry(
+                    source="internal_kb",
+                    trust=TrustLevel.TRUSTED,
+                    ingested_by=("support-agent",),
+                ),
+            ),
+        )
+        event = _make_event(decision=decision)
+        with _tracer.start_as_current_span("host-span"):
+            reporter.export(event)
+        finished = [s for s in _exporter.get_finished_spans() if s.name == "host-span"]
+        attrs = finished[0].events[0].attributes
+        assert attrs is not None
+        assert tuple(attrs["interbolt.run_ingested_sources"]) == (
+            "internal_kb",
+            "web_search",
+        )
+        assert tuple(attrs["interbolt.run_untrusted_sources"]) == ("web_search",)
+        assert tuple(attrs["interbolt.run_ingested_by"]) == (
+            "research-agent",
+            "support-agent",
+        )
+        assert "interbolt.run_ingress" not in attrs
 
     def test_finding_attaches_span_event(self) -> None:
         reporter = OTelReporter()
