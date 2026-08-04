@@ -304,11 +304,8 @@ class TestIngestedByGatesAcrossAgents:
 
 
 class TestRunIngressExplainsHandoffAcrossAgents:
-    """The case run-level gating exists for: a model-mediated handoff that
-    launders value-level taint away. `contributing_labels`, `sources`, and
-    `untrusted_sources` are all empty on the deciding call, so
-    `decision.run_ingress` is the only place the record still explains why
-    `run.tainted` fired.
+    """A model-mediated handoff launders value-level taint; `run_ingress`
+    is the only place the record still explains why `run.tainted` fired.
     """
 
     def _policy(self, make_policy: Callable[..., Policy]) -> Policy:

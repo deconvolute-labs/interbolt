@@ -100,11 +100,8 @@ def pack(
             covered by the MAC. Reserved for future key rotation; no
             semantics beyond that today.
         include_run: Whether to record the active run's ingested sources and
-            their ingesting agents in the envelope, for replay into whatever
-            run unpacks it. Sorted by source name, with each source's agent
-            ids sorted too, so the envelope (and its MAC) stay reproducible
-            regardless of ingestion order; a round trip through `pack`/
-            `unpack` therefore normalizes first-seen order to sorted order.
+            their agents in the envelope, sorted for reproducibility, for
+            replay into whatever run unpacks it.
 
     Returns:
         A plain, JSON-representable envelope dict.

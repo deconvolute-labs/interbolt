@@ -146,17 +146,10 @@ def build_context(
             arguments, with trust already resolved.
         trifecta: The trifecta legs satisfied by this call.
         run_ingress: Every source ingested by the active run before this
-            call, with its resolved trust and ingesting agents, resolved by
-            `enforcement` from the per-run ingress registry (run-level
-            gating). `run.tainted`, `run.sources`, `run.untrusted_sources`,
-            and `run.ingested_by` are all derived from this, never
-            re-resolved here. These four fields are run-scoped facts about
-            what entered the run at any point before this call, not
-            value-scoped facts about this call's own arguments:
-            `run.untrusted_sources.exists(s, s == "web_search")` means
-            web_search entered this run at some point, not that this call's
-            arguments derive from it. A rule that needs the value-level claim
-            must be written against `taint`/`t.lineage` instead.
+            call, with resolved trust and ingesting agents; `run.tainted`,
+            `run.sources`, `run.untrusted_sources`, and `run.ingested_by`
+            are all derived from this. Run-scoped, not value-scoped: use
+            `taint`/`t.lineage` for a claim about this call's own arguments.
         agent_id: The acting agent's durable identity, the same value
             resolved once in `Runtime.check` and stamped on `Decision`, so
             the CEL context and the audit record never disagree.

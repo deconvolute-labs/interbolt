@@ -35,13 +35,10 @@ _AttributeValue = str | int | bool | Sequence[str]
 def _event_attributes(event: Event) -> dict[str, _AttributeValue]:
     """Flatten an `Event` to primitive OTel span-event attributes.
 
-    Excludes `contributing_labels` (unbounded after fan-out) and
-    `matched_condition` (may embed sensitive literal text from the policy).
-    Also excludes the source-to-agent pairing within `decision.run_ingress`:
-    flattening it into span attributes isn't worth it for a mapping, so only
-    the three derived sorted lists are exported, and the native records
-    remain the source of truth for the pairing. The full record remains
-    available through the native reporters.
+    Excludes `contributing_labels` (unbounded after fan-out),
+    `matched_condition` (may embed sensitive policy literals), and the
+    source-to-agent pairing in `decision.run_ingress` (not flattenable). The
+    full record remains available through the native reporters.
     """
     decision = event.decision
     attrs: dict[str, _AttributeValue] = {

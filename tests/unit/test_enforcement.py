@@ -61,13 +61,7 @@ def _run_check(
 
 @contextmanager
 def _bound_run(run_id: str, *, agent_id: str = "agent") -> Generator[None, None, None]:
-    """Bind `current_run_id`/`current_agent_id` so `taint()` records ingress.
-
-    `check()` itself never reads these contextvars (only `Runtime.check`
-    does); `taint()`/`record_ingress` does, so a test that wants
-    `Decision.run_ingress` populated for a given `run_id` must bind them
-    around the `taint()` calls, the same way `agent_context` does.
-    """
+    """Bind `current_run_id`/`current_agent_id` so `taint()` records ingress."""
     run_token = current_run_id.set(run_id)
     agent_token = current_agent_id.set(agent_id)
     try:

@@ -46,9 +46,7 @@ def _resolve_run_ingress(
     Reads the run's recorded ingress (`taint.run_ingress`, independent of
     this call's own arguments) and resolves each source name the same way
     `resolve_label_trust` resolves a label's lineage, pairing it with the
-    agent ids that ingested it. This is what `run.tainted` and the
-    `Decision.run_ingress` record read to catch a model-mediated handoff
-    that launders value-level taint away.
+    agent ids that ingested it.
     """
     return tuple(
         RunIngressEntry(

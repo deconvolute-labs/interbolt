@@ -25,14 +25,7 @@ def _ingested_by(decision: Decision) -> set[str]:
 
 
 def _run_untrusted_segment(decision: Decision) -> str | None:
-    """The `run_untrusted={...}` segment, or `None` when `run_tainted` is false.
-
-    Lists each untrusted run-ingress entry as `source(agent1, agent2)`, with
-    the parenthesized part omitted when the entry has no recorded
-    `ingested_by`. This answers "why was this call gated at run level," a
-    different question from the per-label `ingested_by` segment, which is
-    empty exactly when a model-mediated handoff makes this segment matter.
-    """
+    """The `run_untrusted={...}` segment, or `None` if not `run_tainted`."""
     if not decision.run_tainted:
         return None
     parts = []

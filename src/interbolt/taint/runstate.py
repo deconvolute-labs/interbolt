@@ -23,9 +23,8 @@ def record_ingress(entries: Mapping[str, Iterable[str]]) -> None:
 
     `entries` maps a source name to the agent ids to credit with ingesting
     it. Keyed by the ambient `current_run_id`, for `enforcement.check()` to
-    resolve later against run-level gating (`run.tainted`,
-    `run.sources`/`run.untrusted_sources`/`run.ingested_by`). Trust itself is
-    resolved at the sink, from the policy's `sources` table.
+    resolve later against run-level gating. Trust itself is resolved at the
+    sink, from the policy's `sources` table.
     """
     if not entries:
         return

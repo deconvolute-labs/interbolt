@@ -70,8 +70,7 @@ class RunIngressEntry(BaseModel):
     Attributes:
         source: The source name, as passed to `taint()`.
         trust: This source's trust, resolved against the policy's `sources`
-            table at decision time, the same table `Decision.untrusted_sources`
-            resolves against.
+            table at decision time.
         ingested_by: The de-duplicated set of agent ids that called `taint()`
             with this source during the run, in first-seen order.
     """
@@ -126,11 +125,10 @@ class Decision(BaseModel):
             taint away. Equivalent to
             `any(e.trust is TrustLevel.UNTRUSTED for e in run_ingress)`.
         run_ingress: Every source that entered the active run before this
-            call, one entry per source name, in first-ingested order, with
-            the agent ids that ingested it. Empty for a call made outside any
-            `agent_context`, where there is no run to attribute ingress to.
-            This is what explains a `run_tainted`-driven decision after the
-            fact when `contributing_labels` is empty.
+            call, one entry per source, in first-ingested order, with the
+            ingesting agent ids. Empty outside any `agent_context`. Explains
+            a `run_tainted`-driven decision when `contributing_labels` is
+            empty.
         mode: The enforcement mode in effect when this decision was made.
         decision_id: A unique id for this decision, for the audit trail.
         agent_id: The durable, integrator-supplied agent identity.
