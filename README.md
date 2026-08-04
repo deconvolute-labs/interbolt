@@ -27,6 +27,8 @@ without erasing the taint: provenance-preserving, policy-visible, and never
 model-triggered. See
 [auditing](https://docs.deconvolutelabs.com/docs/guides/auditing).
 
+See how it [performs on the AgentDojo Benchmark](https://deconvoluteai.com/blog/prompt-injection-defense-provenance-agentdojo-benchmark).
+
 ## Install
 
 ```bash
