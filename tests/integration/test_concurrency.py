@@ -20,7 +20,7 @@ from interbolt.constants import AUDIT_MIN_MATCH_LENGTH
 from interbolt.errors import PolicyViolation
 from interbolt.models.core import Action
 from interbolt.policy.compile import compile_policy
-from interbolt.policy.schema import Defaults, PolicyDocument, SinkRule
+from interbolt.policy.schema import Defaults, PolicyDocument, SinkDeclaration, SinkRule
 from interbolt.runtime import guard
 
 POLICY_PATH = Path(__file__).parent.parent / "policies" / "agent_loop.yaml"
@@ -93,17 +93,19 @@ def test_thread_pool_agent_id_resolves_correctly_in_cel_context() -> None:
     # each AgentHandle's validated identity correctly across the thread
     # boundary: only "billing-agent" is allowed, every other worker blocks.
     document = PolicyDocument(
-        version="1.0",
+        version="2.0",
         defaults=Defaults(sink_action=Action.BLOCK),
         sources=(),
         sinks={
-            "default.pay": (
-                SinkRule(
-                    name="billing_only",
-                    when='agent.id == "billing-agent"',
-                    action=Action.ALLOW,
-                ),
-                SinkRule(name="default", action=Action.BLOCK),
+            "default.pay": SinkDeclaration(
+                rules=(
+                    SinkRule(
+                        name="billing_only",
+                        when='agent.id == "billing-agent"',
+                        action=Action.ALLOW,
+                    ),
+                    SinkRule(name="default", action=Action.BLOCK),
+                )
             )
         },
     )

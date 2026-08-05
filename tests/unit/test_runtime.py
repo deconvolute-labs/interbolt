@@ -11,12 +11,13 @@ import interbolt.runtime.config as _config_module
 import interbolt.runtime.current as _current_module
 from interbolt.constants import DEFAULT_AGENT_ID, ENV_AUDIT, ENV_MODE
 from interbolt.errors import InterboltConfigError, InterboltUsageError, PolicyViolation
-from interbolt.models.core import Action, Mode
+from interbolt.models.core import Action, Capability, Mode, TrustLevel
 from interbolt.policy import Policy
-from interbolt.policy.schema import SinkRule
+from interbolt.policy.schema import SinkRule, SourceDeclaration
 from interbolt.reporting import CompositeReporter, InMemoryReporter, NullReporter
 from interbolt.runtime import Runtime, _current, agent, configure, get_runtime
 from interbolt.runtime.guard import AgentHandle, current_agent_id
+from interbolt.taint import run_capabilities
 from interbolt.utils import current_run_id
 
 if TYPE_CHECKING:
@@ -713,6 +714,92 @@ class TestAgentContextSync:
         with rt.agent_context_sync("agent-xyz"):
             result = my_tool("hello")
         assert result == "hello"
+
+
+class TestRunTrifectaLifecycle:
+    def test_no_context_calls_do_not_accumulate_across_each_other(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        policy = make_policy(
+            capabilities={
+                "default.read_inbox": (Capability.READS_PRIVATE,),
+                "default.send_email": (Capability.REACHES_EXTERNAL,),
+            }
+        )
+        rt = configure(policy=policy)
+        first = rt.check(tool="default.read_inbox", args={}, agent_id="agent-xyz")
+        second = rt.check(tool="default.send_email", args={}, agent_id="agent-xyz")
+        assert first.run_id != second.run_id
+        assert first.run_trifecta == frozenset({"reads_private"})
+        assert second.run_trifecta == frozenset({"reaches_external"})
+
+    def test_run_trifecta_clears_at_agent_context_sync_exit(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        policy = make_policy(
+            capabilities={"default.read_inbox": (Capability.READS_PRIVATE,)}
+        )
+        rt = configure(policy=policy)
+        with rt.agent_context_sync("agent-xyz"):
+            decision = rt.check(
+                tool="default.read_inbox", args={}, agent_id="agent-xyz"
+            )
+            assert decision.run_trifecta == frozenset({"reads_private"})
+            run_id = decision.run_id
+        assert run_capabilities(run_id) == frozenset()
+
+    async def test_run_trifecta_clears_at_agent_context_exit(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        policy = make_policy(
+            capabilities={"default.read_inbox": (Capability.READS_PRIVATE,)}
+        )
+        rt = configure(policy=policy)
+        async with rt.agent_context("agent-xyz"):
+            decision = rt.check(
+                tool="default.read_inbox", args={}, agent_id="agent-xyz"
+            )
+            assert decision.run_trifecta == frozenset({"reads_private"})
+            run_id = decision.run_id
+        assert run_capabilities(run_id) == frozenset()
+
+    def test_rule_of_two_fires_on_the_deciding_calls_own_leg(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        from interbolt.taint import taint
+
+        policy = make_policy(
+            sources=(SourceDeclaration(name="web_search", trust=TrustLevel.UNTRUSTED),),
+            sink_action=Action.ALLOW,
+            capabilities={
+                "default.read_inbox": (Capability.READS_PRIVATE,),
+                "default.send_email": (Capability.REACHES_EXTERNAL,),
+            },
+            sinks={
+                "default.send_email": (
+                    SinkRule(
+                        name="block_rule_of_two",
+                        when="size(run.trifecta) >= 3",
+                        action=Action.BLOCK,
+                    ),
+                    SinkRule(name="default", action=Action.ALLOW),
+                )
+            },
+        )
+        rt = configure(policy=policy)
+        with rt.agent_context_sync("agent-xyz"):
+            taint("web result", source="web_search")
+            rt.check(tool="default.read_inbox", args={}, agent_id="agent-xyz")
+            # The deciding call: reaches_external is the third leg, contributed
+            # by this call itself, and must be visible to its own rule.
+            decision = rt.check(
+                tool="default.send_email", args={}, agent_id="agent-xyz"
+            )
+        assert decision.run_trifecta == frozenset(
+            {"from_untrusted", "reads_private", "reaches_external"}
+        )
+        assert decision.action is Action.BLOCK
+        assert decision.matched_rule == "block_rule_of_two"
 
 
 class TestAgentIdPolicyIntegration:

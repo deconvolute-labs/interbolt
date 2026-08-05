@@ -28,6 +28,7 @@ from interbolt.cli.render import (
     _build_tree,
     _console,
     _print_sink,
+    _print_tool_capabilities,
     _print_tool_mention,
     _run_id_of,
 )
@@ -141,6 +142,7 @@ def _explain(
             _console.print(f"[red]✗[/red] no sink named {tool!r} in {policy_path}")
             return 1
         _console.print(f"[bold]{tool_explanation.sink_key}[/bold]")
+        _print_tool_capabilities(tool_explanation.capabilities)
         for mention in tool_explanation.mentions:
             _print_tool_mention(mention)
         default_color = _ACTION_COLOR[tool_explanation.default_action]

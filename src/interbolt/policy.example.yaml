@@ -1,24 +1,16 @@
-# yaml-language-server: $schema=./policy/schema.json
-#
-# Starter interbolt policy. Copy this file, then adjust sources and sinks for
-# your agent. See https://docs.deconvolutelabs.com/docs/concepts/policies for the full policy reference.
+# Starter interbolt policy. Full reference:
+# https://docs.deconvolutelabs.com/docs/concepts/policies
 
-version: "1.0"
+version: "2.0"
 
 defaults:
-  # A sink with no matching rule falls through to this action.
+  # Action for a sink with no matching rule.
   sink_action: require_approval
-
-  # fail_mode pins the enforcement mode from the policy itself. It is the
-  # second-highest precedence source (below the INTERBOLT_MODE env var, above
-  # the mode= argument to configure()), so uncommenting it makes this policy
-  # override whatever mode= a service passes to configure(). Leave it commented
-  # to let each deployment choose its mode via configure(mode=) or
-  # INTERBOLT_MODE; uncomment to pin enforcement centrally.
+  # Pins the enforcement mode from the policy. Outranks configure(mode=).
   # fail_mode: enforce   # enforce | monitor | dry_run
 
-# INGRESS: assign trust to named sources. `taint(value, source=...)` records
-# only the source name; trust is resolved here, at evaluation time.
+# Trust for the names you pass to taint(value, source=...).
+# A name not listed here resolves untrusted.
 sources:
   - name: web_search
     trust: untrusted
@@ -27,65 +19,47 @@ sources:
   - name: user_input
     trust: trusted
 
-# IDENTITY (optional): group agent ids so sink rules can test membership
-# instead of enumerating ids one at a time. An agent id not listed here still
-# resolves to agent.groups == [], so a new agent is covered by default rather
-# than silently uncovered.
+# Group agent ids so rules can test membership. An agent not listed
+# resolves to agent.groups == [].
 # agents:
 #   billing-agent:
 #     groups: [payer, internal]
-#   support-agent:
-#     groups: [internal]
 
-# EGRESS: gate sinks. Keys are dotted qualified names "namespace.tool".
-# Within a sink, rules are ordered; first match wins. A trailing rule with
-# no `when` is the catch-all.
+# One entry per tool, keyed "namespace.tool".
+#   capabilities: what the tool does (reads_private, reaches_external, or []).
+#   rules: gates calls, first match wins. No rules means defaults.sink_action.
 sinks:
+  default.read_inbox:
+    capabilities: [reads_private]
+
   default.send_email:
-    # Endorsement idiom (checked first, so it can carve out an exception to
-    # the block rule below): if your code validates a recipient against an
-    # allowlist and calls endorse(value, kind="recipient_allowlisted"), this
-    # rule lets that specific value through without weakening the block
-    # rule for everything else.
-    # - name: allow_endorsed_recipients
-    #   require_endorsement: recipient_allowlisted
-    #   action: allow
-    #
-    # Per-agent carve-out idiom: narrow an existing block rule rather than
-    # preceding it with an allow, so the exception can't outlive the rule it
-    # modifies or be reordered away from it. agent.id is validated (charset,
-    # not a tainted value, never the reserved "default") at every point an
-    # agent identity is bound, so this comparison can't be spoofed by
-    # model-controlled input.
-    # when: taint.exists(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
-    #       && agent.id != "outbound-mailer"
-    #
-    # Group-gated carve-out idiom: the same narrowing shape as above, but
-    # testing membership instead of one enumerated id, so a newly deployed
-    # agent with no declared groups stays covered by default instead of
-    # silently falling outside the rule the moment it ships.
-    # when: taint.exists(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
-    #       && !agent.groups.exists(g, g == "outbound")
-    - name: block_untrusted_exfil
-      when: taint.exists(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
-      action: block
-    - name: default
-      action: require_approval
+    capabilities: [reaches_external]
+    rules:
+      # Fires when all three trifecta legs are present anywhere in the run,
+      # which holds after a handoff that laundered the label off the message.
+      - name: block_rule_of_two
+        when: size(run.trifecta) >= 3
+        action: block
+      - name: block_untrusted_exfil
+        when: taint.exists(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
+        action: block
+      - name: default
+        action: require_approval
 
   default.fs_write:
-    - name: approve_untrusted_to_disk
-      when: taint.exists(t, t.trust == "untrusted")
-      action: require_approval
-    - name: default
-      action: allow
+    capabilities: []
+    rules:
+      - name: approve_untrusted_to_disk
+        when: taint.exists(t, t.trust == "untrusted")
+        action: require_approval
+      - name: default
+        action: allow
 
   default.run_shell:
-    - name: block_any_untrusted
-      # `sources` and `max_trust` are top-level convenience values, siblings
-      # of `taint`, not `taint.sources`/`taint.max_trust`: CEL can't make one
-      # context variable both a list (for the `exists`/`all` macros above)
-      # and a map (for dotted field access) at once.
-      when: max_trust == "untrusted"
-      action: block
-    - name: default
-      action: allow
+    capabilities: []
+    rules:
+      - name: block_any_untrusted
+        when: max_trust == "untrusted"
+        action: block
+      - name: default
+        action: allow

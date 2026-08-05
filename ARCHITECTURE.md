@@ -95,7 +95,7 @@ import in `src/interbolt`. The rules it cannot check:
 | `ingress.py` | `taint()`, `track_model_call` |
 | `endorse.py` | `endorse()` and its record emission |
 | `walk.py` | depth-bounded leaf traversal, used at ingress and the sink |
-| `runstate.py` | run-ingress registry and the two extension hooks |
+| `runstate.py` | run-ingress registry, run-capability registry, and the two extension hooks |
 | `wire*.py` | the `pack`/`unpack` serialization contract |
 
 **`policy/`** loads, compiles, evaluates, and statically analyzes policy.
@@ -176,8 +176,9 @@ depth-bounded and leaf-oriented, used at ingress and the sink.
 and descend nothing themselves. Do not add a third.
 
 **Mutable module-level state exists in exactly two modules.**
-`taint/runstate.py` holds the run-ingress registry and the two hooks;
-`runtime/current.py` holds the process-current runtime. Both hooks exist so
+`taint/runstate.py` holds the run-ingress registry, the run-capability
+registry, and the two hooks; `runtime/current.py` holds the process-current
+runtime. Both hooks exist so
 `runtime/` can wire behavior into `taint/` without `taint/` importing upward.
 Read a global through its owning module's getter, never with
 `from x import _the_variable`, which binds a stale snapshot. Do not add a third
@@ -195,9 +196,11 @@ thread boundary. A guarded call on a thread pool needs `agent(...)`, and a
   lost to f-strings with literal text, `str.format` on a plain template, and
   `join` on a plain separator.
 - **Design limits and what is not a vulnerability**: [SECURITY.md](SECURITY.md).
-  The one worth knowing before writing a policy is that only the
-  `from_untrusted` trifecta leg is computed, so `trifecta.size` never exceeds
-  one and rules must be written directly against `taint` and `args`.
+  The one worth knowing before writing a policy is that `reads_private` and
+  `reaches_external` are computed only for a tool whose `sinks:` entry
+  declares `capabilities:`; an undeclared tool contributes neither leg, and
+  `interbolt validate` warns about any sink missing the key once at least one
+  other sink declares it.
 - **Record schemas and the OTel mapping**:
   [events](https://docs.deconvolutelabs.com/docs/reference/events).
 - **Policy internals**, including the CEL context shape and what `validate`

@@ -16,7 +16,13 @@ from interbolt.policy.partial_eval import (
     resolve_leaf_for_agent,
     resolve_leaf_for_group,
 )
-from interbolt.policy.schema import AgentDeclaration, Defaults, PolicyDocument, SinkRule
+from interbolt.policy.schema import (
+    AgentDeclaration,
+    Defaults,
+    PolicyDocument,
+    SinkDeclaration,
+    SinkRule,
+)
 
 
 def _simple_policy(
@@ -24,12 +30,16 @@ def _simple_policy(
     agents: dict[str, list[str]] | None = None,
     sink_action: Action = Action.BLOCK,
 ) -> Policy:
-    raw_sinks: dict[str, tuple[SinkRule, ...]] = {}
+    raw_sinks: dict[str, SinkDeclaration] = {}
     if sinks:
         for key, rules in sinks.items():
-            raw_sinks[key] = tuple(
-                SinkRule(name=r["name"], when=r.get("when"), action=Action(r["action"]))
-                for r in rules
+            raw_sinks[key] = SinkDeclaration(
+                rules=tuple(
+                    SinkRule(
+                        name=r["name"], when=r.get("when"), action=Action(r["action"])
+                    )
+                    for r in rules
+                )
             )
     raw_agents: dict[str, AgentDeclaration] = {}
     if agents:
@@ -38,7 +48,7 @@ def _simple_policy(
             for agent_id, groups in agents.items()
         }
     document = PolicyDocument(
-        version="1.0",
+        version="2.0",
         defaults=Defaults(sink_action=sink_action),
         sources=(),
         agents=raw_agents,

@@ -41,6 +41,7 @@ def _decision(action: Action = Action.ALLOW) -> Decision:
         untrusted_sources=frozenset(),
         run_tainted=False,
         run_ingress=(),
+        run_trifecta=frozenset(),
         mode=Mode.ENFORCE,
         decision_id=str(uuid.uuid4()),
         agent_id="agent",

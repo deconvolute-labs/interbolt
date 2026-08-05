@@ -2,7 +2,7 @@
 # Mirrors the shape of the repo-root policy.example.yaml, kept as its own
 # copy so integration tests aren't coupled to that file if it changes.
 
-version: "1.0"
+version: "2.0"
 
 defaults:
   sink_action: require_approval
@@ -16,22 +16,25 @@ sources:
 
 sinks:
   default.send_email:
-    - name: block_untrusted_exfil
-      when: taint.exists(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
-      action: block
-    - name: default
-      action: require_approval
+    rules:
+      - name: block_untrusted_exfil
+        when: taint.exists(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
+        action: block
+      - name: default
+        action: require_approval
 
   default.fs_write:
-    - name: approve_untrusted_to_disk
-      when: taint.exists(t, t.trust == "untrusted")
-      action: require_approval
-    - name: default
-      action: allow
+    rules:
+      - name: approve_untrusted_to_disk
+        when: taint.exists(t, t.trust == "untrusted")
+        action: require_approval
+      - name: default
+        action: allow
 
   default.run_shell:
-    - name: block_any_untrusted
-      when: max_trust == "untrusted"
-      action: block
-    - name: default
-      action: allow
+    rules:
+      - name: block_any_untrusted
+        when: max_trust == "untrusted"
+        action: block
+      - name: default
+        action: allow

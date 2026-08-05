@@ -11,7 +11,12 @@ from pydantic import ValidationError
 from interbolt.constants import WIRE_ENVELOPE_KEY, WIRE_SCHEMA_VERSION
 from interbolt.errors import InterboltConfigError
 from interbolt.models.core import Label
-from interbolt.taint.runstate import record_ingress, run_ingress
+from interbolt.taint.runstate import (
+    record_capabilities,
+    record_ingress,
+    run_capabilities,
+    run_ingress,
+)
 from interbolt.taint.wire_rebuild import _rebuild, _replay_audit
 from interbolt.taint.wire_schema import (
     LabelEntry,
@@ -80,38 +85,32 @@ def pack(
 ) -> dict[str, Any]:
     """Capture `value`'s provenance in a plain, JSON-representable envelope.
 
-    Strips every `Tainted`/`TaintedBytes`/`LabeledValue` carrier down to a
-    JSON-representable leaf and records what it stripped in a path-keyed
-    sidecar, so `unpack` can rebuild the carriers later, possibly in another
-    process. The library does not serialize; hand the returned `dict` to
-    whatever codec you already use.
+    Strips every carrier down to a JSON-representable leaf and records what
+    it stripped in a path-keyed sidecar, so `unpack` can rebuild the carriers
+    later, possibly in another process. The library does not serialize. Hand
+    the returned dict to whatever codec you already use.
 
-    An unauthenticated envelope (no `key`) inherits the trust of whatever
-    medium carries it: anyone who can write the store can assert any
-    provenance they choose. Pass `key` when the store is not already inside
-    your trust boundary.
+    Without `key`, the envelope inherits the trust of whatever medium carries
+    it: anyone who can write the store can assert any provenance.
 
     Args:
-        value: The value to pack. May be a bare tainted leaf or an
-            arbitrarily nested container of them.
+        value: The value to pack. A bare tainted leaf, or an arbitrarily
+            nested container of them.
         key: An HMAC key authenticating the envelope. `None` produces an
             unauthenticated envelope.
         key_id: An opaque identifier for `key`, carried in the envelope and
-            covered by the MAC. Reserved for future key rotation; no
-            semantics beyond that today.
+            covered by the MAC. Reserved for key rotation.
         include_run: Whether to record the active run's ingested sources and
-            their agents in the envelope, sorted for reproducibility, for
-            replay into whatever run unpacks it.
+            accumulated trifecta capability legs, for replay into whatever
+            run unpacks the envelope.
 
     Returns:
         A plain, JSON-representable envelope dict.
 
     Raises:
-        InterboltConfigError: `key_id` was given without `key`; `value`
-            contains a non-string mapping key; or `value` contains a leaf
-            that cannot be represented in the envelope (a `datetime`, a
-            Pydantic model, or any other non-JSON-representable object,
-            including a `LabeledValue` wrapping one).
+        InterboltConfigError: `key_id` was given without `key`, `value`
+            contains a non-string mapping key, or `value` contains a leaf the
+            envelope cannot represent. The message names the failure.
     """
     if key_id is not None and key is None:
         raise InterboltConfigError("key_id given without key")
@@ -129,7 +128,8 @@ def pack(
                 sources=tuple(
                     RunSourceEntry(name=name, ingested_by=tuple(sorted(entries[name])))
                     for name in sorted(entries)
-                )
+                ),
+                capabilities=tuple(sorted(run_capabilities(run_id))),
             )
 
     envelope = WireEnvelope(
@@ -154,32 +154,25 @@ def unpack(
 ) -> Any:  # noqa: ANN401 -- returns whatever shape was packed
     """Rehydrate a `pack()`-produced envelope.
 
-    Validates the envelope's shape, verifies the MAC when one is expected,
-    rebuilds every carrier at its recorded path, replays the run's ingested
-    source names into the currently active run, and replays rehydrated
-    content to the laundering audit observer when one is installed. Builds
-    the complete rehydrated value before any of these replays run, so a
-    rejection never leaves partial state behind.
+    Verifies the MAC when one is expected, rebuilds every carrier at its
+    recorded path, and replays the envelope's run block into the currently
+    active run. The rehydrated value is built in full before any replay runs,
+    so a rejected envelope leaves no partial state behind.
 
     Args:
         envelope: The envelope to unpack, typically the direct output of
             `json.loads` on whatever `pack()` produced.
         key: The HMAC key to verify the envelope's `mac` with. Required if
-            the envelope carries a `mac`; must be omitted if it does not.
+            the envelope carries a `mac`, and must be omitted if it does not.
 
     Returns:
         The rehydrated value, in the same shape it was packed from.
 
     Raises:
-        InterboltConfigError: The envelope's `version` is unrecognized; it
-            fails schema validation or carries unknown keys; `key` and the
-            envelope's `mac` are inconsistent (one given without the
-            other); the `mac` does not verify; a label or shape entry's
-            path does not resolve against `payload`, or resolves to a leaf
-            whose type contradicts its `carrier`/`kind`; two entries share
-            a path; a pooled label fails validation; a `label` index is out
-            of range; the entry count exceeds the configured cap; or a
-            `set`/`frozenset` shape entry's restored members are unhashable.
+        InterboltConfigError: The envelope's version is unrecognized, it fails
+            schema validation, its `mac` and `key` are inconsistent or the mac
+            does not verify, or a recorded path does not resolve against the
+            payload. The message names the failure.
     """
     raw_version = envelope.get("version")
     if raw_version != WIRE_SCHEMA_VERSION:
@@ -208,9 +201,24 @@ def unpack(
 
     if parsed.run is not None:
         record_ingress({entry.name: entry.ingested_by for entry in parsed.run.sources})
+        if parsed.run.capabilities:
+            _replay_capabilities(frozenset(parsed.run.capabilities))
     _replay_audit(parsed, pool, rebuilt_by_path)
 
     return rehydrated
+
+
+def _replay_capabilities(capabilities: frozenset[str]) -> None:
+    """Replay packed run capabilities into the currently active run, if any."""
+    run_id = current_run_id.get()
+    if run_id is None:
+        _logger.debug(
+            "unpack() carried run capabilities %r but no run is active; "
+            "this cannot be attributed to a run",
+            tuple(sorted(capabilities)),
+        )
+        return
+    record_capabilities(run_id, capabilities)
 
 
 def pack_into(
@@ -235,7 +243,8 @@ def pack_into(
         key_id: An opaque identifier for `key`, carried in the envelope and
             covered by the MAC.
         include_run: Whether to record the active run's ingested source
-            names in the envelope, for replay into whatever run unpacks it.
+            names and accumulated trifecta capability legs in the envelope,
+            for replay into whatever run unpacks it.
 
     Returns:
         A new plain mapping: every original key with its carriers stripped,

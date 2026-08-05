@@ -45,6 +45,7 @@ def _decision(
         untrusted_sources=frozenset(),
         run_tainted=False,
         run_ingress=(),
+        run_trifecta=frozenset(),
         mode=Mode.ENFORCE,
         decision_id=str(uuid.uuid4()),
         agent_id=agent_id,
@@ -576,6 +577,7 @@ class TestExplainSubcommand:
         mocker.patch("interbolt.cli.commands.Policy.from_file")
         explanation = ToolExplanation(
             sink_key="payments.send_payment",
+            capabilities=frozenset(),
             mentions=(
                 ToolMention(
                     name="payer_rule",

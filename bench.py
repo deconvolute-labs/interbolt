@@ -24,6 +24,7 @@ from interbolt.policy.compile import compile_policy
 from interbolt.policy.schema import (
     Defaults,
     PolicyDocument,
+    SinkDeclaration,
     SinkRule,
     SourceDeclaration,
 )
@@ -31,17 +32,19 @@ from interbolt.policy.schema import (
 
 def _make_policy() -> Policy:
     document = PolicyDocument(
-        version="1.0",
+        version="2.0",
         defaults=Defaults(),
         sources=(SourceDeclaration(name="web_search", trust=TrustLevel.UNTRUSTED),),
         sinks={
-            "default.tool": (
-                SinkRule(
-                    name="block_untrusted",
-                    when='taint.exists(t, t.trust == "untrusted")',
-                    action=Action.REQUIRE_APPROVAL,
-                ),
-                SinkRule(name="default", action=Action.ALLOW),
+            "default.tool": SinkDeclaration(
+                rules=(
+                    SinkRule(
+                        name="block_untrusted",
+                        when='taint.exists(t, t.trust == "untrusted")',
+                        action=Action.REQUIRE_APPROVAL,
+                    ),
+                    SinkRule(name="default", action=Action.ALLOW),
+                )
             )
         },
     )

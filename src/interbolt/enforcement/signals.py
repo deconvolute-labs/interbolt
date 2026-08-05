@@ -5,23 +5,25 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from interbolt.constants import TRIFECTA_FROM_UNTRUSTED
-from interbolt.models.core import RunIngressEntry, TrustLevel
+from interbolt.models.core import Capability, RunIngressEntry, TrustLevel
 from interbolt.policy import ResolvedLabel
 from interbolt.policy.evaluate import resolve_source_trust
 from interbolt.taint import run_ingress
 
 
-def _compute_trifecta(resolved_labels: tuple[ResolvedLabel, ...]) -> frozenset[str]:
+def _compute_trifecta(
+    resolved_labels: tuple[ResolvedLabel, ...],
+    call_capabilities: frozenset[Capability],
+) -> frozenset[str]:
     """Compute the lethal-trifecta legs satisfied by this call.
 
-    Computes only the `from_untrusted` leg; `reaches_external` and
-    `reads_private` are never included, so `trifecta.contains(...)` always
-    evaluates false for either. Derived from `resolved_labels` (resolved
-    once in `check()`), not re-resolved here.
+    `from_untrusted` when any resolved label is untrusted, unioned with the
+    called tool's declared capabilities.
     """
+    legs: set[str] = {capability.value for capability in call_capabilities}
     if any(resolved.trust is TrustLevel.UNTRUSTED for resolved in resolved_labels):
-        return frozenset({TRIFECTA_FROM_UNTRUSTED})
-    return frozenset()
+        legs.add(TRIFECTA_FROM_UNTRUSTED)
+    return frozenset(legs)
 
 
 def _compute_untrusted_sources(
@@ -61,3 +63,19 @@ def _resolve_run_ingress(
 def _run_tainted(entries: tuple[RunIngressEntry, ...]) -> bool:
     """Whether any resolved run-ingress entry is untrusted."""
     return any(entry.trust is TrustLevel.UNTRUSTED for entry in entries)
+
+
+def _compute_run_trifecta(
+    run_ingress: tuple[RunIngressEntry, ...],
+    run_capabilities: frozenset[str],
+) -> frozenset[str]:
+    """Compute the lethal-trifecta legs satisfied anywhere in the active run.
+
+    `from_untrusted` when `_run_tainted(run_ingress)` is true, unioned with
+    `run_capabilities`. Derived from the same `run_ingress` tuple
+    `_run_tainted` uses, so the two can never disagree.
+    """
+    legs = set(run_capabilities)
+    if _run_tainted(run_ingress):
+        legs.add(TRIFECTA_FROM_UNTRUSTED)
+    return frozenset(legs)

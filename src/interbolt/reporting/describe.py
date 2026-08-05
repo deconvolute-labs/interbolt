@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from interbolt.constants import TRIFECTA_FROM_UNTRUSTED, TRIFECTA_LEGS
 from interbolt.models.core import (
     Action,
     Decision,
@@ -34,6 +35,21 @@ def _run_untrusted_segment(decision: Decision) -> str | None:
             agents = ", ".join(entry.ingested_by)
             parts.append(f"{entry.source}({agents})" if agents else entry.source)
     return "{" + ", ".join(parts) + "}"
+
+
+def _run_trifecta_segment(decision: Decision) -> str | None:
+    """The `run_trifecta={...}` segment, or `None` when there's nothing to add.
+
+    `None` when the run has satisfied no legs, and when it has satisfied
+    only `from_untrusted`, since that case is already reported by
+    `run_tainted`/`run_untrusted`.
+    """
+    if not decision.run_trifecta or decision.run_trifecta == {TRIFECTA_FROM_UNTRUSTED}:
+        return None
+    legs = "{" + ", ".join(sorted(decision.run_trifecta)) + "}"
+    if decision.run_trifecta == TRIFECTA_LEGS:
+        return f"[red bold]{legs}[/red bold]"
+    return legs
 
 
 def describe_event(event: Event) -> str:
@@ -91,10 +107,12 @@ def describe_decision(decision: Decision) -> str:
     ingested_by = ", ".join(sorted(_ingested_by(decision))) or "-"
     run_untrusted = _run_untrusted_segment(decision)
     run_untrusted_part = f"  run_untrusted={run_untrusted}" if run_untrusted else ""
+    run_trifecta = _run_trifecta_segment(decision)
+    run_trifecta_part = f"  run_trifecta={run_trifecta}" if run_trifecta else ""
     return (
         f"{decision.tool}  [{color}]{decision.action.value}[/{color}]  "
         f"rule={rule}{condition}  mode={decision.mode.value}  "
-        f"untrusted_sources={{{untrusted}}}{run_untrusted_part}  "
+        f"untrusted_sources={{{untrusted}}}{run_untrusted_part}{run_trifecta_part}  "
         f"ingested_by={{{ingested_by}}}"
     )
 

@@ -1,14 +1,17 @@
 """The taint package's process-global state.
 
-Holds the run-ingress registry and the two extension hooks `runtime.configure()`
-installs: the `taint()`-time audit observer and the `endorse()`-time emitter.
+Holds the run-ingress registry, the run-capability registry, and the two
+extension hooks `runtime.configure()` installs: the `taint()`-time audit
+observer and the `endorse()`-time emitter.
 """
 
 from __future__ import annotations
 
 import threading
+from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping
 
+from interbolt.constants import RUN_CAPABILITY_MAX_TRACKED_RUNS
 from interbolt.models.core import Endorsement
 from interbolt.utils import current_run_id, get_logger
 
@@ -60,6 +63,45 @@ def clear_run_ingress(run_id: str) -> None:
     """Drop the recorded ingress sources for a finished run."""
     with _ingress_lock:
         _run_ingress.pop(run_id, None)
+
+
+_run_capabilities: OrderedDict[str, set[str]] = OrderedDict()
+_capability_lock = threading.Lock()
+
+
+def record_capabilities(run_id: str, capabilities: frozenset[str]) -> frozenset[str]:
+    """Union `capabilities` into `run_id`'s accumulated set; return the result.
+
+    Returns the run's full accumulated set after recording, in one lock
+    acquisition, so a caller never records and then reads across a race.
+    Recording an empty `capabilities` still touches the run's entry and
+    returns its accumulated set, so a call to a capability-less tool sees
+    the legs the run already carries.
+
+    Bounded to `constants.RUN_CAPABILITY_MAX_TRACKED_RUNS` runs, evicting the
+    least-recently-touched entry past that cap. An evicted run's accumulated
+    legs are gone; a later call under that run id starts a fresh empty set
+    rather than raising.
+    """
+    with _capability_lock:
+        entry = _run_capabilities.setdefault(run_id, set())
+        entry.update(capabilities)
+        _run_capabilities.move_to_end(run_id)
+        while len(_run_capabilities) > RUN_CAPABILITY_MAX_TRACKED_RUNS:
+            _run_capabilities.popitem(last=False)
+        return frozenset(entry)
+
+
+def run_capabilities(run_id: str) -> frozenset[str]:
+    """The trifecta capability legs recorded for `run_id` so far."""
+    with _capability_lock:
+        return frozenset(_run_capabilities.get(run_id, set()))
+
+
+def clear_run_capabilities(run_id: str) -> None:
+    """Drop the recorded capability legs for a finished run."""
+    with _capability_lock:
+        _run_capabilities.pop(run_id, None)
 
 
 _taint_observer: Callable[[str, str, str], None] | None = None

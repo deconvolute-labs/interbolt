@@ -22,7 +22,7 @@ from interbolt.constants import (
     WIRE_MAX_NAME_LENGTH,
     WIRE_SCHEMA_VERSION,
 )
-from interbolt.models.core import Label
+from interbolt.models.core import Capability, Label
 from interbolt.taint.wire_walk import LabelCarrier, Path, ShapeKind
 from interbolt.utils.names import validate_agent_id, validate_endorsement_kind
 
@@ -172,11 +172,19 @@ class RunSourceEntry(BaseModel):
 
 
 class RunBlock(BaseModel):
-    """Run-scoped provenance: the sources active at pack time, with their agents."""
+    """Run-scoped provenance: the sources active at pack time, with their agents.
+
+    Attributes:
+        sources: The sources active at pack time, with their agents.
+        capabilities: The run-scoped trifecta capability legs accumulated so
+            far, so a Rule-of-Two check survives a `pack`/`unpack` round trip
+            across a turn boundary.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     sources: tuple[RunSourceEntry, ...]
+    capabilities: tuple[str, ...] = ()
 
     @field_validator("sources")
     @classmethod
@@ -186,6 +194,17 @@ class RunBlock(BaseModel):
         if len(value) > WIRE_MAX_LIST_LENGTH:
             raise ValueError(f"run.sources exceeds {WIRE_MAX_LIST_LENGTH} entries")
         return value
+
+    @field_validator("capabilities")
+    @classmethod
+    def _validate_capabilities(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        valid = {member.value for member in Capability}
+        for leg in value:
+            if leg not in valid:
+                raise ValueError(
+                    f"unknown capability {leg!r}; expected one of {sorted(valid)}"
+                )
+        return _validate_list_length(value, field="run.capabilities")
 
 
 class WireEnvelope(BaseModel):
