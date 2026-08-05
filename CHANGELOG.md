@@ -1,42 +1,80 @@
-## [Unreleased]
+## [0.3.0] - 2026-08-05
 
 ### ⚠️ Breaking Changes
 
-- **`Decision` gains a required `run_ingress` field, bumping
-  `EVENT_SCHEMA_VERSION` from 9 to 10.** A schema-version-9 JSONL log no
-  longer parses: `interbolt inspect` skips each such line with a warning and
-  reads on, rather than failing the whole file. Migrate an existing log by
-  inserting an empty list, which reads as "this run's ingress was never
-  recorded":
+- **Policy documents are version `2.0`, and a `sinks:` entry is now a mapping
+  rather than a bare rule list.** Each entry takes two optional keys:
+  `capabilities:` says what the tool does, and `rules:` gates calls to it. An
+  entry with no rules falls through to `defaults.sink_action`, exactly as a
+  tool with no entry at all does. Nothing inside a rule changed, so no `when:`
+  expression needs editing. A `1.0` document fails at load with a message
+  naming both edits.
 
-  ```
-  jq -c 'if .record_type == "event" then .decision.run_ingress = [] else . end' old.jsonl > new.jsonl
-  ```
+- **`Decision` gains two required fields, `run_ingress` and `run_trifecta`,
+  bumping `EVENT_SCHEMA_VERSION` from 9 to 11.** Code constructing a
+  `Decision` directly, including test fixtures, must supply both. A
+  schema-version-9 or -10 JSONL log no longer parses; `interbolt inspect`
+  skips each such line with a warning and reads on.
 
 - **The `pack`/`unpack` wire envelope's `run` block now carries per-source
-  agent attribution, bumping `WIRE_SCHEMA_VERSION` from 1 to 2.** A
-  version-1 envelope is rejected outright; there is no compatibility path.
+  agent attribution and the run's accumulated trifecta capability legs,
+  bumping `WIRE_SCHEMA_VERSION` from 1 to 3.** Version-1 and version-2
+  envelopes are rejected outright; there is no compatibility path.
+
+- **`Policy.fingerprint` changes for every policy**, since the document shape
+  changed. Records emitted before and after this release do not join on
+  `policy_fingerprint` even where the policy is semantically identical.
 
 ### 🚀 Features
 
+- **All three lethal-trifecta legs are computable.** `reads_private` and
+  `reaches_external` are declared per tool with the `capabilities:` key on a
+  sink entry, alongside `from_untrusted` derived from a call's own labels. A
+  tool that only reads data is declared with capabilities and no rules, which
+  is what lets a run reach three legs. `Capability` joins the public surface,
+  and `Policy.tool_capabilities` reads the declarations back.
+
+- **`run.trifecta`**, a CEL list of every leg satisfied anywhere in the active
+  run, making `size(run.trifecta) >= 3` the Rule-of-Two check. Run-scoped
+  rather than value-scoped, so it holds across a model-mediated handoff that
+  launders taint off the outgoing argument. A call's own capabilities are
+  recorded before its rules are evaluated, so a rule on an external-reaching
+  call sees its own leg. Empty outside any `agent_context`, like
+  `run.tainted`.
+
 - **`Decision.run_ingress`**, naming every source that entered the active run
   before a call, the trust each resolved to, and the agent ids that ingested
-  it. This is what explains a `run.tainted`-driven decision after the fact
-  when a model-mediated handoff leaves `contributing_labels`,
-  `sources`, and `untrusted_sources` empty on the record; previously only the
-  boolean `run_tainted` survived onto the record, with the resolved sources
-  discarded.
+  it. With `Decision.run_trifecta`, this is what explains a run-scoped
+  decision on a call whose own arguments carry no labels.
+
 - **Three new CEL fields on `run`**: `run.sources`, `run.untrusted_sources`,
-  and `run.ingested_by`, alongside the existing `run.tainted`. `interbolt
-  validate` widens its `run.<field>` check accordingly and adds a
-  warning-level lint for `run.sources.all(...)`/`run.untrusted_sources.all(...)`/
-  `run.ingested_by.all(...)` inside an `allow` rule, which folds to `true` on
-  a run with no recorded ingress; use `.exists(...)` instead.
+  and `run.ingested_by`, alongside `run.tainted`.
+
+- **`interbolt validate` gains four checks.** It rejects a `1.0` document or a
+  bare-list sink entry with a migration message. It checks every trifecta leg
+  literal, erroring when no sink declares any capability and warning when no
+  sink declares that leg. It warns about a sink entry with no `capabilities:`
+  key once at least one entry carries one, where `capabilities: []` records a
+  deliberate assessment. It covers the new `run.<field>` names, warning on
+  `.all(...)` over any of them inside an `allow` rule, since that folds to
+  `true` on a run with no recorded ingress; use `.exists(...)`.
+
+- **`interbolt explain --tool`** leads with the tool's declared capabilities,
+  or states that none are declared.
+
 - `describe_event`/`describe_decision` append a `run_untrusted={...}` segment
-  when `run_tainted` is true, and `OTelReporter` exports
-  `interbolt.run_ingested_sources`, `interbolt.run_untrusted_sources`, and
-  `interbolt.run_ingested_by` as sorted string lists (the source-to-agent
-  pairing itself is not exported to OpenTelemetry).
+  when `run_tainted` is true and a `run_trifecta={...}` segment when a
+  capability leg is present. `OTelReporter` exports
+  `interbolt.run_ingested_sources`, `interbolt.run_untrusted_sources`,
+  `interbolt.run_ingested_by`, and `interbolt.run_trifecta` as sorted string
+  lists; the source-to-agent pairing is not exported.
+
+### 📚 Documentation
+
+- Rewrote every policy example against the `2.0` document shape, and added the
+  trifecta derivation, the capabilities declaration, and the Rule-of-Two
+  pattern to the concepts, guide, and reference pages.
+- Add agentdojo benchmark reference.
 
 ## [0.2.0] - 2026-07-26
 
