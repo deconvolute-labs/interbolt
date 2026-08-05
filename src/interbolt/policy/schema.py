@@ -357,7 +357,7 @@ _VERSION_1_0_MIGRATION_MESSAGE = (
     "rather than a bare rule list, and the top-level `capabilities:` section "
     'has moved inside each entry. Set `version: "2.x"` and rewrite each '
     "sink entry as `<tool>:\n  rules:\n    - ...`. See "
-    "<https://docs.deconvoluteai.com/docs/concepts/policies>"
+    "<https://docs.deconvolutelabs.com/docs/concepts/policies>"
 )
 
 

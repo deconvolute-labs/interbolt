@@ -70,7 +70,7 @@
     },
     "SinkDeclaration": {
       "additionalProperties": false,
-      "description": "One tool's declaration: what it does, and how calls to it are gated.\n\nAttributes:\n    capabilities: What the tool does with the data it touches, which is\n        what makes its `reads_private`/`reaches_external` trifecta legs\n        computable. `None` means undeclared, which contributes no legs\n        and draws a warning from `interbolt validate` once at least one\n        sink in the policy declares capabilities. An empty tuple records\n        that the tool has neither capability, distinct from `None`.\n    rules: The sink's ordered rules, first match wins. An entry with no\n        rules falls through to `defaults.sink_action`, exactly as a tool\n        absent from `sinks` does.",
+      "description": "One tool's declaration: what it does, and how calls to it are gated.\n\nAttributes:\ncapabilities: What the tool does with the data it touches, which is\nwhat makes its `reads_private`/`reaches_external` trifecta legs\ncomputable. `None` means undeclared, which contributes no legs\nand draws a warning from `interbolt validate` once at least one\nsink in the policy declares capabilities. An empty tuple records\nthat the tool has neither capability, distinct from `None`.\n    rules: The sink's ordered rules, first match wins. An entry with no\n        rules falls through to `defaults.sink_action`, exactly as a tool\n        absent from `sinks` does.",
       "properties": {
         "capabilities": {
           "anyOf": [
