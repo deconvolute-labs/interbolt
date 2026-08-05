@@ -220,12 +220,12 @@ def explain_for_agent(policy: Policy, agent_id: str) -> AgentExplanation:
     sinks = tuple(
         _explain_sink(
             sink_key,
-            rules,
+            declaration.rules,
             policy.document.defaults.sink_action,
             resolve_leaf,
             shadow_reason,
         )
-        for sink_key, rules in policy.document.sinks.items()
+        for sink_key, declaration in policy.document.sinks.items()
     )
     return AgentExplanation(agent_id=agent_id, groups=groups, sinks=sinks)
 
@@ -248,12 +248,12 @@ def explain_for_group(policy: Policy, group: str) -> GroupExplanation:
     sinks = tuple(
         _explain_sink(
             sink_key,
-            rules,
+            declaration.rules,
             policy.document.defaults.sink_action,
             resolve_leaf,
             _no_shadow_reason,
         )
-        for sink_key, rules in policy.document.sinks.items()
+        for sink_key, declaration in policy.document.sinks.items()
     )
     return GroupExplanation(group=group, sinks=sinks)
 
@@ -289,9 +289,10 @@ def explain_for_tool(policy: Policy, sink_key: str) -> ToolExplanation | None:
     Returns:
         The sink's mentions, or `None` if `sink_key` names no declared sink.
     """
-    rules = policy.document.sinks.get(sink_key)
-    if rules is None:
+    declaration = policy.document.sinks.get(sink_key)
+    if declaration is None:
         return None
+    rules = declaration.rules
     mentions: list[ToolMention] = []
     for rule in rules:
         when_text = rule_when(rule)

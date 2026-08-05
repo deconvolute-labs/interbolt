@@ -27,7 +27,7 @@
       "type": "object"
     },
     "Capability": {
-      "description": "A declared property of a tool: what it does with the data it touches.\n\nSet in a policy's `capabilities:` section and read back from\n`Policy.tool_capabilities`. The closed set of two is what makes the\n`reads_private` and `reaches_external` lethal-trifecta legs computable.",
+      "description": "A declared property of a tool: what it does with the data it touches.\n\nSet with the `capabilities:` key on a sink entry and read back from\n`Policy.tool_capabilities`. The closed set of two is what makes the\n`reads_private` and `reaches_external` lethal-trifecta legs computable.",
       "enum": [
         "reads_private",
         "reaches_external"
@@ -67,6 +67,37 @@
       ],
       "title": "Mode",
       "type": "string"
+    },
+    "SinkDeclaration": {
+      "additionalProperties": false,
+      "description": "One tool's declaration: what it does, and how calls to it are gated.\n\nAttributes:\n    capabilities: What the tool does with the data it touches, which is\n        what makes its `reads_private`/`reaches_external` trifecta legs\n        computable. `None` means undeclared, which contributes no legs\n        and draws a warning from `interbolt validate` once at least one\n        sink in the policy declares capabilities. An empty tuple records\n        that the tool has neither capability, distinct from `None`.\n    rules: The sink's ordered rules, first match wins. An entry with no\n        rules falls through to `defaults.sink_action`, exactly as a tool\n        absent from `sinks` does.",
+      "properties": {
+        "capabilities": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Capability"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capabilities"
+        },
+        "rules": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/SinkRule"
+          },
+          "title": "Rules",
+          "type": "array"
+        }
+      },
+      "title": "SinkDeclaration",
+      "type": "object"
     },
     "SinkRule": {
       "description": "One ordered rule within a sink's rule list. First match wins.\n\n`require_endorsement` is sugar for the common \"gate untrusted data\nlacking this endorsement kind\" shape: setting it compiles to the\nequivalent `when:` CEL text, so most rules needing this never\nhand-write CEL. Mutually exclusive with `when`; a rule may set at most\none of the two.",
@@ -138,7 +169,7 @@
       "type": "string"
     }
   },
-  "description": "The validated shape of a policy YAML file.\n\nAttributes:\n    capabilities: What each tool does, keyed by the same dotted\n        `namespace.tool` names `sinks` uses. Declaring a tool here makes\n        its `reads_private`/`reaches_external` trifecta legs computable.\n        An empty list for a tool records that it has neither\n        capability, distinct from the tool being absent from this\n        mapping entirely.",
+  "description": "The validated shape of a policy YAML file.\n\nAttributes:\n    sinks: One `SinkDeclaration` per guarded tool, keyed by the dotted\n        `namespace.tool` name. A tool absent from this mapping falls\n        through to `defaults.sink_action` and contributes no trifecta\n        capability legs.",
   "properties": {
     "version": {
       "title": "Version",
@@ -165,23 +196,9 @@
     },
     "sinks": {
       "additionalProperties": {
-        "items": {
-          "$ref": "#/$defs/SinkRule"
-        },
-        "type": "array"
+        "$ref": "#/$defs/SinkDeclaration"
       },
       "title": "Sinks",
-      "type": "object"
-    },
-    "capabilities": {
-      "additionalProperties": {
-        "items": {
-          "$ref": "#/$defs/Capability"
-        },
-        "type": "array"
-      },
-      "default": {},
-      "title": "Capabilities",
       "type": "object"
     }
   },

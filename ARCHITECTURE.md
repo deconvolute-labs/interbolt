@@ -197,9 +197,10 @@ thread boundary. A guarded call on a thread pool needs `agent(...)`, and a
   `join` on a plain separator.
 - **Design limits and what is not a vulnerability**: [SECURITY.md](SECURITY.md).
   The one worth knowing before writing a policy is that `reads_private` and
-  `reaches_external` are computed only for a tool declared in the policy's
-  `capabilities:` section; an undeclared tool contributes neither leg, and
-  `interbolt validate` warns about any sink missing from a non-empty section.
+  `reaches_external` are computed only for a tool whose `sinks:` entry
+  declares `capabilities:`; an undeclared tool contributes neither leg, and
+  `interbolt validate` warns about any sink missing the key once at least one
+  other sink declares it.
 - **Record schemas and the OTel mapping**:
   [events](https://docs.deconvolutelabs.com/docs/reference/events).
 - **Policy internals**, including the CEL context shape and what `validate`

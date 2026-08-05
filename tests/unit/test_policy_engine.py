@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from interbolt.errors import InterboltConfigError, PolicyEvaluationError
-from interbolt.models.core import Action, Label, RunIngressEntry, TrustLevel
+from interbolt.models.core import Action, Capability, Label, RunIngressEntry, TrustLevel
 from interbolt.policy import Policy
 from interbolt.policy.cel import (
     compile_cel_expression,
@@ -27,6 +27,7 @@ from interbolt.policy.schema import (
     AgentDeclaration,
     Defaults,
     PolicyDocument,
+    SinkDeclaration,
     SinkRule,
 )
 from interbolt.taint import _fresh_label
@@ -43,16 +44,18 @@ def _simple_doc(
     sinks: dict[str, list[dict[str, str]]] | None = None,
     agents: dict[str, list[str]] | None = None,
 ) -> PolicyDocument:
-    raw_sinks: dict[str, tuple[SinkRule, ...]] = {}
+    raw_sinks: dict[str, SinkDeclaration] = {}
     if sinks:
         for key, rules in sinks.items():
-            raw_sinks[key] = tuple(
-                SinkRule(
-                    name=r["name"],
-                    when=r.get("when"),
-                    action=Action(r["action"]),
+            raw_sinks[key] = SinkDeclaration(
+                rules=tuple(
+                    SinkRule(
+                        name=r["name"],
+                        when=r.get("when"),
+                        action=Action(r["action"]),
+                    )
+                    for r in rules
                 )
-                for r in rules
             )
     raw_agents: dict[str, AgentDeclaration] = {}
     if agents:
@@ -61,7 +64,7 @@ def _simple_doc(
             for agent_id, groups in agents.items()
         }
     return PolicyDocument(
-        version="1.0",
+        version="2.0",
         defaults=Defaults(sink_action=Action.ALLOW),
         sources=(),
         agents=raw_agents,
@@ -267,6 +270,20 @@ class TestCompilePolicy:
         compiled = compile_policy(doc)
         rule = compiled["default.tool"].rules[0]
         assert rule.when is None
+
+    def test_capabilities_only_declaration_compiles_to_empty_rules(self) -> None:
+        doc = PolicyDocument(
+            version="2.0",
+            defaults=Defaults(sink_action=Action.ALLOW),
+            sources=(),
+            sinks={
+                "default.read_inbox": SinkDeclaration(
+                    capabilities=(Capability.READS_PRIVATE,)
+                )
+            },
+        )
+        compiled = compile_policy(doc)
+        assert compiled["default.read_inbox"].rules == ()
 
 
 class TestResolveLabelTrust:
@@ -510,16 +527,18 @@ class TestLineageVsSourceAfterMerge:
 class TestRequireEndorsementSugar:
     def test_compiles_to_kind_matching_when_text(self) -> None:
         doc = PolicyDocument(
-            version="1.0",
+            version="2.0",
             defaults=Defaults(sink_action=Action.ALLOW),
             sources=(),
             sinks={
-                "default.tool": (
-                    SinkRule(
-                        name="r",
-                        require_endorsement="recipient_allowlisted",
-                        action=Action.BLOCK,
-                    ),
+                "default.tool": SinkDeclaration(
+                    rules=(
+                        SinkRule(
+                            name="r",
+                            require_endorsement="recipient_allowlisted",
+                            action=Action.BLOCK,
+                        ),
+                    )
                 )
             },
         )
@@ -533,17 +552,19 @@ class TestRequireEndorsementSugar:
 
     def test_endorsed_with_required_kind_does_not_match(self) -> None:
         doc = PolicyDocument(
-            version="1.0",
+            version="2.0",
             defaults=Defaults(sink_action=Action.ALLOW),
             sources=(),
             sinks={
-                "default.tool": (
-                    SinkRule(
-                        name="require_allowlist",
-                        require_endorsement="recipient_allowlisted",
-                        action=Action.BLOCK,
-                    ),
-                    SinkRule(name="default", action=Action.ALLOW),
+                "default.tool": SinkDeclaration(
+                    rules=(
+                        SinkRule(
+                            name="require_allowlist",
+                            require_endorsement="recipient_allowlisted",
+                            action=Action.BLOCK,
+                        ),
+                        SinkRule(name="default", action=Action.ALLOW),
+                    )
                 )
             },
         )
@@ -573,17 +594,19 @@ class TestRequireEndorsementSugar:
         # Sanitizer-mismatch: endorsed for a different kind than the sink
         # requires must still be gated.
         doc = PolicyDocument(
-            version="1.0",
+            version="2.0",
             defaults=Defaults(sink_action=Action.ALLOW),
             sources=(),
             sinks={
-                "default.tool": (
-                    SinkRule(
-                        name="require_allowlist",
-                        require_endorsement="recipient_allowlisted",
-                        action=Action.BLOCK,
-                    ),
-                    SinkRule(name="default", action=Action.ALLOW),
+                "default.tool": SinkDeclaration(
+                    rules=(
+                        SinkRule(
+                            name="require_allowlist",
+                            require_endorsement="recipient_allowlisted",
+                            action=Action.BLOCK,
+                        ),
+                        SinkRule(name="default", action=Action.ALLOW),
+                    )
                 )
             },
         )
@@ -1079,21 +1102,34 @@ class TestEvaluateSink:
         assert action is Action.ALLOW
         assert condition is None
 
+    def test_empty_rules_returns_default_action(self) -> None:
+        # A capabilities-only sink entry (no `rules:` key) compiles to an
+        # empty rule tuple; it must fall through to the default action
+        # exactly as a tool absent from `sinks` entirely does.
+        sink = CompiledSink(rules=())
+        name, action, condition = evaluate_sink(
+            sink, self._empty_context(), default_action=Action.ALLOW
+        )
+        assert name is None
+        assert action is Action.ALLOW
+        assert condition is None
+
 
 class TestPolicyFromFileRejectsAnyMacro:
     def test_raises_at_load_before_any_guarded_call(self, tmp_path: Path) -> None:
         policy_path = tmp_path / "policy.yaml"
         policy_path.write_text(
             """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: r
-      when: 'taint.any(t, true)'
-      action: block
+    rules:
+      - name: r
+        when: 'taint.any(t, true)'
+        action: block
 """
         )
         with pytest.raises(InterboltConfigError, match="exists") as excinfo:
@@ -1112,15 +1148,16 @@ class TestPolicyFromFileRejectsInvalidCel:
         policy_path = tmp_path / "policy.yaml"
         policy_path.write_text(
             """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: r
-      when: '%%% not valid CEL'
-      action: block
+    rules:
+      - name: r
+        when: '%%% not valid CEL'
+        action: block
 """
         )
         with pytest.raises(PolicyEvaluationError) as excinfo:

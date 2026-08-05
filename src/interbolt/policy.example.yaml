@@ -3,7 +3,7 @@
 # Starter interbolt policy. Copy this file, then adjust sources and sinks for
 # your agent. See https://docs.deconvolutelabs.com/docs/concepts/policies for the full policy reference.
 
-version: "1.0"
+version: "2.0"
 
 defaults:
   # A sink with no matching rule falls through to this action.
@@ -37,75 +37,82 @@ sources:
 #   support-agent:
 #     groups: [internal]
 
-# CAPABILITIES (optional): declare what each tool does, so the lethal-trifecta
-# legs become computable. Two capabilities exist: reads_private (the tool
-# returns private data) and reaches_external (the tool sends data outside your
-# trust boundary). A tool with no entry here contributes no legs, so
-# `interbolt validate` warns about any sink missing from this section once the
-# section exists. Declare an empty list to record that a tool genuinely has
-# neither.
-# capabilities:
-#   default.read_inbox: [reads_private]
-#   default.send_email: [reaches_external]
-#   default.fs_write: []
-
-# EGRESS: gate sinks. Keys are dotted qualified names "namespace.tool".
-# Within a sink, rules are ordered; first match wins. A trailing rule with
-# no `when` is the catch-all.
+# EGRESS: gate sinks. Keys are dotted qualified names "namespace.tool". Each
+# entry takes two optional keys: `capabilities:` says what the tool does
+# (reads_private, reaches_external, both, or neither, declared as an empty
+# list), which is what makes the lethal-trifecta legs computable; `rules:`
+# gates calls to it, first match wins, with a trailing rule with no `when`
+# as the catch-all. An entry with no `rules:` falls through to
+# defaults.sink_action, exactly like a tool with no entry at all.
 sinks:
+  # Capabilities-only entry: no rules of its own, so calls to it fall through
+  # to defaults.sink_action. It exists here so that reading the inbox
+  # contributes reads_private to the run, which is what lets
+  # size(run.trifecta) >= 3 reach three legs below.
+  default.read_inbox:
+    capabilities: [reads_private]
+
   default.send_email:
-    # Endorsement idiom (checked first, so it can carve out an exception to
-    # the block rule below): if your code validates a recipient against an
-    # allowlist and calls endorse(value, kind="recipient_allowlisted"), this
-    # rule lets that specific value through without weakening the block
-    # rule for everything else.
-    # - name: allow_endorsed_recipients
-    #   require_endorsement: recipient_allowlisted
-    #   action: allow
-    #
-    # Per-agent carve-out idiom: narrow an existing block rule rather than
-    # preceding it with an allow, so the exception can't outlive the rule it
-    # modifies or be reordered away from it. agent.id is validated (charset,
-    # not a tainted value, never the reserved "default") at every point an
-    # agent identity is bound, so this comparison can't be spoofed by
-    # model-controlled input.
-    # when: taint.exists(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
-    #       && agent.id != "outbound-mailer"
-    #
-    # Group-gated carve-out idiom: the same narrowing shape as above, but
-    # testing membership instead of one enumerated id, so a newly deployed
-    # agent with no declared groups stays covered by default instead of
-    # silently falling outside the rule the moment it ships.
-    # when: taint.exists(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
-    #       && !agent.groups.exists(g, g == "outbound")
-    #
-    # Rule-of-Two idiom: block when all three trifecta legs are present
-    # anywhere in the run, not just on this call's own arguments. This holds
-    # across a model-mediated handoff where value-level taint on the
-    # outgoing message has been laundered away.
-    # - name: block_rule_of_two
-    #   when: size(run.trifecta) >= 3
-    #   action: block
-    - name: block_untrusted_exfil
-      when: taint.exists(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
-      action: block
-    - name: default
-      action: require_approval
+    # Declares this tool's own capability: sending mail can reach outside
+    # your trust boundary. Uncomment to make reaches_external computable.
+    # capabilities: [reaches_external]
+    rules:
+      # Endorsement idiom (checked first, so it can carve out an exception to
+      # the block rule below): if your code validates a recipient against an
+      # allowlist and calls endorse(value, kind="recipient_allowlisted"), this
+      # rule lets that specific value through without weakening the block
+      # rule for everything else.
+      # - name: allow_endorsed_recipients
+      #   require_endorsement: recipient_allowlisted
+      #   action: allow
+      #
+      # Per-agent carve-out idiom: narrow an existing block rule rather than
+      # preceding it with an allow, so the exception can't outlive the rule it
+      # modifies or be reordered away from it. agent.id is validated (charset,
+      # not a tainted value, never the reserved "default") at every point an
+      # agent identity is bound, so this comparison can't be spoofed by
+      # model-controlled input.
+      # when: taint.exists(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
+      #       && agent.id != "outbound-mailer"
+      #
+      # Group-gated carve-out idiom: the same narrowing shape as above, but
+      # testing membership instead of one enumerated id, so a newly deployed
+      # agent with no declared groups stays covered by default instead of
+      # silently falling outside the rule the moment it ships.
+      # when: taint.exists(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
+      #       && !agent.groups.exists(g, g == "outbound")
+      #
+      # Rule-of-Two idiom: block when all three trifecta legs are present
+      # anywhere in the run, not just on this call's own arguments. This holds
+      # across a model-mediated handoff where value-level taint on the
+      # outgoing message has been laundered away. Needs default.read_inbox's
+      # reads_private and this sink's own reaches_external declared above.
+      # - name: block_rule_of_two
+      #   when: size(run.trifecta) >= 3
+      #   action: block
+      - name: block_untrusted_exfil
+        when: taint.exists(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
+        action: block
+      - name: default
+        action: require_approval
 
   default.fs_write:
-    - name: approve_untrusted_to_disk
-      when: taint.exists(t, t.trust == "untrusted")
-      action: require_approval
-    - name: default
-      action: allow
+    # capabilities: []   # writes to disk; declared to record it does neither
+    rules:
+      - name: approve_untrusted_to_disk
+        when: taint.exists(t, t.trust == "untrusted")
+        action: require_approval
+      - name: default
+        action: allow
 
   default.run_shell:
-    - name: block_any_untrusted
-      # `sources` and `max_trust` are top-level convenience values, siblings
-      # of `taint`, not `taint.sources`/`taint.max_trust`: CEL can't make one
-      # context variable both a list (for the `exists`/`all` macros above)
-      # and a map (for dotted field access) at once.
-      when: max_trust == "untrusted"
-      action: block
-    - name: default
-      action: allow
+    rules:
+      - name: block_any_untrusted
+        # `sources` and `max_trust` are top-level convenience values, siblings
+        # of `taint`, not `taint.sources`/`taint.max_trust`: CEL can't make one
+        # context variable both a list (for the `exists`/`all` macros above)
+        # and a map (for dotted field access) at once.
+        when: max_trust == "untrusted"
+        action: block
+      - name: default
+        action: allow

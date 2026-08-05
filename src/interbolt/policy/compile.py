@@ -52,9 +52,9 @@ def compile_policy(document: PolicyDocument) -> dict[str, CompiledSink]:
             construct, such as `.any(`, with the same prefix.
     """
     compiled: dict[str, CompiledSink] = {}
-    for sink_key, rules in document.sinks.items():
+    for sink_key, declaration in document.sinks.items():
         compiled_rules = []
-        for rule in rules:
+        for rule in declaration.rules:
             when = rule_when(rule)
             program = None
             if when is not None:

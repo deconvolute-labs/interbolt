@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from pytest_mock import MockerFixture
 
 from interbolt.errors import InterboltConfigError, PolicyEvaluationError
-from interbolt.models.core import Action, Mode, TrustLevel
+from interbolt.models.core import Action, Capability, Mode, TrustLevel
 from interbolt.policy import default_policy
 from interbolt.policy import schema as schema_module
 from interbolt.policy.schema import (
@@ -24,7 +24,7 @@ from interbolt.policy.schema import (
 )
 
 _MINIMAL_VALID_YAML = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
@@ -32,193 +32,203 @@ sinks: {}
 """
 
 _POLICY_WITH_SINK = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.send_email:
-    - name: allow_all
-      action: allow
+    rules:
+      - name: allow_all
+        action: allow
 """
 
 _POLICY_WITH_CATCH_ALL_THEN_DEAD = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: catch_all
-      action: allow
-    - name: dead_rule
-      when: 'true'
-      action: block
+    rules:
+      - name: catch_all
+        action: allow
+      - name: dead_rule
+        when: 'true'
+        action: block
 """
 
 _POLICY_WITH_INVALID_CEL = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: bad_rule
-      when: '%%% not valid CEL'
-      action: block
+    rules:
+      - name: bad_rule
+        when: '%%% not valid CEL'
+        action: block
 """
 
 _POLICY_WITH_NON_COMPUTABLE_TRIFECTA = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: bad_trifecta
-      when: 'trifecta.contains("reaches_external")'
-      action: block
+    rules:
+      - name: bad_trifecta
+        when: 'trifecta.contains("reaches_external")'
+        action: block
 """
 
 _POLICY_WITH_UNKNOWN_TRIFECTA_LEG = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: bad_leg
-      when: 'trifecta.contains("bogus_leg")'
-      action: block
+    rules:
+      - name: bad_leg
+        when: 'trifecta.contains("bogus_leg")'
+        action: block
 """
 
 _POLICY_WITH_CAPABILITIES_SECTION_BUT_LEG_UNDECLARED = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
-capabilities:
-  default.tool: [reads_private]
 sinks:
   default.tool:
-    - name: never_matches
-      when: 'trifecta.contains("reaches_external")'
-      action: block
+    capabilities: [reads_private]
+    rules:
+      - name: never_matches
+        when: 'trifecta.contains("reaches_external")'
+        action: block
 """
 
 _POLICY_WITH_DECLARED_CAPABILITY_LEG_IS_CLEAN = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
-capabilities:
-  default.tool: [reaches_external]
 sinks:
   default.tool:
-    - name: matches
-      when: 'trifecta.contains("reaches_external")'
-      action: block
+    capabilities: [reaches_external]
+    rules:
+      - name: matches
+        when: 'trifecta.contains("reaches_external")'
+        action: block
 """
 
 _POLICY_WITH_RUN_TRIFECTA_NO_CAPABILITIES_SECTION = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: bad_run_leg
-      when: 'run.trifecta.exists(leg, leg == "reads_private")'
-      action: block
+    rules:
+      - name: bad_run_leg
+        when: 'run.trifecta.exists(leg, leg == "reads_private")'
+        action: block
 """
 
 _POLICY_WITH_RUN_TRIFECTA_LEG_UNDECLARED_WARNING = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
-capabilities:
-  default.tool: [reads_private]
 sinks:
   default.tool:
-    - name: never_matches
-      when: 'run.trifecta.contains("reaches_external")'
-      action: block
+    capabilities: [reads_private]
+    rules:
+      - name: never_matches
+        when: 'run.trifecta.contains("reaches_external")'
+        action: block
 """
 
 _POLICY_WITH_UNDECLARED_SINK_CAPABILITIES_WARNING = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
-capabilities:
-  default.other_tool: [reads_private]
 sinks:
   default.tool:
-    - name: allow_all
-      action: allow
+    rules:
+      - name: allow_all
+        action: allow
+  default.other_tool:
+    capabilities: [reads_private]
 """
 
 _POLICY_WITH_EMPTY_CAPABILITIES_LIST_SUPPRESSES_WARNING = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
-capabilities:
-  default.tool: []
 sinks:
   default.tool:
-    - name: allow_all
-      action: allow
+    capabilities: []
+    rules:
+      - name: allow_all
+        action: allow
 """
 
 _POLICY_WITH_UNKNOWN_CAPABILITY_STRING = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
-capabilities:
-  default.tool: [bogus_capability]
 sinks:
   default.tool:
-    - name: allow_all
-      action: allow
+    capabilities: [bogus_capability]
+    rules:
+      - name: allow_all
+        action: allow
 """
 
 _POLICY_WITH_SOURCE_EQUALITY = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: source_check
-      when: 't.source == "web_search"'
-      action: block
+    rules:
+      - name: source_check
+        when: 't.source == "web_search"'
+        action: block
 """
 
 _POLICY_WITH_SOURCE_INEQUALITY = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: source_check
-      when: 't.source != "web_search"'
-      action: block
+    rules:
+      - name: source_check
+        when: 't.source != "web_search"'
+        action: block
 """
 
 _POLICY_WITH_LINEAGE_ONLY = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: lineage_check
-      when: 't.lineage.exists(s, s == "web_search")'
-      action: block
+    rules:
+      - name: lineage_check
+        when: 't.lineage.exists(s, s == "web_search")'
+        action: block
 """
 
 _POLICY_SCHEMA_ERROR = """\
@@ -226,202 +236,220 @@ not_a_valid_field: true
 """
 
 _POLICY_WITH_NON_COMPUTABLE_AGENT_FIELD = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: bad_agent_field
-      when: 'agent.role == "billing"'
-      action: block
+    rules:
+      - name: bad_agent_field
+        when: 'agent.role == "billing"'
+        action: block
 """
 
 _POLICY_WITH_AGENT_ID_ONLY = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: agent_id_only
-      when: 'agent.id == "x"'
-      action: block
+    rules:
+      - name: agent_id_only
+        when: 'agent.id == "x"'
+        action: block
 """
 
 _POLICY_WITH_AGENT_FIELD_INSIDE_STRING_LITERAL = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: path_literal
-      when: 'args.path == "/etc/agent.conf" && taint.exists(t, t.trust == "untrusted")'
-      action: block
+    rules:
+      - name: path_literal
+        when: >-
+          args.path == "/etc/agent.conf" &&
+          taint.exists(t, t.trust == "untrusted")
+        action: block
 """
 
 _POLICY_WITH_RUN_FIELD_INSIDE_STRING_LITERAL = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: contains_literal
-      when: 'args.path.contains("run.foobar")'
-      action: block
+    rules:
+      - name: contains_literal
+        when: 'args.path.contains("run.foobar")'
+        action: block
 """
 
 _POLICY_WITH_IDENTITY_ONLY_ALLOW_SIGNAL_WORD_IN_LITERAL = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: suppressed
-      when: 'agent.id == "mailer" && args.note == "no sources here"'
-      action: allow
+    rules:
+      - name: suppressed
+        when: 'agent.id == "mailer" && args.note == "no sources here"'
+        action: allow
 """
 
 _POLICY_WITH_RUN_FIELD_VIOLATION_OUTSIDE_LITERAL = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: real_violation
-      when: 'agent.id == "x" && run.bogus'
-      action: block
+    rules:
+      - name: real_violation
+        when: 'agent.id == "x" && run.bogus'
+        action: block
 """
 
 _POLICY_WITH_TWO_RUN_FIELD_VIOLATIONS = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: real_violation
-      when: 'run.a && run.b'
-      action: block
+    rules:
+      - name: real_violation
+        when: 'run.a && run.b'
+        action: block
 """
 
 _POLICY_WITH_ALL_FOUR_RUN_FIELDS = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: run_fields
-      when: >-
-        run.tainted && run.sources.exists(s, s == "x") &&
-        run.untrusted_sources.exists(s, s == "x") &&
-        run.ingested_by.exists(a, a == "x")
-      action: block
+    rules:
+      - name: run_fields
+        when: >-
+          run.tainted && run.sources.exists(s, s == "x") &&
+          run.untrusted_sources.exists(s, s == "x") &&
+          run.ingested_by.exists(a, a == "x")
+        action: block
 """
 
 _POLICY_WITH_RUN_SOURCES_ALL_ALLOW = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: vacuous_run_allow
-      when: 'agent.id == "x" && run.sources.all(s, s == "web_search")'
-      action: allow
+    rules:
+      - name: vacuous_run_allow
+        when: 'agent.id == "x" && run.sources.all(s, s == "web_search")'
+        action: allow
 """
 
 _POLICY_WITH_RUN_SOURCES_ALL_BLOCK = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: run_sources_all_block
-      when: 'run.sources.all(s, s == "web_search")'
-      action: block
+    rules:
+      - name: run_sources_all_block
+        when: 'run.sources.all(s, s == "web_search")'
+        action: block
 """
 
 _POLICY_WITH_IDENTITY_ONLY_ALLOW_RUN_INGESTED_BY = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: identity_only_allow_ingested_by
-      when: 'agent.id == "x" && run.ingested_by.exists(a, a == "y")'
-      action: allow
+    rules:
+      - name: identity_only_allow_ingested_by
+        when: 'agent.id == "x" && run.ingested_by.exists(a, a == "y")'
+        action: allow
 """
 
 _POLICY_WITH_IDENTITY_ALLOW_RUN_UNTRUSTED_SOURCES = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: identity_allow_untrusted_sources
-      when: 'agent.id == "x" && run.untrusted_sources.exists(s, s == "web_search")'
-      action: allow
+    rules:
+      - name: identity_allow_untrusted_sources
+        when: 'agent.id == "x" && run.untrusted_sources.exists(s, s == "web_search")'
+        action: allow
 """
 
 _POLICY_WITH_IDENTITY_ONLY_ALLOW = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: identity_only_allow
-      when: 'agent.id == "x"'
-      action: allow
+    rules:
+      - name: identity_only_allow
+        when: 'agent.id == "x"'
+        action: allow
 """
 
 _POLICY_WITH_IDENTITY_AND_TAINT_ALLOW = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: identity_and_taint
-      when: 'agent.id == "x" && max_trust == "trusted"'
-      action: allow
+    rules:
+      - name: identity_and_taint
+        when: 'agent.id == "x" && max_trust == "trusted"'
+        action: allow
 """
 
 _POLICY_WITH_VACUOUS_TAINT_ALL_ALLOW = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: vacuous_allow
-      when: 'agent.id == "x" && taint.all(t, t.trust == "trusted")'
-      action: allow
+    rules:
+      - name: vacuous_allow
+        when: 'agent.id == "x" && taint.all(t, t.trust == "trusted")'
+        action: allow
 """
 
 _POLICY_WITH_TAINT_ALL_BLOCK = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: taint_all_block
-      when: 'taint.all(t, t.trust == "trusted")'
-      action: block
+    rules:
+      - name: taint_all_block
+        when: 'taint.all(t, t.trust == "trusted")'
+        action: block
 """
 
 _POLICY_WITH_AGENT_GROUPS_ONLY = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
@@ -430,50 +458,54 @@ agents:
     groups: [payer]
 sinks:
   default.tool:
-    - name: group_gated
-      when: 'agent.groups.exists(g, g == "payer")'
-      action: block
+    rules:
+      - name: group_gated
+        when: 'agent.groups.exists(g, g == "payer")'
+        action: block
 """
 
 _POLICY_WITH_UNDECLARED_GROUP = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: undeclared_group
-      when: 'agent.groups.exists(g, g == "ghost")'
-      action: block
+    rules:
+      - name: undeclared_group
+        when: 'agent.groups.exists(g, g == "ghost")'
+        action: block
 """
 
 _POLICY_WITH_UNDECLARED_GROUP_ANY_SPELLING = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: undeclared_group
-      when: 'agent.groups.any(g, g == "ghost")'
-      action: block
+    rules:
+      - name: undeclared_group
+        when: 'agent.groups.any(g, g == "ghost")'
+        action: block
 """
 
 _POLICY_WITH_UNDECLARED_GROUP_BEHIND_NESTED_CALL = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: undeclared_group
-      when: >-
-        agent.groups.exists(g, g.startsWith("team-") && g == "team-payer")
-      action: block
+    rules:
+      - name: undeclared_group
+        when: >-
+          agent.groups.exists(g, g.startsWith("team-") && g == "team-payer")
+        action: block
 """
 
 _POLICY_WITH_BAD_AGENT_ID_CHARSET = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
@@ -484,7 +516,7 @@ sinks: {}
 """
 
 _POLICY_WITH_BAD_GROUP_NAME_CHARSET = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
@@ -495,7 +527,7 @@ sinks: {}
 """
 
 _POLICY_WITH_UNKNOWN_AGENT_ENTRY_KEY = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
@@ -507,7 +539,7 @@ sinks: {}
 """
 
 _POLICY_WITH_GROUP_RULE_SHADOWS_ID_RULE = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
@@ -516,16 +548,17 @@ agents:
     groups: [payer]
 sinks:
   payments.send_payment:
-    - name: payers_need_approval
-      when: 'agent.groups.exists(g, g == "payer")'
-      action: require_approval
-    - name: billing_agent_blocked
-      when: 'agent.id == "billing-agent"'
-      action: block
+    rules:
+      - name: payers_need_approval
+        when: 'agent.groups.exists(g, g == "payer")'
+        action: require_approval
+      - name: billing_agent_blocked
+        when: 'agent.id == "billing-agent"'
+        action: block
 """
 
 _POLICY_WITH_ID_RULE_THEN_GROUP_RULE_NOT_SOLE_MEMBER = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
@@ -536,16 +569,17 @@ agents:
     groups: [payer]
 sinks:
   payments.send_payment:
-    - name: billing_agent_blocked
-      when: 'agent.id == "billing-agent"'
-      action: block
-    - name: payers_need_approval
-      when: 'agent.groups.exists(g, g == "payer")'
-      action: require_approval
+    rules:
+      - name: billing_agent_blocked
+        when: 'agent.id == "billing-agent"'
+        action: block
+      - name: payers_need_approval
+        when: 'agent.groups.exists(g, g == "payer")'
+        action: require_approval
 """
 
 _POLICY_WITH_ID_RULE_SHADOWS_SOLE_GROUP_MEMBER = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
@@ -554,16 +588,17 @@ agents:
     groups: [payer]
 sinks:
   payments.send_payment:
-    - name: billing_agent_blocked
-      when: 'agent.id == "billing-agent"'
-      action: block
-    - name: payers_need_approval
-      when: 'agent.groups.exists(g, g == "payer")'
-      action: require_approval
+    rules:
+      - name: billing_agent_blocked
+        when: 'agent.id == "billing-agent"'
+        action: block
+      - name: payers_need_approval
+        when: 'agent.groups.exists(g, g == "payer")'
+        action: require_approval
 """
 
 _POLICY_WITH_AGENT_NOT_IN_SHADOWING_GROUP = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
@@ -574,16 +609,17 @@ agents:
     groups: [internal]
 sinks:
   payments.send_payment:
-    - name: payers_need_approval
-      when: 'agent.groups.exists(g, g == "payer")'
-      action: require_approval
-    - name: support_blocked
-      when: 'agent.id == "support-agent"'
-      action: block
+    rules:
+      - name: payers_need_approval
+        when: 'agent.groups.exists(g, g == "payer")'
+        action: require_approval
+      - name: support_blocked
+        when: 'agent.id == "support-agent"'
+        action: block
 """
 
 _POLICY_WITH_TAINT_CONJUNCT_NOT_IDENTITY_ONLY = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
@@ -592,18 +628,19 @@ agents:
     groups: [payer]
 sinks:
   payments.send_payment:
-    - name: payers_need_approval
-      when: >
-        agent.groups.exists(g, g == "payer") &&
-        taint.exists(t, t.trust == "untrusted")
-      action: require_approval
-    - name: billing_agent_blocked
-      when: 'agent.id == "billing-agent"'
-      action: block
+    rules:
+      - name: payers_need_approval
+        when: >
+          agent.groups.exists(g, g == "payer") &&
+          taint.exists(t, t.trust == "untrusted")
+        action: require_approval
+      - name: billing_agent_blocked
+        when: 'agent.id == "billing-agent"'
+        action: block
 """
 
 _POLICY_WITH_NEGATED_GROUP_SHADOWS_NEGATED_ID = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
@@ -612,16 +649,17 @@ agents:
     groups: [payer]
 sinks:
   payments.send_payment:
-    - name: not_payer_allowed
-      when: '!agent.groups.exists(g, g == "payer")'
-      action: block
-    - name: not_billing_blocked
-      when: 'agent.id != "billing-agent"'
-      action: block
+    rules:
+      - name: not_payer_allowed
+        when: '!agent.groups.exists(g, g == "payer")'
+        action: block
+      - name: not_billing_blocked
+        when: 'agent.id != "billing-agent"'
+        action: block
 """
 
 _POLICY_WITH_UNDECLARED_AGENT_ID_NOT_SHADOWED_BY_GROUP = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
@@ -630,16 +668,17 @@ agents:
     groups: [payer]
 sinks:
   payments.send_payment:
-    - name: payers_need_approval
-      when: 'agent.groups.exists(g, g == "payer")'
-      action: require_approval
-    - name: ghost_blocked
-      when: 'agent.id != "ghost-agent"'
-      action: block
+    rules:
+      - name: payers_need_approval
+        when: 'agent.groups.exists(g, g == "payer")'
+        action: require_approval
+      - name: ghost_blocked
+        when: 'agent.id != "ghost-agent"'
+        action: block
 """
 
 _POLICY_WITH_SHADOWING_RULES_IN_DIFFERENT_SINKS = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
@@ -648,21 +687,23 @@ agents:
     groups: [payer]
 sinks:
   payments.send_payment:
-    - name: payers_need_approval
-      when: 'agent.groups.exists(g, g == "payer")'
-      action: require_approval
-    - name: default1
-      action: allow
+    rules:
+      - name: payers_need_approval
+        when: 'agent.groups.exists(g, g == "payer")'
+        action: require_approval
+      - name: default1
+        action: allow
   default.other_tool:
-    - name: billing_agent_blocked
-      when: 'agent.id == "billing-agent"'
-      action: block
-    - name: default2
-      action: allow
+    rules:
+      - name: billing_agent_blocked
+        when: 'agent.id == "billing-agent"'
+        action: block
+      - name: default2
+        action: allow
 """
 
 _POLICY_WITH_UNRECOGNIZED_PREDICATE_SHAPE = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
@@ -671,16 +712,17 @@ agents:
     groups: [payer]
 sinks:
   payments.send_payment:
-    - name: run_gate
-      when: 'run.tainted'
-      action: require_approval
-    - name: billing_agent_blocked
-      when: 'agent.id == "billing-agent"'
-      action: block
+    rules:
+      - name: run_gate
+        when: 'run.tainted'
+        action: require_approval
+      - name: billing_agent_blocked
+        when: 'agent.id == "billing-agent"'
+        action: block
 """
 
 _POLICY_WITH_ZERO_ARG_DOTTED_CALL = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
@@ -689,9 +731,62 @@ agents:
     groups: [payer]
 sinks:
   payments.send_payment:
-    - name: zero_arg_call_rule
-      when: 'agent.groups.size() && agent.id == "billing-agent"'
-      action: block
+    rules:
+      - name: zero_arg_call_rule
+        when: 'agent.groups.size() && agent.id == "billing-agent"'
+        action: block
+"""
+
+_POLICY_WITH_VERSION_1_0 = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: allow_all
+      action: allow
+"""
+
+_POLICY_WITH_BARE_RULE_LIST_SINK_UNDER_2_0 = """\
+version: "2.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: allow_all
+      action: allow
+"""
+
+_POLICY_WITH_UNSUPPORTED_VERSION = """\
+version: "3.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks: {}
+"""
+
+_POLICY_WITH_MISSPELLED_SINK_ENTRY_KEY = """\
+version: "2.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    rulez:
+      - name: allow_all
+        action: allow
+"""
+
+_POLICY_WITH_CAPABILITIES_ONLY_SINK = """\
+version: "2.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.read_inbox:
+    capabilities: [reads_private]
 """
 
 
@@ -716,7 +811,7 @@ class TestLoadPolicyDocument:
     def test_valid_yaml_returns_document(self, mocker: MockerFixture) -> None:
         mocker.patch("builtins.open", mocker.mock_open(read_data=_MINIMAL_VALID_YAML))
         doc = load_policy_document("fake.yaml")
-        assert doc.version == "1.0"
+        assert doc.version == "2.0"
         assert doc.defaults.sink_action == Action.ALLOW
 
     def test_os_error_raises_policy_evaluation_error(
@@ -747,7 +842,7 @@ class TestLoadPolicyDocument:
 
     def test_fail_mode_explicit_in_yaml(self, mocker: MockerFixture) -> None:
         yaml_with_fail_mode = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
   fail_mode: enforce
@@ -758,12 +853,12 @@ sinks: {}
         doc = load_policy_document("fake.yaml")
         assert doc.defaults.fail_mode == Mode.ENFORCE
 
-    def test_capabilities_section_defaults_to_empty(
+    def test_sink_with_no_capabilities_key_is_undeclared(
         self, mocker: MockerFixture
     ) -> None:
-        mocker.patch("builtins.open", mocker.mock_open(read_data=_MINIMAL_VALID_YAML))
+        mocker.patch("builtins.open", mocker.mock_open(read_data=_POLICY_WITH_SINK))
         doc = load_policy_document("fake.yaml")
-        assert doc.capabilities == {}
+        assert doc.sinks["default.send_email"].capabilities is None
 
     def test_empty_capability_list_is_legal(self, mocker: MockerFixture) -> None:
         mocker.patch(
@@ -773,7 +868,7 @@ sinks: {}
             ),
         )
         doc = load_policy_document("fake.yaml")
-        assert doc.capabilities == {"default.tool": ()}
+        assert doc.sinks["default.tool"].capabilities == ()
 
     def test_unknown_capability_string_raises_naming_valid_values(
         self, mocker: MockerFixture
@@ -787,6 +882,77 @@ sinks: {}
         message = str(exc_info.value)
         assert "reads_private" in message
         assert "reaches_external" in message
+
+    def test_capabilities_only_entry_has_no_rules(self, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_CAPABILITIES_ONLY_SINK),
+        )
+        doc = load_policy_document("fake.yaml")
+        declaration = doc.sinks["default.read_inbox"]
+        assert declaration.capabilities == (Capability.READS_PRIVATE,)
+        assert declaration.rules == ()
+
+
+class TestVersionGate:
+    def test_version_1_0_raises_interbolt_config_error(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open", mocker.mock_open(read_data=_POLICY_WITH_VERSION_1_0)
+        )
+        with pytest.raises(InterboltConfigError, match='version "1.0"') as exc_info:
+            load_policy_document("fake.yaml")
+        message = str(exc_info.value)
+        assert "capabilities:" in message
+        assert "rules:" in message
+
+    def test_bare_rule_list_sink_under_2_0_raises_interbolt_config_error(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_BARE_RULE_LIST_SINK_UNDER_2_0),
+        )
+        with pytest.raises(InterboltConfigError, match="rules:"):
+            load_policy_document("fake.yaml")
+
+    def test_unsupported_version_raises_policy_evaluation_error(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_UNSUPPORTED_VERSION),
+        )
+        with pytest.raises(PolicyEvaluationError):
+            load_policy_document("fake.yaml")
+
+    def test_misspelled_sink_entry_key_rejected(self, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_MISSPELLED_SINK_ENTRY_KEY),
+        )
+        with pytest.raises(PolicyEvaluationError):
+            load_policy_document("fake.yaml")
+
+    def test_version_1_0_validate_returns_problem_never_raises(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open", mocker.mock_open(read_data=_POLICY_WITH_VERSION_1_0)
+        )
+        problems = validate_policy("fake.yaml")
+        assert any('version "1.0"' in p for p in problems)
+
+    def test_bare_rule_list_sink_under_2_0_validate_returns_problem_never_raises(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_BARE_RULE_LIST_SINK_UNDER_2_0),
+        )
+        problems = validate_policy("fake.yaml")
+        assert any("rules:" in p for p in problems)
 
 
 class TestValidatePolicy:
@@ -816,7 +982,7 @@ class TestValidatePolicy:
         problems = validate_policy("fake.yaml")
         assert any("invalid CEL" in p for p in problems)
 
-    def test_capability_leg_referenced_with_no_capabilities_section(
+    def test_capability_leg_referenced_when_no_sink_declares_capabilities(
         self, mocker: MockerFixture
     ) -> None:
         mocker.patch(
@@ -825,7 +991,9 @@ class TestValidatePolicy:
         )
         problems = validate_policy("fake.yaml")
         assert any(
-            "never computed without a 'capabilities:' section" in p for p in problems
+            "never computed until at least one sink declares it under "
+            "`capabilities:`" in p
+            for p in problems
         )
 
     def test_unknown_trifecta_leg_is_an_error(self, mocker: MockerFixture) -> None:
@@ -860,7 +1028,7 @@ class TestValidatePolicy:
         problems = validate_policy("fake.yaml")
         assert not any("trifecta leg" in p for p in problems)
 
-    def test_run_trifecta_leg_referenced_with_no_capabilities_section(
+    def test_run_trifecta_leg_referenced_when_no_sink_declares_capabilities(
         self, mocker: MockerFixture
     ) -> None:
         mocker.patch(
@@ -871,7 +1039,9 @@ class TestValidatePolicy:
         )
         problems = validate_policy("fake.yaml")
         assert any(
-            "never computed without a 'capabilities:' section" in p for p in problems
+            "never computed until at least one sink declares it under "
+            "`capabilities:`" in p
+            for p in problems
         )
 
     def test_run_trifecta_leg_no_tool_declares_is_a_warning(
@@ -888,7 +1058,7 @@ class TestValidatePolicy:
             p.startswith("warning:") and "reaches_external" in p for p in problems
         )
 
-    def test_undeclared_sink_warns_once_capabilities_section_exists(
+    def test_undeclared_sink_warns_once_another_sink_declares_capabilities(
         self, mocker: MockerFixture
     ) -> None:
         mocker.patch(
@@ -915,7 +1085,7 @@ class TestValidatePolicy:
         problems = validate_policy("fake.yaml")
         assert not any("capabilities" in p for p in problems)
 
-    def test_no_capabilities_section_at_all_produces_no_undeclared_sink_warning(
+    def test_no_sink_declaring_capabilities_produces_no_undeclared_sink_warning(
         self, mocker: MockerFixture
     ) -> None:
         mocker.patch("builtins.open", mocker.mock_open(read_data=_POLICY_WITH_SINK))
@@ -931,16 +1101,17 @@ class TestValidatePolicy:
         self, mocker: MockerFixture
     ) -> None:
         yaml_two_catch_alls = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources: []
 sinks:
   default.tool:
-    - name: first_catch_all
-      action: allow
-    - name: second_catch_all
-      action: block
+    rules:
+      - name: first_catch_all
+        action: allow
+      - name: second_catch_all
+        action: block
 """
         mocker.patch("builtins.open", mocker.mock_open(read_data=yaml_two_catch_alls))
         problems = validate_policy("fake.yaml")
@@ -1448,7 +1619,7 @@ class TestSinkRule:
 
 class TestComputePolicyFingerprint:
     _BASE_YAML = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources:
@@ -1456,11 +1627,12 @@ sources:
     trust: untrusted
 sinks:
   default.tool:
-    - name: block_untrusted
-      when: 'taint.exists(t, t.trust == "untrusted")'
-      action: block
-    - name: default
-      action: allow
+    rules:
+      - name: block_untrusted
+        when: 'taint.exists(t, t.trust == "untrusted")'
+        action: block
+      - name: default
+        action: allow
 """
 
     def _fingerprint_of(self, mocker: MockerFixture, yaml_text: str) -> str:
@@ -1497,17 +1669,18 @@ sinks:
 
     def test_mapping_key_reorder_unchanged(self, mocker: MockerFixture) -> None:
         reordered = """\
-version: "1.0"
+version: "2.0"
 sources:
   - trust: untrusted
     name: web_search
 sinks:
   default.tool:
-    - when: 'taint.exists(t, t.trust == "untrusted")'
-      name: block_untrusted
-      action: block
-    - name: default
-      action: allow
+    rules:
+      - when: 'taint.exists(t, t.trust == "untrusted")'
+        name: block_untrusted
+        action: block
+      - name: default
+        action: allow
 defaults:
   sink_action: allow
 """
@@ -1519,7 +1692,7 @@ defaults:
         self, mocker: MockerFixture
     ) -> None:
         reordered_rules = """\
-version: "1.0"
+version: "2.0"
 defaults:
   sink_action: allow
 sources:
@@ -1527,11 +1700,12 @@ sources:
     trust: untrusted
 sinks:
   default.tool:
-    - name: default
-      action: allow
-    - name: block_untrusted
-      when: 'taint.exists(t, t.trust == "untrusted")'
-      action: block
+    rules:
+      - name: default
+        action: allow
+      - name: block_untrusted
+        when: 'taint.exists(t, t.trust == "untrusted")'
+        action: block
 """
         original = self._fingerprint_of(mocker, self._BASE_YAML)
         edited = self._fingerprint_of(mocker, reordered_rules)

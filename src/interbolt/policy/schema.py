@@ -168,6 +168,16 @@ def _bare_fields(tree: lark.Tree[lark.Token], receiver: str) -> list[str]:
     return fields
 
 
+def _declared_capability_legs(document: PolicyDocument) -> frozenset[str]:
+    """Every capability leg any sink entry in `document` declares."""
+    return frozenset(
+        capability.value
+        for declaration in document.sinks.values()
+        if declaration.capabilities is not None
+        for capability in declaration.capabilities
+    )
+
+
 def _check_trifecta_leg(
     leg: str, document: PolicyDocument, *, sink_key: str, rule_name: str
 ) -> str | None:
@@ -184,24 +194,20 @@ def _check_trifecta_leg(
         )
     if leg == TRIFECTA_FROM_UNTRUSTED:
         return None
-    if not document.capabilities:
+    declared_legs = _declared_capability_legs(document)
+    if not declared_legs:
         return (
             f"sink {sink_key!r}: rule {rule_name!r} references trifecta leg "
-            f"{leg!r}, which is never computed without a 'capabilities:' "
-            "section declaring it for at least one tool; this reference "
-            "always evaluates false as this policy stands"
+            f"{leg!r}, which is never computed until at least one sink "
+            "declares it under `capabilities:`; this reference always "
+            "evaluates false as this policy stands"
         )
-    declared_legs = {
-        capability.value
-        for capabilities in document.capabilities.values()
-        for capability in capabilities
-    }
     if leg not in declared_legs:
         return (
             f"warning: sink {sink_key!r}: rule {rule_name!r} references "
-            f"trifecta leg {leg!r}, which no tool in the policy's "
-            "'capabilities' section declares, so this reference can never "
-            "match under this policy's current declarations"
+            f"trifecta leg {leg!r}, which no sink in the policy declares "
+            "under `capabilities:`, so this reference can never match "
+            "under this policy's current declarations"
         )
     return None
 
@@ -293,6 +299,27 @@ class SinkRule(BaseModel):
         return self
 
 
+class SinkDeclaration(BaseModel):
+    """One tool's declaration: what it does, and how calls to it are gated.
+
+    Attributes:
+        capabilities: What the tool does with the data it touches, which is
+            what makes its `reads_private`/`reaches_external` trifecta legs
+            computable. `None` means undeclared, which contributes no legs
+            and draws a warning from `interbolt validate` once at least one
+            sink in the policy declares capabilities. An empty tuple records
+            that the tool has neither capability, distinct from `None`.
+        rules: The sink's ordered rules, first match wins. An entry with no
+            rules falls through to `defaults.sink_action`, exactly as a tool
+            absent from `sinks` does.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    capabilities: tuple[Capability, ...] | None = None
+    rules: tuple[SinkRule, ...] = ()
+
+
 def _require_endorsement_when(kind: str) -> str:
     """Synthesize the `when:` text for a `require_endorsement: <kind>` rule.
 
@@ -322,16 +349,47 @@ def _split_sink_key(key: str) -> tuple[str, str]:
     return parsed
 
 
+_VERSION_PATTERN = re.compile(r"^2\.\d+$")
+
+_VERSION_1_0_MIGRATION_MESSAGE = (
+    'policy document version "1.0" is no longer supported: a `sinks:` '
+    "entry is now a mapping with optional `capabilities:` and `rules:` keys "
+    "rather than a bare rule list, and the top-level `capabilities:` section "
+    'has moved inside each entry. Set `version: "2.x"` and rewrite each '
+    "sink entry as `<tool>:\n  rules:\n    - ...`. See "
+    "<https://docs.deconvoluteai.com/docs/concepts/policies>"
+)
+
+
+def _check_not_pre_2_0_shape(data: object) -> None:
+    """Raise `InterboltConfigError` if raw `data` is the pre-2.0 policy shape.
+
+    Checked on the raw, not-yet-validated mapping rather than inside a
+    Pydantic validator: `InterboltConfigError` subclasses `ValueError`, and a
+    `ValueError` raised inside a Pydantic validator is caught and rewrapped
+    as `pydantic.ValidationError`, which would prevent this specific,
+    migration-pointing message from ever reaching a caller.
+    """
+    if not isinstance(data, dict):
+        return
+    version = data.get("version")
+    sinks = data.get("sinks")
+    is_old_version = version == "1.0"
+    is_bare_rule_list = isinstance(sinks, dict) and any(
+        isinstance(value, list) for value in sinks.values()
+    )
+    if is_old_version or is_bare_rule_list:
+        raise InterboltConfigError(_VERSION_1_0_MIGRATION_MESSAGE)
+
+
 class PolicyDocument(BaseModel):
     """The validated shape of a policy YAML file.
 
     Attributes:
-        capabilities: What each tool does, keyed by the same dotted
-            `namespace.tool` names `sinks` uses. Declaring a tool here makes
-            its `reads_private`/`reaches_external` trifecta legs computable.
-            An empty list for a tool records that it has neither
-            capability, distinct from the tool being absent from this
-            mapping entirely.
+        sinks: One `SinkDeclaration` per guarded tool, keyed by the dotted
+            `namespace.tool` name. A tool absent from this mapping falls
+            through to `defaults.sink_action` and contributes no trifecta
+            capability legs.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -340,23 +398,23 @@ class PolicyDocument(BaseModel):
     defaults: Defaults
     sources: tuple[SourceDeclaration, ...] = ()
     agents: dict[str, AgentDeclaration] = {}
-    sinks: dict[str, tuple[SinkRule, ...]]
-    capabilities: dict[str, tuple[Capability, ...]] = {}
+    sinks: dict[str, SinkDeclaration]
+
+    @field_validator("version")
+    @classmethod
+    def _validate_version(cls, value: str) -> str:
+        if not _VERSION_PATTERN.match(value):
+            raise ValueError(
+                f"policy document version {value!r} is not supported; the "
+                'supported versions are "2.x" (for example "2.0")'
+            )
+        return value
 
     @field_validator("sinks")
     @classmethod
     def _validate_sink_keys(
-        cls, value: dict[str, tuple[SinkRule, ...]]
-    ) -> dict[str, tuple[SinkRule, ...]]:
-        for key in value:
-            _split_sink_key(key)
-        return value
-
-    @field_validator("capabilities")
-    @classmethod
-    def _validate_capability_keys(
-        cls, value: dict[str, tuple[Capability, ...]]
-    ) -> dict[str, tuple[Capability, ...]]:
+        cls, value: dict[str, SinkDeclaration]
+    ) -> dict[str, SinkDeclaration]:
         for key in value:
             _split_sink_key(key)
         return value
@@ -405,6 +463,9 @@ def load_policy_document(path: str) -> PolicyDocument:
     Raises:
         PolicyEvaluationError: If the file cannot be read, is not valid YAML,
             or does not conform to the policy schema.
+        InterboltConfigError: If the file uses the pre-2.0 policy shape
+            (`version: "1.0"`, or a `sinks:` entry written as a bare rule
+            list).
     """
     try:
         with open(path, encoding="utf-8") as handle:
@@ -413,6 +474,7 @@ def load_policy_document(path: str) -> PolicyDocument:
         raise PolicyEvaluationError(
             f"failed to read policy file {path!r}: {exc}"
         ) from exc
+    _check_not_pre_2_0_shape(data)
     try:
         return PolicyDocument.model_validate(data)
     except ValidationError as exc:
@@ -440,6 +502,11 @@ def validate_policy(path: str) -> list[str]:
         return [f"failed to read policy file {path!r}: {exc}"]
 
     try:
+        _check_not_pre_2_0_shape(data)
+    except InterboltConfigError as exc:
+        return [str(exc)]
+
+    try:
         document = PolicyDocument.model_validate(data)
     except ValidationError as exc:
         for error in exc.errors():
@@ -455,7 +522,19 @@ def validate_policy(path: str) -> list[str]:
         agent_id: frozenset(decl.groups) for agent_id, decl in document.agents.items()
     }
 
-    for sink_key, rules in document.sinks.items():
+    any_tool_declares_capabilities = any(
+        declaration.capabilities is not None for declaration in document.sinks.values()
+    )
+
+    for sink_key, declaration in document.sinks.items():
+        rules = declaration.rules
+        if any_tool_declares_capabilities and declaration.capabilities is None:
+            problems.append(
+                f"warning: sink {sink_key!r} does not declare "
+                "`capabilities:`, so no trifecta capability leg is computed "
+                "for it; declare its capabilities, or declare an empty list "
+                "to record that it has none"
+            )
         catch_all_seen = False
         for rule in rules:
             if catch_all_seen:
@@ -616,16 +695,5 @@ def validate_policy(path: str) -> list[str]:
                 id_to_groups=id_to_groups,
             )
         )
-
-    if document.capabilities:
-        for sink_key in document.sinks:
-            if sink_key not in document.capabilities:
-                problems.append(
-                    f"warning: sink {sink_key!r} has no entry in the "
-                    "policy's 'capabilities' section, so no trifecta "
-                    "capability leg is computed for it; declare its "
-                    "capabilities, or declare an empty list to record that "
-                    "it has none"
-                )
 
     return problems

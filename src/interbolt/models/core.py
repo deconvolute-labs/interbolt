@@ -32,7 +32,7 @@ class TrustLevel(StrEnum):
 class Capability(StrEnum):
     """A declared property of a tool: what it does with the data it touches.
 
-    Set in a policy's `capabilities:` section and read back from
+    Set with the `capabilities:` key on a sink entry and read back from
     `Policy.tool_capabilities`. The closed set of two is what makes the
     `reads_private` and `reaches_external` lethal-trifecta legs computable.
     """

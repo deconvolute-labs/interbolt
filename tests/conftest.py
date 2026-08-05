@@ -24,6 +24,7 @@ from interbolt.policy.compile import compile_policy
 from interbolt.policy.schema import (
     Defaults,
     PolicyDocument,
+    SinkDeclaration,
     SinkRule,
     SourceDeclaration,
 )
@@ -128,15 +129,23 @@ def make_policy() -> Callable[..., _Policy]:
         sinks: dict[str, tuple[SinkRule, ...]] | None = None,
         capabilities: dict[str, tuple[Capability, ...]] | None = None,
     ) -> _Policy:
+        sinks = sinks or {}
+        capabilities = capabilities or {}
+        declarations = {
+            tool: SinkDeclaration(
+                rules=sinks.get(tool, ()),
+                capabilities=capabilities.get(tool),
+            )
+            for tool in {*sinks, *capabilities}
+        }
         document = PolicyDocument(
-            version="1.0",
+            version="2.0",
             defaults=Defaults(
                 sink_action=sink_action,
                 fail_mode=fail_mode,
             ),
             sources=sources,
-            sinks=sinks or {},
-            capabilities=capabilities or {},
+            sinks=declarations,
         )
         return _Policy(document=document, compiled_sinks=compile_policy(document))
 
