@@ -13,4 +13,5 @@ from interbolt.runtime.guard import (
     enforce_decision_sync as enforce_decision_sync,
 )
 from interbolt.runtime.guard import guard as guard
+from interbolt.runtime.runtime import RunContext as RunContext
 from interbolt.runtime.runtime import Runtime as Runtime

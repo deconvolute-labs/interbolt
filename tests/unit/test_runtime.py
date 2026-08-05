@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from collections.abc import Callable
+from dataclasses import FrozenInstanceError
 from typing import TYPE_CHECKING
 
 import pytest
@@ -15,7 +16,14 @@ from interbolt.models.core import Action, Capability, Mode, TrustLevel
 from interbolt.policy import Policy
 from interbolt.policy.schema import SinkRule, SourceDeclaration
 from interbolt.reporting import CompositeReporter, InMemoryReporter, NullReporter
-from interbolt.runtime import Runtime, _current, agent, configure, get_runtime
+from interbolt.runtime import (
+    RunContext,
+    Runtime,
+    _current,
+    agent,
+    configure,
+    get_runtime,
+)
 from interbolt.runtime.guard import AgentHandle, current_agent_id
 from interbolt.taint import run_capabilities
 from interbolt.utils import current_run_id
@@ -714,6 +722,111 @@ class TestAgentContextSync:
         with rt.agent_context_sync("agent-xyz"):
             result = my_tool("hello")
         assert result == "hello"
+
+
+class TestRunContext:
+    """The `RunContext` yielded by `agent_context`/`agent_context_sync`."""
+
+    async def test_agent_context_yields_run_id_matching_context_var(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        rt = configure(policy=make_policy())
+        async with rt.agent_context("agent-xyz") as run:
+            assert run.run_id == current_run_id.get()
+            assert isinstance(run.run_id, str)
+            assert run.run_id != ""
+
+    def test_agent_context_sync_yields_run_id_matching_context_var(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        rt = configure(policy=make_policy())
+        with rt.agent_context_sync("agent-xyz") as run:
+            assert run.run_id == current_run_id.get()
+            assert isinstance(run.run_id, str)
+            assert run.run_id != ""
+
+    async def test_agent_context_run_id_matches_decision_and_event(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        reporter = InMemoryReporter()
+        rt = configure(policy=make_policy(), reporter=reporter)
+        async with rt.agent_context("agent-xyz") as run:
+            decision = rt.check(tool="default.tool", args={}, agent_id="agent-xyz")
+        assert decision.run_id == run.run_id
+        assert reporter.events[0].decision.run_id == run.run_id
+
+    def test_agent_context_sync_run_id_matches_decision_and_event(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        reporter = InMemoryReporter()
+        rt = configure(policy=make_policy(), reporter=reporter)
+        with rt.agent_context_sync("agent-xyz") as run:
+            decision = rt.check(tool="default.tool", args={}, agent_id="agent-xyz")
+        assert decision.run_id == run.run_id
+        assert reporter.events[0].decision.run_id == run.run_id
+
+    async def test_agent_context_yields_agent_id_matching_argument(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        rt = configure(policy=make_policy())
+        async with rt.agent_context("agent-xyz") as run:
+            assert run.agent_id == "agent-xyz"
+
+    def test_agent_context_sync_yields_agent_id_matching_argument(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        rt = configure(policy=make_policy())
+        with rt.agent_context_sync("agent-xyz") as run:
+            assert run.agent_id == "agent-xyz"
+
+    async def test_agent_context_yields_distinct_run_ids_across_calls(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        rt = configure(policy=make_policy())
+        run_ids = []
+        for _ in range(2):
+            async with rt.agent_context("agent-xyz") as run:
+                run_ids.append(run.run_id)
+        assert run_ids[0] != run_ids[1]
+
+    def test_agent_context_sync_yields_distinct_run_ids_across_calls(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        rt = configure(policy=make_policy())
+        run_ids = []
+        for _ in range(2):
+            with rt.agent_context_sync("agent-xyz") as run:
+                run_ids.append(run.run_id)
+        assert run_ids[0] != run_ids[1]
+
+    async def test_nested_agent_context_does_not_reuse_outer_run_id(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        rt = configure(policy=make_policy())
+        async with rt.agent_context("outer") as outer_run:
+            async with rt.agent_context("inner") as inner_run:
+                assert inner_run.run_id != outer_run.run_id
+
+    def test_run_context_is_frozen(self) -> None:
+        run = RunContext(run_id="run-1", agent_id="agent-1")
+        with pytest.raises(FrozenInstanceError):
+            run.run_id = "run-2"  # type: ignore[misc]
+
+    async def test_agent_context_without_as_clause_still_works(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        rt = configure(policy=make_policy())
+        async with rt.agent_context("agent-xyz"):
+            assert current_agent_id.get() == "agent-xyz"
+        assert current_agent_id.get() is None
+
+    def test_agent_context_sync_without_as_clause_still_works(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        rt = configure(policy=make_policy())
+        with rt.agent_context_sync("agent-xyz"):
+            assert current_agent_id.get() == "agent-xyz"
+        assert current_agent_id.get() is None
 
 
 class TestRunTrifectaLifecycle:

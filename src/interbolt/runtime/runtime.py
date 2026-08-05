@@ -6,6 +6,7 @@ import uuid
 from collections.abc import AsyncGenerator, Generator, Mapping
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import Token
+from dataclasses import dataclass
 from typing import Any
 
 from interbolt.enforcement import AuditRegistry
@@ -26,6 +27,28 @@ from interbolt.runtime.guard import (
 )
 from interbolt.taint import clear_run_capabilities, clear_run_ingress
 from interbolt.utils import current_agent_id, current_run_id
+
+
+@dataclass(frozen=True, slots=True)
+class RunContext:
+    """A snapshot of the run_id and agent_id bound by agent_context.
+
+    Frozen and data-only: no methods, no reference back to the `Runtime`,
+    no way to end or re-bind the run. It stays readable after the block
+    exits and remains a correct record of what that run was, but the run's
+    registries are cleared at exit and re-binding from it is not a
+    supported operation.
+
+    Attributes:
+        run_id: The run's identity, minted at `agent_context` enter and
+            carried on every `Decision`, `Event`, `Finding`, and
+            `Endorsement` emitted inside the block.
+        agent_id: The agent identity bound for the block, already
+            validated at enter.
+    """
+
+    run_id: str
+    agent_id: str
 
 
 class Runtime:
@@ -120,16 +143,17 @@ class Runtime:
             self._audit_registry.clear_run(run_id)
 
     @asynccontextmanager
-    async def agent_context(self, agent_id: str) -> AsyncGenerator[None]:
+    async def agent_context(self, agent_id: str) -> AsyncGenerator[RunContext]:
         """Bind the current agent and mint a run_id for the duration of the block.
 
         The primary way to inject agent identity: `guard`/`check` read
         `agent_id` from the `ContextVar` this sets. Guarded calls inside
-        this block share one `run_id`; calls outside any `agent_context`
-        fall back to `constants.DEFAULT_AGENT_ID` with a fresh `run_id`
-        each. Any `taint()` call inside this block is attributed to this
-        run for run-level gating (`run.tainted`), and every guarded call's
-        declared capabilities accumulate into the run's `run.trifecta`; both
+        this block share one `run_id`, yielded as part of the `RunContext`
+        below; calls outside any `agent_context` fall back to
+        `constants.DEFAULT_AGENT_ID` with a fresh `run_id` each. Any
+        `taint()` call inside this block is attributed to this run for
+        run-level gating (`run.tainted`), and every guarded call's declared
+        capabilities accumulate into the run's `run.trifecta`; both
         attributions clear, along with the audit registry, when the block
         exits.
 
@@ -144,6 +168,11 @@ class Runtime:
         Args:
             agent_id: The agent identity to bind for this run.
 
+        Yields:
+            A `RunContext` carrying this block's `run_id` and `agent_id`. The
+            `run_id` is the join key carried on every `Decision`, `Event`,
+            `Finding`, and `Endorsement` emitted inside the block.
+
         Raises:
             InterboltConfigError: If `agent_id` is a tainted value, fails the
                 identifier charset check, or is the reserved fallback value
@@ -152,12 +181,12 @@ class Runtime:
         """
         run_id, agent_token, run_token = self._enter_agent_context(agent_id)
         try:
-            yield
+            yield RunContext(run_id=run_id, agent_id=agent_id)
         finally:
             self._exit_agent_context(run_id, agent_token, run_token)
 
     @contextmanager
-    def agent_context_sync(self, agent_id: str) -> Generator[None]:
+    def agent_context_sync(self, agent_id: str) -> Generator[RunContext]:
         """Synchronous counterpart to `agent_context`.
 
         Same identity/run binding and cleanup as `agent_context`; use this
@@ -166,6 +195,10 @@ class Runtime:
         Args:
             agent_id: The agent identity to bind for this run.
 
+        Yields:
+            A `RunContext` carrying this block's `run_id` and `agent_id`. See
+            `agent_context` for the full semantics.
+
         Raises:
             InterboltConfigError: If `agent_id` is a tainted value, fails the
                 identifier charset check, or is the reserved fallback value
@@ -174,7 +207,7 @@ class Runtime:
         """
         run_id, agent_token, run_token = self._enter_agent_context(agent_id)
         try:
-            yield
+            yield RunContext(run_id=run_id, agent_id=agent_id)
         finally:
             self._exit_agent_context(run_id, agent_token, run_token)
 
