@@ -41,6 +41,7 @@ def _decision(
     untrusted_sources: frozenset[str] = frozenset(),
     run_tainted: bool = False,
     run_ingress: tuple[RunIngressEntry, ...] = (),
+    run_trifecta: frozenset[str] = frozenset(),
 ) -> Decision:
     return Decision(
         action=action,
@@ -52,6 +53,7 @@ def _decision(
         untrusted_sources=untrusted_sources,
         run_tainted=run_tainted,
         run_ingress=run_ingress,
+        run_trifecta=run_trifecta,
         mode=Mode.ENFORCE,
         decision_id=str(uuid.uuid4()),
         agent_id="agent",

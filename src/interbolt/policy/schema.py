@@ -20,10 +20,11 @@ from pydantic import (
 from interbolt.constants import (
     AGENT_COMPUTABLE_FIELDS,
     RUN_COMPUTABLE_FIELDS,
-    TRIFECTA_COMPUTABLE_LEGS,
+    TRIFECTA_FROM_UNTRUSTED,
+    TRIFECTA_LEGS,
 )
 from interbolt.errors import InterboltConfigError, PolicyEvaluationError
-from interbolt.models.core import Action, Mode, TrustLevel
+from interbolt.models.core import Action, Capability, Mode, TrustLevel
 from interbolt.policy.cel import compile_parsed, parse_cel_expression
 from interbolt.policy.identity_ast import member_field, string_literal, unwrap_node
 from interbolt.policy.shadowing import find_identity_shadowing
@@ -41,6 +42,7 @@ _IDENTITY_ONLY_SIGNALS = (
     "run.tainted",
     "run.sources",
     "run.untrusted_sources",
+    "run.trifecta",
 )
 _LITERAL_SPAN = re.compile(
     r"""[rRbB]{0,2}(?:'''(?:\\.|[^\\])*?'''|\"\"\"(?:\\.|[^\\])*?\"\"\""""
@@ -166,6 +168,44 @@ def _bare_fields(tree: lark.Tree[lark.Token], receiver: str) -> list[str]:
     return fields
 
 
+def _check_trifecta_leg(
+    leg: str, document: PolicyDocument, *, sink_key: str, rule_name: str
+) -> str | None:
+    """The validate problem for referencing `leg` as a trifecta leg, or `None`.
+
+    Applies uniformly to a leg literal found in `trifecta.contains(...)` and
+    in `run.trifecta.contains(...)`/`run.trifecta.exists(...)`.
+    """
+    if leg not in TRIFECTA_LEGS:
+        return (
+            f"sink {sink_key!r}: rule {rule_name!r} references trifecta leg "
+            f"{leg!r}, which is not a trifecta leg; the trifecta legs are "
+            f"{sorted(TRIFECTA_LEGS)}"
+        )
+    if leg == TRIFECTA_FROM_UNTRUSTED:
+        return None
+    if not document.capabilities:
+        return (
+            f"sink {sink_key!r}: rule {rule_name!r} references trifecta leg "
+            f"{leg!r}, which is never computed without a 'capabilities:' "
+            "section declaring it for at least one tool; this reference "
+            "always evaluates false as this policy stands"
+        )
+    declared_legs = {
+        capability.value
+        for capabilities in document.capabilities.values()
+        for capability in capabilities
+    }
+    if leg not in declared_legs:
+        return (
+            f"warning: sink {sink_key!r}: rule {rule_name!r} references "
+            f"trifecta leg {leg!r}, which no tool in the policy's "
+            "'capabilities' section declares, so this reference can never "
+            "match under this policy's current declarations"
+        )
+    return None
+
+
 def _has_relation(tree: lark.Tree[lark.Token], receiver: str, field: str) -> bool:
     """Whether `tree` contains a `<receiver>.<field> ==`/`!=` comparison."""
     for subtree in tree.iter_subtrees():
@@ -283,7 +323,16 @@ def _split_sink_key(key: str) -> tuple[str, str]:
 
 
 class PolicyDocument(BaseModel):
-    """The validated shape of a policy YAML file."""
+    """The validated shape of a policy YAML file.
+
+    Attributes:
+        capabilities: What each tool does, keyed by the same dotted
+            `namespace.tool` names `sinks` uses. Declaring a tool here makes
+            its `reads_private`/`reaches_external` trifecta legs computable.
+            An empty list for a tool records that it has neither
+            capability, distinct from the tool being absent from this
+            mapping entirely.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -292,12 +341,22 @@ class PolicyDocument(BaseModel):
     sources: tuple[SourceDeclaration, ...] = ()
     agents: dict[str, AgentDeclaration] = {}
     sinks: dict[str, tuple[SinkRule, ...]]
+    capabilities: dict[str, tuple[Capability, ...]] = {}
 
     @field_validator("sinks")
     @classmethod
     def _validate_sink_keys(
         cls, value: dict[str, tuple[SinkRule, ...]]
     ) -> dict[str, tuple[SinkRule, ...]]:
+        for key in value:
+            _split_sink_key(key)
+        return value
+
+    @field_validator("capabilities")
+    @classmethod
+    def _validate_capability_keys(
+        cls, value: dict[str, tuple[Capability, ...]]
+    ) -> dict[str, tuple[Capability, ...]]:
         for key in value:
             _split_sink_key(key)
         return value
@@ -437,15 +496,29 @@ def validate_policy(path: str) -> list[str]:
                     tree, "contains", lambda r: _bare_ident(r) == "trifecta"
                 ):
                     for leg in _string_literals_in(exprlist):
-                        if leg not in TRIFECTA_COMPUTABLE_LEGS:
-                            problems.append(
-                                f"sink {sink_key!r}: rule {rule.name!r} "
-                                f"references trifecta leg {leg!r}, which is "
-                                "not computed in v1 "
-                                f"(trifecta.contains({leg!r}) always "
-                                "evaluates false); computable legs are "
-                                f"{sorted(TRIFECTA_COMPUTABLE_LEGS)}"
-                            )
+                        problem = _check_trifecta_leg(
+                            leg, document, sink_key=sink_key, rule_name=rule.name
+                        )
+                        if problem is not None:
+                            problems.append(problem)
+                for exprlist in _call_args(
+                    tree, "contains", lambda r: member_field(r, "run") == "trifecta"
+                ):
+                    for leg in _string_literals_in(exprlist):
+                        problem = _check_trifecta_leg(
+                            leg, document, sink_key=sink_key, rule_name=rule.name
+                        )
+                        if problem is not None:
+                            problems.append(problem)
+                for exprlist in _call_args(
+                    tree, "exists", lambda r: member_field(r, "run") == "trifecta"
+                ):
+                    for leg in _bound_comparison_literals(exprlist):
+                        problem = _check_trifecta_leg(
+                            leg, document, sink_key=sink_key, rule_name=rule.name
+                        )
+                        if problem is not None:
+                            problems.append(problem)
                 for field in _bare_fields(tree, "run"):
                     if field not in RUN_COMPUTABLE_FIELDS:
                         problems.append(
@@ -484,7 +557,12 @@ def validate_policy(path: str) -> list[str]:
                         "t.lineage.exists(s, s == ...) instead"
                     )
                 if rule.action is Action.ALLOW:
-                    for field in ("sources", "untrusted_sources", "ingested_by"):
+                    for field in (
+                        "sources",
+                        "untrusted_sources",
+                        "ingested_by",
+                        "trifecta",
+                    ):
 
                         def _matches_run_field(
                             r: lark.Tree[lark.Token] | lark.Token, field: str = field
@@ -538,5 +616,16 @@ def validate_policy(path: str) -> list[str]:
                 id_to_groups=id_to_groups,
             )
         )
+
+    if document.capabilities:
+        for sink_key in document.sinks:
+            if sink_key not in document.capabilities:
+                problems.append(
+                    f"warning: sink {sink_key!r} has no entry in the "
+                    "policy's 'capabilities' section, so no trifecta "
+                    "capability leg is computed for it; declare its "
+                    "capabilities, or declare an empty list to record that "
+                    "it has none"
+                )
 
     return problems

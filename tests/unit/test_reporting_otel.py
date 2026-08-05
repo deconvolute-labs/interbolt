@@ -55,6 +55,7 @@ def _make_decision(**overrides: object) -> Decision:
         untrusted_sources=frozenset({"web_search"}),
         run_tainted=False,
         run_ingress=(),
+        run_trifecta=frozenset({"from_untrusted"}),
         mode=Mode.ENFORCE,
         decision_id=str(uuid.uuid4()),
         agent_id="test-agent",
@@ -134,6 +135,7 @@ class TestActiveSpan:
         assert tuple(attrs["interbolt.sources"]) == ("web_search",)
         assert tuple(attrs["interbolt.untrusted_sources"]) == ("web_search",)
         assert tuple(attrs["interbolt.trifecta"]) == ("from_untrusted",)
+        assert tuple(attrs["interbolt.run_trifecta"]) == ("from_untrusted",)
         assert tuple(attrs["interbolt.run_ingested_sources"]) == ()
         assert tuple(attrs["interbolt.run_untrusted_sources"]) == ()
         assert tuple(attrs["interbolt.run_ingested_by"]) == ()

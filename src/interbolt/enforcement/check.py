@@ -12,6 +12,7 @@ from celpy.evaluation import CELEvalError, CELUnsupportedError
 from interbolt.constants import EVENT_SCHEMA_VERSION, RECURSION_DEPTH
 from interbolt.enforcement.audit import AuditRegistry
 from interbolt.enforcement.signals import (
+    _compute_run_trifecta,
     _compute_trifecta,
     _compute_untrusted_sources,
     _resolve_run_ingress,
@@ -36,8 +37,9 @@ from interbolt.policy.evaluate import (
     evaluate_sink,
     resolve_agent_groups,
     resolve_labels,
+    resolve_tool_capabilities,
 )
-from interbolt.taint import collect_labels, unwrap
+from interbolt.taint import collect_labels, record_capabilities, unwrap
 from interbolt.utils import current_trace_context, get_logger
 
 _logger = get_logger("enforcement")
@@ -85,10 +87,15 @@ def check(
     plain_args = unwrap(args)
     sources_table = policy.sources_table
     resolved_labels = resolve_labels(labels, sources_table)
-    trifecta = _compute_trifecta(resolved_labels)
+    call_capabilities = resolve_tool_capabilities(tool, policy.tool_capabilities)
+    trifecta = _compute_trifecta(resolved_labels, call_capabilities)
     untrusted_sources = _compute_untrusted_sources(resolved_labels)
     resolved_run_id = run_id if run_id is not None else str(uuid.uuid4())
     run_ingress = _resolve_run_ingress(resolved_run_id, sources_table)
+    accumulated_capabilities = record_capabilities(
+        resolved_run_id, frozenset(capability.value for capability in call_capabilities)
+    )
+    run_trifecta = _compute_run_trifecta(run_ingress, accumulated_capabilities)
 
     action, matched_rule, matched_condition, evaluation_error = _evaluate(
         tool=tool,
@@ -96,6 +103,7 @@ def check(
         resolved_labels=resolved_labels,
         trifecta=trifecta,
         run_ingress=run_ingress,
+        run_trifecta=run_trifecta,
         agent_id=agent_id,
         policy=policy,
     )
@@ -118,6 +126,7 @@ def check(
         trifecta=trifecta,
         untrusted_sources=untrusted_sources,
         run_ingress=run_ingress,
+        run_trifecta=run_trifecta,
         mode=mode,
         final_action=final_action,
         matched_rule=matched_rule,
@@ -156,6 +165,7 @@ def _evaluate(
     resolved_labels: tuple[ResolvedLabel, ...],
     trifecta: frozenset[str],
     run_ingress: tuple[RunIngressEntry, ...],
+    run_trifecta: frozenset[str],
     agent_id: str,
     policy: Policy,
 ) -> tuple[Action, str | None, str | None, CELEvalError | CELUnsupportedError | None]:
@@ -174,6 +184,7 @@ def _evaluate(
                 resolved_labels=resolved_labels,
                 trifecta=trifecta,
                 run_ingress=run_ingress,
+                run_trifecta=run_trifecta,
                 agent_id=agent_id,
                 groups=groups,
             )
@@ -212,6 +223,7 @@ def _build_records(
     trifecta: frozenset[str],
     untrusted_sources: frozenset[str],
     run_ingress: tuple[RunIngressEntry, ...],
+    run_trifecta: frozenset[str],
     mode: Mode,
     final_action: Action,
     matched_rule: str | None,
@@ -233,6 +245,7 @@ def _build_records(
         untrusted_sources=untrusted_sources,
         run_tainted=_run_tainted(run_ingress),
         run_ingress=run_ingress,
+        run_trifecta=run_trifecta,
         mode=mode,
         decision_id=str(uuid.uuid4()),
         agent_id=agent_id,

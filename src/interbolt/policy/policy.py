@@ -5,7 +5,7 @@ from __future__ import annotations
 from celpy.celparser import CELParseError
 
 from interbolt.errors import PolicyEvaluationError
-from interbolt.models.core import TrustLevel
+from interbolt.models.core import Capability, TrustLevel
 from interbolt.policy.compile import CompiledSink, compile_policy
 from interbolt.policy.schema import (
     Defaults,
@@ -30,6 +30,9 @@ class Policy:
         id_to_groups: The declared agent-id-to-groups mapping, from the
             policy's optional `agents` section. An agent id absent from it
             resolves to the empty set, not an error.
+        tool_capabilities: The declared tool-to-capabilities mapping, from
+            the policy's optional `capabilities` section. A tool absent from
+            it resolves to the empty set, not an error.
         fingerprint: A stable hash of the normalized document
             (`"sha256:..."`), stamped onto every emitted `Event`/`Finding`/
             `Endorsement` so a record can be joined against the policy that
@@ -53,6 +56,9 @@ class Policy:
         self.id_to_groups: dict[str, frozenset[str]] = {
             agent_id: frozenset(declaration.groups)
             for agent_id, declaration in document.agents.items()
+        }
+        self.tool_capabilities: dict[str, frozenset[Capability]] = {
+            tool: frozenset(caps) for tool, caps in document.capabilities.items()
         }
         self.fingerprint: str = compute_policy_fingerprint(document)
 

@@ -18,11 +18,14 @@ from interbolt.taint import (
     TaintedBytes,
     _fresh_label,
     _merge_labels,
+    clear_run_capabilities,
     clear_run_ingress,
     collect_labels,
     endorse,
     install_endorsement_emitter,
+    record_capabilities,
     record_ingress,
+    run_capabilities,
     run_ingress,
     taint,
     track_model_call,
@@ -1118,6 +1121,37 @@ class TestRunIngressRegistry:
         assert run_ingress("run-registry-d") != {}
         clear_run_ingress("run-registry-d")
         assert run_ingress("run-registry-d") == {}
+
+
+# ---------------------------------------------------------------------------
+# TestRunCapabilitiesRegistry
+# ---------------------------------------------------------------------------
+
+
+class TestRunCapabilitiesRegistry:
+    def test_record_capabilities_returns_accumulated_set(self) -> None:
+        accumulated = record_capabilities("run-cap-a", frozenset({"reads_private"}))
+        assert accumulated == frozenset({"reads_private"})
+        assert run_capabilities("run-cap-a") == frozenset({"reads_private"})
+
+    def test_record_capabilities_unions_across_calls(self) -> None:
+        record_capabilities("run-cap-b", frozenset({"reads_private"}))
+        accumulated = record_capabilities("run-cap-b", frozenset({"reaches_external"}))
+        assert accumulated == frozenset({"reads_private", "reaches_external"})
+
+    def test_empty_capabilities_still_returns_accumulated_set(self) -> None:
+        record_capabilities("run-cap-c", frozenset({"reads_private"}))
+        accumulated = record_capabilities("run-cap-c", frozenset())
+        assert accumulated == frozenset({"reads_private"})
+
+    def test_run_capabilities_for_unknown_run_is_empty(self) -> None:
+        assert run_capabilities("no-such-capability-run") == frozenset()
+
+    def test_clear_run_capabilities_drops_the_runs_entries(self) -> None:
+        record_capabilities("run-cap-d", frozenset({"reads_private"}))
+        assert run_capabilities("run-cap-d") != frozenset()
+        clear_run_capabilities("run-cap-d")
+        assert run_capabilities("run-cap-d") == frozenset()
 
 
 # ---------------------------------------------------------------------------

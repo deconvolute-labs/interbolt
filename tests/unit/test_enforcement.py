@@ -17,7 +17,7 @@ from interbolt.enforcement.check import _emit
 from interbolt.enforcement.enforce import enforce_decision, enforce_decision_sync
 from interbolt.enforcement.signals import _compute_trifecta
 from interbolt.errors import ApprovalDenied, InterboltUsageError, PolicyViolation
-from interbolt.models.core import Action, Decision, Label, Mode, TrustLevel
+from interbolt.models.core import Action, Capability, Decision, Label, Mode, TrustLevel
 from interbolt.models.protocols import Reporter
 from interbolt.policy import Policy
 from interbolt.policy.evaluate import resolve_labels
@@ -786,19 +786,21 @@ class TestSplitThenSinkContributingLabels:
 
 class TestComputeTrifecta:
     def test_empty_labels_empty_trifecta(self) -> None:
-        result = _compute_trifecta(resolve_labels((), {}))
+        result = _compute_trifecta(resolve_labels((), {}), frozenset())
         assert result == frozenset()
 
     def test_untrusted_label_adds_from_untrusted(self) -> None:
         lbl = _label("web")
         result = _compute_trifecta(
-            resolve_labels((lbl,), {"web": TrustLevel.UNTRUSTED})
+            resolve_labels((lbl,), {"web": TrustLevel.UNTRUSTED}), frozenset()
         )
         assert "from_untrusted" in result
 
     def test_trusted_only_labels_empty_trifecta(self) -> None:
         lbl = _label("kb")
-        result = _compute_trifecta(resolve_labels((lbl,), {"kb": TrustLevel.TRUSTED}))
+        result = _compute_trifecta(
+            resolve_labels((lbl,), {"kb": TrustLevel.TRUSTED}), frozenset()
+        )
         assert result == frozenset()
 
     def test_mixed_labels_adds_from_untrusted(self) -> None:
@@ -808,9 +810,16 @@ class TestComputeTrifecta:
             resolve_labels(
                 (lbl_trusted, lbl_untrusted),
                 {"kb": TrustLevel.TRUSTED, "web": TrustLevel.UNTRUSTED},
-            )
+            ),
+            frozenset(),
         )
         assert "from_untrusted" in result
+
+    def test_call_capabilities_are_included(self) -> None:
+        result = _compute_trifecta(
+            resolve_labels((), {}), frozenset({Capability.READS_PRIVATE})
+        )
+        assert result == frozenset({"reads_private"})
 
 
 # ---------------------------------------------------------------------------
@@ -1231,6 +1240,7 @@ class TestEmit:
             untrusted_sources=frozenset(),
             run_tainted=False,
             run_ingress=(),
+            run_trifecta=frozenset(),
             mode=Mode.ENFORCE,
             decision_id=str(uuid.uuid4()),
             agent_id="a",
@@ -1265,6 +1275,7 @@ class TestEmit:
             untrusted_sources=frozenset(),
             run_tainted=False,
             run_ingress=(),
+            run_trifecta=frozenset(),
             mode=Mode.ENFORCE,
             decision_id=str(uuid.uuid4()),
             agent_id="a",

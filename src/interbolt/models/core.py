@@ -7,6 +7,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
 
+from interbolt.constants import TRIFECTA_REACHES_EXTERNAL, TRIFECTA_READS_PRIVATE
+
 
 class Mode(StrEnum):
     """The enforcement mode: governs behavior on evaluation error.
@@ -25,6 +27,18 @@ class TrustLevel(StrEnum):
 
     TRUSTED = "trusted"
     UNTRUSTED = "untrusted"
+
+
+class Capability(StrEnum):
+    """A declared property of a tool: what it does with the data it touches.
+
+    Set in a policy's `capabilities:` section and read back from
+    `Policy.tool_capabilities`. The closed set of two is what makes the
+    `reads_private` and `reaches_external` lethal-trifecta legs computable.
+    """
+
+    READS_PRIVATE = TRIFECTA_READS_PRIVATE
+    REACHES_EXTERNAL = TRIFECTA_REACHES_EXTERNAL
 
 
 class Label(BaseModel):
@@ -112,8 +126,8 @@ class Decision(BaseModel):
         tool: The qualified tool name the decision was made for.
         contributing_labels: Every label collected from the call's arguments.
         trifecta: The lethal-trifecta legs satisfied by this call:
-            `"from_untrusted"` or empty. `reaches_external` and
-            `reads_private` are never included.
+            `"from_untrusted"` when any contributing label is untrusted,
+            plus every capability declared for the tool being called.
         untrusted_sources: The subset of contributing labels' lineage names
             that resolved untrusted against the policy's sources table at
             decision time. Answers "which source caused this" directly, so
@@ -129,6 +143,12 @@ class Decision(BaseModel):
             ingesting agent ids. Empty outside any `agent_context`. Explains
             a `run_tainted`-driven decision when `contributing_labels` is
             empty.
+        run_trifecta: The lethal-trifecta legs satisfied anywhere in the
+            active run: `"from_untrusted"` when the run has ingested
+            untrusted data, plus every capability declared for any tool
+            guarded during the run, including this call. Empty outside any
+            `agent_context`, for the same reason `run_ingress` is. Explains
+            a `run.trifecta`-driven decision when `trifecta` is smaller.
         mode: The enforcement mode in effect when this decision was made.
         decision_id: A unique id for this decision, for the audit trail.
         agent_id: The durable, integrator-supplied agent identity.
@@ -147,6 +167,7 @@ class Decision(BaseModel):
     untrusted_sources: frozenset[str]
     run_tainted: bool
     run_ingress: tuple[RunIngressEntry, ...]
+    run_trifecta: frozenset[str]
     mode: Mode
     decision_id: str
     agent_id: str

@@ -26,6 +26,15 @@
       "title": "AgentDeclaration",
       "type": "object"
     },
+    "Capability": {
+      "description": "A declared property of a tool: what it does with the data it touches.\n\nSet in a policy's `capabilities:` section and read back from\n`Policy.tool_capabilities`. The closed set of two is what makes the\n`reads_private` and `reaches_external` lethal-trifecta legs computable.",
+      "enum": [
+        "reads_private",
+        "reaches_external"
+      ],
+      "title": "Capability",
+      "type": "string"
+    },
     "Defaults": {
       "additionalProperties": false,
       "description": "Default-deny posture for sources and sinks not otherwise declared.",
@@ -129,7 +138,7 @@
       "type": "string"
     }
   },
-  "description": "The validated shape of a policy YAML file.",
+  "description": "The validated shape of a policy YAML file.\n\nAttributes:\n    capabilities: What each tool does, keyed by the same dotted\n        `namespace.tool` names `sinks` uses. Declaring a tool here makes\n        its `reads_private`/`reaches_external` trifecta legs computable.\n        An empty list for a tool records that it has neither\n        capability, distinct from the tool being absent from this\n        mapping entirely.",
   "properties": {
     "version": {
       "title": "Version",
@@ -162,6 +171,17 @@
         "type": "array"
       },
       "title": "Sinks",
+      "type": "object"
+    },
+    "capabilities": {
+      "additionalProperties": {
+        "items": {
+          "$ref": "#/$defs/Capability"
+        },
+        "type": "array"
+      },
+      "default": {},
+      "title": "Capabilities",
       "type": "object"
     }
   },

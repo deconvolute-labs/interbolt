@@ -12,7 +12,7 @@ from typing import Any
 from celpy import celtypes
 from celpy.adapter import json_to_cel
 
-from interbolt.models.core import Action, Label, RunIngressEntry, TrustLevel
+from interbolt.models.core import Action, Capability, Label, RunIngressEntry, TrustLevel
 from interbolt.policy.compile import CompiledSink
 
 
@@ -52,6 +52,22 @@ def resolve_agent_groups(
         The agent's declared groups, or the empty frozenset if undeclared.
     """
     return id_to_groups.get(agent_id, frozenset())
+
+
+def resolve_tool_capabilities(
+    tool: str, tool_capabilities: Mapping[str, frozenset[Capability]]
+) -> frozenset[Capability]:
+    """Resolve one tool's declared capabilities against the policy's capabilities table.
+
+    Args:
+        tool: The dotted qualified tool name.
+        tool_capabilities: The policy's declared tool-to-capabilities mapping
+            (`Policy.tool_capabilities`).
+
+    Returns:
+        The tool's declared capabilities, or the empty frozenset if undeclared.
+    """
+    return tool_capabilities.get(tool, frozenset())
 
 
 def resolve_label_trust(
@@ -127,6 +143,7 @@ def build_context(
     resolved_labels: tuple[ResolvedLabel, ...],
     trifecta: frozenset[str],
     run_ingress: tuple[RunIngressEntry, ...],
+    run_trifecta: frozenset[str],
     agent_id: str,
     groups: frozenset[str],
 ) -> dict[str, Any]:
@@ -150,6 +167,8 @@ def build_context(
             `run.sources`, `run.untrusted_sources`, and `run.ingested_by`
             are all derived from this. Run-scoped, not value-scoped: use
             `taint`/`t.lineage` for a claim about this call's own arguments.
+        run_trifecta: The trifecta legs satisfied anywhere in the active
+            run, including by this call.
         agent_id: The acting agent's durable identity, the same value
             resolved once in `Runtime.check` and stamped on `Decision`, so
             the CEL context and the audit record never disagree.
@@ -216,11 +235,13 @@ def build_context(
     # `taint.sources`/`taint.max_trust`, because CEL can't make one variable
     # both a list and a map. `run` and `agent` are maps since `run.tainted`
     # and `agent.id` only ever need dotted access, never quantification.
-    # `run.sources`/`run.untrusted_sources`/`run.ingested_by` and
-    # `agent.groups` are list-typed values nested inside their maps: a CEL
-    # map can hold a list value, so `run.untrusted_sources.exists(...)` and
-    # `agent.groups.exists(...)` quantify over those nested lists without
-    # `run`/`agent` themselves needing to be lists.
+    # `run.sources`/`run.untrusted_sources`/`run.ingested_by`/`run.trifecta`
+    # and `agent.groups` are list-typed values nested inside their maps: a
+    # CEL map can hold a list value, so `run.untrusted_sources.exists(...)`
+    # and `agent.groups.exists(...)` quantify over those nested lists
+    # without `run`/`agent` themselves needing to be lists. `trifecta` and
+    # `run.trifecta` are sorted so their CEL order is stable across
+    # processes; the documented idiom is still `.exists(...)`/`size(...)`.
     return {
         "tool": celtypes.StringType(tool),
         "args": _convert_args(args),
@@ -229,7 +250,9 @@ def build_context(
             [celtypes.StringType(name) for name in all_sources]
         ),
         "max_trust": celtypes.StringType(max_trust.value),
-        "trifecta": celtypes.ListType([celtypes.StringType(leg) for leg in trifecta]),
+        "trifecta": celtypes.ListType(
+            [celtypes.StringType(leg) for leg in sorted(trifecta)]
+        ),
         "run": celtypes.MapType(
             {
                 celtypes.StringType("tainted"): celtypes.BoolType(run_tainted),
@@ -241,6 +264,9 @@ def build_context(
                 ),
                 celtypes.StringType("ingested_by"): celtypes.ListType(
                     [celtypes.StringType(agent) for agent in run_ingested_by]
+                ),
+                celtypes.StringType("trifecta"): celtypes.ListType(
+                    [celtypes.StringType(leg) for leg in sorted(run_trifecta)]
                 ),
             }
         ),

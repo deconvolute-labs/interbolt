@@ -37,6 +37,18 @@ sources:
 #   support-agent:
 #     groups: [internal]
 
+# CAPABILITIES (optional): declare what each tool does, so the lethal-trifecta
+# legs become computable. Two capabilities exist: reads_private (the tool
+# returns private data) and reaches_external (the tool sends data outside your
+# trust boundary). A tool with no entry here contributes no legs, so
+# `interbolt validate` warns about any sink missing from this section once the
+# section exists. Declare an empty list to record that a tool genuinely has
+# neither.
+# capabilities:
+#   default.read_inbox: [reads_private]
+#   default.send_email: [reaches_external]
+#   default.fs_write: []
+
 # EGRESS: gate sinks. Keys are dotted qualified names "namespace.tool".
 # Within a sink, rules are ordered; first match wins. A trailing rule with
 # no `when` is the catch-all.
@@ -66,6 +78,14 @@ sinks:
     # silently falling outside the rule the moment it ships.
     # when: taint.exists(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
     #       && !agent.groups.exists(g, g == "outbound")
+    #
+    # Rule-of-Two idiom: block when all three trifecta legs are present
+    # anywhere in the run, not just on this call's own arguments. This holds
+    # across a model-mediated handoff where value-level taint on the
+    # outgoing message has been laundered away.
+    # - name: block_rule_of_two
+    #   when: size(run.trifecta) >= 3
+    #   action: block
     - name: block_untrusted_exfil
       when: taint.exists(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
       action: block

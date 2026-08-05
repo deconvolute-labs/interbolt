@@ -80,6 +80,111 @@ sinks:
       action: block
 """
 
+_POLICY_WITH_UNKNOWN_TRIFECTA_LEG = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: bad_leg
+      when: 'trifecta.contains("bogus_leg")'
+      action: block
+"""
+
+_POLICY_WITH_CAPABILITIES_SECTION_BUT_LEG_UNDECLARED = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+capabilities:
+  default.tool: [reads_private]
+sinks:
+  default.tool:
+    - name: never_matches
+      when: 'trifecta.contains("reaches_external")'
+      action: block
+"""
+
+_POLICY_WITH_DECLARED_CAPABILITY_LEG_IS_CLEAN = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+capabilities:
+  default.tool: [reaches_external]
+sinks:
+  default.tool:
+    - name: matches
+      when: 'trifecta.contains("reaches_external")'
+      action: block
+"""
+
+_POLICY_WITH_RUN_TRIFECTA_NO_CAPABILITIES_SECTION = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    - name: bad_run_leg
+      when: 'run.trifecta.exists(leg, leg == "reads_private")'
+      action: block
+"""
+
+_POLICY_WITH_RUN_TRIFECTA_LEG_UNDECLARED_WARNING = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+capabilities:
+  default.tool: [reads_private]
+sinks:
+  default.tool:
+    - name: never_matches
+      when: 'run.trifecta.contains("reaches_external")'
+      action: block
+"""
+
+_POLICY_WITH_UNDECLARED_SINK_CAPABILITIES_WARNING = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+capabilities:
+  default.other_tool: [reads_private]
+sinks:
+  default.tool:
+    - name: allow_all
+      action: allow
+"""
+
+_POLICY_WITH_EMPTY_CAPABILITIES_LIST_SUPPRESSES_WARNING = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+capabilities:
+  default.tool: []
+sinks:
+  default.tool:
+    - name: allow_all
+      action: allow
+"""
+
+_POLICY_WITH_UNKNOWN_CAPABILITY_STRING = """\
+version: "1.0"
+defaults:
+  sink_action: allow
+sources: []
+capabilities:
+  default.tool: [bogus_capability]
+sinks:
+  default.tool:
+    - name: allow_all
+      action: allow
+"""
+
 _POLICY_WITH_SOURCE_EQUALITY = """\
 version: "1.0"
 defaults:
@@ -653,6 +758,36 @@ sinks: {}
         doc = load_policy_document("fake.yaml")
         assert doc.defaults.fail_mode == Mode.ENFORCE
 
+    def test_capabilities_section_defaults_to_empty(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch("builtins.open", mocker.mock_open(read_data=_MINIMAL_VALID_YAML))
+        doc = load_policy_document("fake.yaml")
+        assert doc.capabilities == {}
+
+    def test_empty_capability_list_is_legal(self, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(
+                read_data=_POLICY_WITH_EMPTY_CAPABILITIES_LIST_SUPPRESSES_WARNING
+            ),
+        )
+        doc = load_policy_document("fake.yaml")
+        assert doc.capabilities == {"default.tool": ()}
+
+    def test_unknown_capability_string_raises_naming_valid_values(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_UNKNOWN_CAPABILITY_STRING),
+        )
+        with pytest.raises(PolicyEvaluationError) as exc_info:
+            load_policy_document("fake.yaml")
+        message = str(exc_info.value)
+        assert "reads_private" in message
+        assert "reaches_external" in message
+
 
 class TestValidatePolicy:
     def test_valid_returns_empty_list(self, mocker: MockerFixture) -> None:
@@ -681,13 +816,111 @@ class TestValidatePolicy:
         problems = validate_policy("fake.yaml")
         assert any("invalid CEL" in p for p in problems)
 
-    def test_non_computable_trifecta_leg(self, mocker: MockerFixture) -> None:
+    def test_capability_leg_referenced_with_no_capabilities_section(
+        self, mocker: MockerFixture
+    ) -> None:
         mocker.patch(
             "builtins.open",
             mocker.mock_open(read_data=_POLICY_WITH_NON_COMPUTABLE_TRIFECTA),
         )
         problems = validate_policy("fake.yaml")
-        assert any("not computed" in p for p in problems)
+        assert any(
+            "never computed without a 'capabilities:' section" in p for p in problems
+        )
+
+    def test_unknown_trifecta_leg_is_an_error(self, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_UNKNOWN_TRIFECTA_LEG),
+        )
+        problems = validate_policy("fake.yaml")
+        assert any("is not a trifecta leg" in p for p in problems)
+
+    def test_capability_leg_no_tool_declares_is_a_warning(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(
+                read_data=_POLICY_WITH_CAPABILITIES_SECTION_BUT_LEG_UNDECLARED
+            ),
+        )
+        problems = validate_policy("fake.yaml")
+        assert any(
+            p.startswith("warning:") and "reaches_external" in p for p in problems
+        )
+
+    def test_declared_capability_leg_reference_is_clean(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_DECLARED_CAPABILITY_LEG_IS_CLEAN),
+        )
+        problems = validate_policy("fake.yaml")
+        assert not any("trifecta leg" in p for p in problems)
+
+    def test_run_trifecta_leg_referenced_with_no_capabilities_section(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(
+                read_data=_POLICY_WITH_RUN_TRIFECTA_NO_CAPABILITIES_SECTION
+            ),
+        )
+        problems = validate_policy("fake.yaml")
+        assert any(
+            "never computed without a 'capabilities:' section" in p for p in problems
+        )
+
+    def test_run_trifecta_leg_no_tool_declares_is_a_warning(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(
+                read_data=_POLICY_WITH_RUN_TRIFECTA_LEG_UNDECLARED_WARNING
+            ),
+        )
+        problems = validate_policy("fake.yaml")
+        assert any(
+            p.startswith("warning:") and "reaches_external" in p for p in problems
+        )
+
+    def test_undeclared_sink_warns_once_capabilities_section_exists(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(
+                read_data=_POLICY_WITH_UNDECLARED_SINK_CAPABILITIES_WARNING
+            ),
+        )
+        problems = validate_policy("fake.yaml")
+        assert any(
+            p.startswith("warning:") and "default.tool" in p and "capabilities" in p
+            for p in problems
+        )
+
+    def test_empty_capability_list_suppresses_undeclared_sink_warning(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(
+                read_data=_POLICY_WITH_EMPTY_CAPABILITIES_LIST_SUPPRESSES_WARNING
+            ),
+        )
+        problems = validate_policy("fake.yaml")
+        assert not any("capabilities" in p for p in problems)
+
+    def test_no_capabilities_section_at_all_produces_no_undeclared_sink_warning(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch("builtins.open", mocker.mock_open(read_data=_POLICY_WITH_SINK))
+        problems = validate_policy("fake.yaml")
+        assert not any("capabilities" in p for p in problems)
 
     def test_schema_error_returns_field_problems(self, mocker: MockerFixture) -> None:
         mocker.patch("builtins.open", mocker.mock_open(read_data=_POLICY_SCHEMA_ERROR))

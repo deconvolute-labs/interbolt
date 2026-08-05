@@ -10,6 +10,7 @@ from rich.tree import Tree
 
 from interbolt import (
     Action,
+    Capability,
     Endorsement,
     Event,
     Finding,
@@ -111,6 +112,14 @@ def _print_sink(sink: SinkExplanation, show_eliminated: bool) -> None:
     _console.print(
         f"  default: [{default_color}]{sink.default_action}[/{default_color}]"
     )
+
+
+def _print_tool_capabilities(capabilities: frozenset[Capability]) -> None:
+    """Print one tool's declared capabilities for `--tool`, or that none exist."""
+    if capabilities:
+        _console.print("  capabilities: " + ", ".join(sorted(capabilities)))
+    else:
+        _console.print("  capabilities: none declared")
 
 
 def _print_tool_mention(mention: ToolMention) -> None:

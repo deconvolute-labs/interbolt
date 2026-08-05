@@ -11,7 +11,12 @@ from pydantic import ValidationError
 from interbolt.constants import WIRE_ENVELOPE_KEY, WIRE_SCHEMA_VERSION
 from interbolt.errors import InterboltConfigError
 from interbolt.models.core import Label
-from interbolt.taint.runstate import record_ingress, run_ingress
+from interbolt.taint.runstate import (
+    record_capabilities,
+    record_ingress,
+    run_capabilities,
+    run_ingress,
+)
 from interbolt.taint.wire_rebuild import _rebuild, _replay_audit
 from interbolt.taint.wire_schema import (
     LabelEntry,
@@ -100,8 +105,13 @@ def pack(
             covered by the MAC. Reserved for future key rotation; no
             semantics beyond that today.
         include_run: Whether to record the active run's ingested sources and
-            their agents in the envelope, sorted for reproducibility, for
-            replay into whatever run unpacks it.
+            their agents, and its accumulated trifecta capability legs, in
+            the envelope, sorted for reproducibility, for replay into
+            whatever run unpacks it. A capability leg only ever accumulates,
+            so replaying one forward into the next turn is intentional: a
+            run-scoped Rule-of-Two check that reset at every turn boundary
+            would not survive the multi-turn handoff this contract exists
+            for.
 
     Returns:
         A plain, JSON-representable envelope dict.
@@ -129,7 +139,8 @@ def pack(
                 sources=tuple(
                     RunSourceEntry(name=name, ingested_by=tuple(sorted(entries[name])))
                     for name in sorted(entries)
-                )
+                ),
+                capabilities=tuple(sorted(run_capabilities(run_id))),
             )
 
     envelope = WireEnvelope(
@@ -156,10 +167,12 @@ def unpack(
 
     Validates the envelope's shape, verifies the MAC when one is expected,
     rebuilds every carrier at its recorded path, replays the run's ingested
-    source names into the currently active run, and replays rehydrated
-    content to the laundering audit observer when one is installed. Builds
-    the complete rehydrated value before any of these replays run, so a
-    rejection never leaves partial state behind.
+    source names and accumulated trifecta capability legs into the
+    currently active run, and replays rehydrated content to the laundering
+    audit observer when one is installed. Builds the complete rehydrated
+    value before any of these replays run, so a rejection never leaves
+    partial state behind. Replayed capability legs only ever accumulate
+    into the active run's set; they are never used to reset it.
 
     Args:
         envelope: The envelope to unpack, typically the direct output of
@@ -208,9 +221,24 @@ def unpack(
 
     if parsed.run is not None:
         record_ingress({entry.name: entry.ingested_by for entry in parsed.run.sources})
+        if parsed.run.capabilities:
+            _replay_capabilities(frozenset(parsed.run.capabilities))
     _replay_audit(parsed, pool, rebuilt_by_path)
 
     return rehydrated
+
+
+def _replay_capabilities(capabilities: frozenset[str]) -> None:
+    """Replay packed run capabilities into the currently active run, if any."""
+    run_id = current_run_id.get()
+    if run_id is None:
+        _logger.debug(
+            "unpack() carried run capabilities %r but no run is active; "
+            "this cannot be attributed to a run",
+            tuple(sorted(capabilities)),
+        )
+        return
+    record_capabilities(run_id, capabilities)
 
 
 def pack_into(
@@ -235,7 +263,8 @@ def pack_into(
         key_id: An opaque identifier for `key`, carried in the envelope and
             covered by the MAC.
         include_run: Whether to record the active run's ingested source
-            names in the envelope, for replay into whatever run unpacks it.
+            names and accumulated trifecta capability legs in the envelope,
+            for replay into whatever run unpacks it.
 
     Returns:
         A new plain mapping: every original key with its carriers stripped,

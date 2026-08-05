@@ -27,6 +27,7 @@ from interbolt.errors import (
 )
 from interbolt.models.core import (
     Action,
+    Capability,
     Decision,
     Endorsement,
     Event,
@@ -114,6 +115,7 @@ __all__ = [
     "Label",
     "RunIngressEntry",
     "TrustLevel",
+    "Capability",
     "AgentExplanation",
     "GroupExplanation",
     "RuleExplanation",

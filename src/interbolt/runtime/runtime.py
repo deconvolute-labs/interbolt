@@ -24,7 +24,7 @@ from interbolt.runtime.guard import (
     _validate_explicit_agent_id,
     agent,
 )
-from interbolt.taint import clear_run_ingress
+from interbolt.taint import clear_run_capabilities, clear_run_ingress
 from interbolt.utils import current_agent_id, current_run_id
 
 
@@ -115,6 +115,7 @@ class Runtime:
         current_agent_id.reset(agent_token)
         current_run_id.reset(run_token)
         clear_run_ingress(run_id)
+        clear_run_capabilities(run_id)
         if self._audit_registry is not None:
             self._audit_registry.clear_run(run_id)
 
@@ -127,8 +128,9 @@ class Runtime:
         this block share one `run_id`; calls outside any `agent_context`
         fall back to `constants.DEFAULT_AGENT_ID` with a fresh `run_id`
         each. Any `taint()` call inside this block is attributed to this
-        run for run-level gating (`run.tainted`); that
-        attribution clears, along with the audit registry, when the block
+        run for run-level gating (`run.tainted`), and every guarded call's
+        declared capabilities accumulate into the run's `run.trifecta`; both
+        attributions clear, along with the audit registry, when the block
         exits.
 
         For a synchronous call site, use `agent_context_sync` instead: same

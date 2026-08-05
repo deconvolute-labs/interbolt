@@ -24,6 +24,8 @@ from interbolt.taint import (
     endorse,
     pack,
     pack_into,
+    record_capabilities,
+    run_capabilities,
     run_ingress,
     taint,
     unpack,
@@ -402,6 +404,59 @@ class TestRunBlockRoundTrip:
         assert envelope["run"] is not None
         revived = unpack(envelope, key="secret")
         assert revived == "doc"
+
+    def test_round_trip_preserves_run_capabilities(self) -> None:
+        pack_token = current_run_id.set("run-cap-pack-side")
+        try:
+            record_capabilities(
+                "run-cap-pack-side", frozenset({"reads_private", "reaches_external"})
+            )
+            envelope = pack("plain value")
+        finally:
+            current_run_id.reset(pack_token)
+        assert envelope["run"]["capabilities"] == ["reaches_external", "reads_private"]
+
+        unpack_token = current_run_id.set("run-cap-unpack-side")
+        try:
+            unpack(envelope)
+            assert run_capabilities("run-cap-unpack-side") == frozenset(
+                {"reads_private", "reaches_external"}
+            )
+        finally:
+            current_run_id.reset(unpack_token)
+
+    def test_round_trip_preserves_run_capabilities_under_a_mac(self) -> None:
+        pack_token = current_run_id.set("run-cap-mac-pack")
+        try:
+            record_capabilities("run-cap-mac-pack", frozenset({"reaches_external"}))
+            envelope = pack("plain value", key="secret")
+        finally:
+            current_run_id.reset(pack_token)
+
+        unpack_token = current_run_id.set("run-cap-mac-unpack")
+        try:
+            unpack(envelope, key="secret")
+            assert run_capabilities("run-cap-mac-unpack") == frozenset(
+                {"reaches_external"}
+            )
+        finally:
+            current_run_id.reset(unpack_token)
+
+    def test_capabilities_replay_skipped_with_no_active_run(self) -> None:
+        pack_token = current_run_id.set("run-cap-no-target")
+        try:
+            record_capabilities("run-cap-no-target", frozenset({"reads_private"}))
+            envelope = pack("plain value")
+        finally:
+            current_run_id.reset(pack_token)
+        assert current_run_id.get() is None
+        unpack(envelope)  # must not raise with no active run to replay into
+
+    def test_v2_envelope_rejected_after_the_v3_bump(self) -> None:
+        envelope = _minimal_envelope()
+        envelope["version"] = 2
+        with pytest.raises(InterboltConfigError):
+            unpack(envelope)
 
 
 class TestLabelFidelityAndInterning:

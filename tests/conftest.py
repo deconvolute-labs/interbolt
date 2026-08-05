@@ -11,7 +11,14 @@ from pytest_mock import MockerFixture
 
 import interbolt.runtime.current as _current_module
 from interbolt import InMemoryReporter, Policy, Runtime, configure
-from interbolt.models.core import Action, Decision, Label, Mode, RunIngressEntry
+from interbolt.models.core import (
+    Action,
+    Capability,
+    Decision,
+    Label,
+    Mode,
+    RunIngressEntry,
+)
 from interbolt.policy import Policy as _Policy
 from interbolt.policy.compile import compile_policy
 from interbolt.policy.schema import (
@@ -83,6 +90,7 @@ def make_decision() -> Callable[..., Decision]:
         untrusted_sources: frozenset[str] = frozenset(),
         run_tainted: bool = False,
         run_ingress: tuple[RunIngressEntry, ...] = (),
+        run_trifecta: frozenset[str] = frozenset(),
         mode: Mode = Mode.ENFORCE,
         agent_id: str = "test-agent",
         run_id: str = "test-run",
@@ -98,6 +106,7 @@ def make_decision() -> Callable[..., Decision]:
             untrusted_sources=untrusted_sources,
             run_tainted=run_tainted,
             run_ingress=run_ingress,
+            run_trifecta=run_trifecta,
             mode=mode,
             decision_id=str(uuid.uuid4()),
             agent_id=agent_id,
@@ -117,6 +126,7 @@ def make_policy() -> Callable[..., _Policy]:
         sink_action: Action = Action.ALLOW,
         sources: tuple[SourceDeclaration, ...] = (),
         sinks: dict[str, tuple[SinkRule, ...]] | None = None,
+        capabilities: dict[str, tuple[Capability, ...]] | None = None,
     ) -> _Policy:
         document = PolicyDocument(
             version="1.0",
@@ -126,6 +136,7 @@ def make_policy() -> Callable[..., _Policy]:
             ),
             sources=sources,
             sinks=sinks or {},
+            capabilities=capabilities or {},
         )
         return _Policy(document=document, compiled_sinks=compile_policy(document))
 

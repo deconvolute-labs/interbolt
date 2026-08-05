@@ -54,6 +54,7 @@ def _event_attributes(event: Event) -> dict[str, _AttributeValue]:
         "interbolt.sources": sorted(event.sources),
         "interbolt.untrusted_sources": sorted(decision.untrusted_sources),
         "interbolt.trifecta": sorted(decision.trifecta),
+        "interbolt.run_trifecta": sorted(decision.run_trifecta),
         "interbolt.run_ingested_sources": sorted(
             entry.source for entry in decision.run_ingress
         ),

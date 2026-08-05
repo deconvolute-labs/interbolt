@@ -127,6 +127,7 @@ class TestAnyMacroLiteralSafety:
             resolved_labels=resolve_labels(labels, sources_table or {}),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -182,6 +183,7 @@ class TestAnyMacroLiteralSafety:
             resolved_labels=(),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -196,6 +198,7 @@ class TestAnyMacroLiteralSafety:
             resolved_labels=(),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -302,6 +305,7 @@ class TestBuildContext:
             resolved_labels=(),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -324,6 +328,7 @@ class TestBuildContext:
             resolved_labels=(),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="billing-agent",
             groups=frozenset(),
         )
@@ -336,6 +341,7 @@ class TestBuildContext:
             resolved_labels=(),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -348,6 +354,7 @@ class TestBuildContext:
             resolved_labels=(),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="billing-agent",
             groups=frozenset({"payer", "internal"}),
         )
@@ -362,6 +369,7 @@ class TestBuildContext:
             resolved_labels=resolve_labels(labels, {"web": TrustLevel.UNTRUSTED}),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -375,6 +383,7 @@ class TestBuildContext:
             resolved_labels=resolve_labels(labels, {"kb": TrustLevel.TRUSTED}),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -387,6 +396,7 @@ class TestBuildContext:
             resolved_labels=(),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -401,6 +411,7 @@ class TestBuildContext:
             resolved_labels=resolve_labels((lbl1, lbl2), {}),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -415,6 +426,7 @@ class TestBuildContext:
             resolved_labels=resolve_labels((merged,), {}),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -435,6 +447,7 @@ class TestBuildContext:
             resolved_labels=resolve_labels((lbl,), {}),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -451,6 +464,7 @@ class TestBuildContext:
             resolved_labels=resolve_labels((lbl,), {}),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -485,6 +499,7 @@ class TestLineageVsSourceAfterMerge:
             resolved_labels=resolve_labels((merged,), sources_table),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -545,6 +560,7 @@ class TestRequireEndorsementSugar:
             resolved_labels=resolve_labels((lbl,), {}),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -584,6 +600,7 @@ class TestRequireEndorsementSugar:
             resolved_labels=resolve_labels((lbl,), {}),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -616,6 +633,7 @@ class TestAgentIdInCel:
             resolved_labels=(),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="billing-agent",
             groups=frozenset(),
         )
@@ -644,6 +662,7 @@ class TestAgentIdInCel:
             resolved_labels=(),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="support-agent",
             groups=frozenset(),
         )
@@ -666,6 +685,7 @@ class TestAgentIdInCel:
             resolved_labels=(),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="x",
             groups=frozenset(),
         )
@@ -698,6 +718,7 @@ class TestRunFieldsInCel:
             resolved_labels=(),
             trifecta=frozenset(),
             run_ingress=run_ingress,
+            run_trifecta=frozenset(),
             agent_id=agent_id,
             groups=frozenset(),
         )
@@ -737,6 +758,7 @@ class TestRunFieldsInCel:
             resolved_labels=(),
             trifecta=frozenset(),
             run_ingress=entries,
+            run_trifecta=frozenset(),
             agent_id="x",
             groups=frozenset(),
         )
@@ -807,6 +829,7 @@ class TestIngestedByInCel:
             resolved_labels=resolve_labels((lbl,), {}),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="support-agent",
             groups=frozenset(),
         )
@@ -829,6 +852,7 @@ class TestIngestedByInCel:
             resolved_labels=resolve_labels((lbl,), {}),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="support-agent",
             groups=frozenset(),
         )
@@ -866,6 +890,7 @@ class TestAgentGroupsInCel:
             resolved_labels=(),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="billing-agent",
             groups=frozenset({"payer", "internal"}),
         )
@@ -882,6 +907,7 @@ class TestAgentGroupsInCel:
             resolved_labels=(),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="unknown-agent",
             groups=frozenset(),
         )
@@ -910,6 +936,7 @@ class TestAgentGroupsInCel:
             resolved_labels=(),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="billing-agent",
             groups=frozenset(),
         )
@@ -929,6 +956,7 @@ class TestAgentGroupsInCel:
             resolved_labels=(),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="researcher",
             groups=frozenset(),
         )
@@ -960,6 +988,7 @@ class TestAgentGroupsInCel:
             resolved_labels=(),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="billing-agent",
             groups=frozenset({"payer", "internal"}),
         )
@@ -994,6 +1023,7 @@ class TestEvaluateSink:
             resolved_labels=(),
             trifecta=frozenset(),
             run_ingress=(),
+            run_trifecta=frozenset(),
             agent_id="agent-1",
             groups=frozenset(),
         )

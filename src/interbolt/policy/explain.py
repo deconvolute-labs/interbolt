@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from interbolt.models.core import Action
+from interbolt.models.core import Action, Capability
 from interbolt.policy.cel import parse_cel_expression
 from interbolt.policy.evaluate import resolve_agent_groups
 from interbolt.policy.identity_ast import (
@@ -112,9 +112,10 @@ class ToolMention:
 
 @dataclass(frozen=True)
 class ToolExplanation:
-    """The result of `explain_for_tool`: every rule's literal mentions."""
+    """The result of `explain_for_tool`: declared capabilities and rule mentions."""
 
     sink_key: str
+    capabilities: frozenset[Capability]
     mentions: tuple[ToolMention, ...]
     default_action: Action
 
@@ -305,6 +306,7 @@ def explain_for_tool(policy: Policy, sink_key: str) -> ToolExplanation | None:
         )
     return ToolExplanation(
         sink_key=sink_key,
+        capabilities=policy.tool_capabilities.get(sink_key, frozenset()),
         mentions=tuple(mentions),
         default_action=policy.document.defaults.sink_action,
     )
