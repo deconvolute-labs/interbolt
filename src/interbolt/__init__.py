@@ -64,6 +64,7 @@ from interbolt.reporting import (
     describe_finding,
 )
 from interbolt.runtime import (
+    RunContext,
     Runtime,
     agent,
     check,
@@ -99,6 +100,7 @@ __all__ = [
     "agent",
     "get_runtime",
     "AgentHandle",
+    "RunContext",
     "track_model_call",
     "pack",
     "unpack",
