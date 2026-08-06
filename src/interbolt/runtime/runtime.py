@@ -33,9 +33,8 @@ from interbolt.utils import current_agent_id, current_run_id
 class RunContext:
     """A snapshot of the run_id and agent_id bound by agent_context.
 
-    Frozen and data-only: no methods, no reference back to the `Runtime`,
-    no way to end or re-bind the run. It stays readable after the block
-    exits and remains a correct record of what that run was, but the run's
+    Frozen and data-only. It stays readable after the block exits and
+    remains a correct record of what that run was, but the run's
     registries are cleared at exit and re-binding from it is not a
     supported operation.
 
