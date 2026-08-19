@@ -502,6 +502,85 @@ class TestCheckFunction:
         assert len(reporter.events) == 1
         assert reporter.events[0].outcome == "evaluation_error"
 
+    def test_non_boolean_when_result_monitor_mode_returns_allow(
+        self, make_policy: Callable[..., Policy]
+    ) -> None:
+        # No mocking: a `when` clause that truthy-coerces a non-boolean CEL
+        # result (`args.mode`, a plain string) must route through the real
+        # `evaluate_sink` -> `_evaluate`'s broad `except Exception` -> `_apply_mode`
+        # path exactly like any other CEL evaluation error, confirming that
+        # path -- closed by the fix that widened `_evaluate`'s exception
+        # handling -- actually catches this rather than letting it escape
+        # `check()` uncaught.
+        policy = make_policy(
+            sinks={
+                "default.t": (
+                    SinkRule(name="r", when="args.mode", action=Action.BLOCK),
+                )
+            }
+        )
+        decision = check(
+            tool="default.t",
+            args={"mode": "prod"},
+            agent_id="a",
+            run_id="r",
+            session_id=None,
+            policy=policy,
+            reporter=NullReporter(),
+            mode=Mode.MONITOR,
+        )
+        assert decision.action is Action.ALLOW
+
+    def test_non_boolean_when_result_enforce_mode_raises(
+        self, make_policy: Callable[..., Policy]
+    ) -> None:
+        from interbolt.errors import PolicyEvaluationError
+
+        policy = make_policy(
+            sinks={
+                "default.t": (
+                    SinkRule(name="r", when="args.mode", action=Action.BLOCK),
+                )
+            }
+        )
+        with pytest.raises(PolicyEvaluationError) as exc_info:
+            check(
+                tool="default.t",
+                args={"mode": "prod"},
+                agent_id="a",
+                run_id="r",
+                session_id=None,
+                policy=policy,
+                reporter=NullReporter(),
+                mode=Mode.ENFORCE,
+            )
+        assert exc_info.value.decision is not None
+        assert exc_info.value.decision.action is Action.BLOCK
+
+    def test_non_boolean_when_result_still_emits_event(
+        self, make_policy: Callable[..., Policy]
+    ) -> None:
+        policy = make_policy(
+            sinks={
+                "default.t": (
+                    SinkRule(name="r", when="args.mode", action=Action.BLOCK),
+                )
+            }
+        )
+        reporter = InMemoryReporter()
+        check(
+            tool="default.t",
+            args={"mode": "prod"},
+            agent_id="a",
+            run_id="r",
+            session_id=None,
+            policy=policy,
+            reporter=reporter,
+            mode=Mode.MONITOR,
+        )
+        assert len(reporter.events) == 1
+        assert reporter.events[0].outcome == "evaluation_error"
+
     def test_dry_run_downgrades_block_to_allow(
         self, make_policy: Callable[..., Policy]
     ) -> None:

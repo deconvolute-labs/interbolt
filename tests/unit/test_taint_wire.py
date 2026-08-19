@@ -551,6 +551,12 @@ class TestIntegrity:
         with pytest.raises(InterboltConfigError):
             unpack(envelope, key="k")
 
+    def test_mac_with_trailing_newline_rejected(self) -> None:
+        envelope = pack("content", key="k")
+        envelope["mac"] = envelope["mac"] + "\n"
+        with pytest.raises(InterboltConfigError, match="mac"):
+            unpack(envelope, key="k")
+
 
 # ---------------------------------------------------------------------------
 # Fail-closed rules (one test per table row)
@@ -661,6 +667,12 @@ class TestValidation:
     def test_endorsement_kind_with_quote_rejected(self) -> None:
         envelope = pack(taint("hi", source="web"))
         envelope["label_pool"][0]["endorsements"] = ['kind"quote']
+        with pytest.raises(InterboltConfigError):
+            unpack(envelope)
+
+    def test_endorsement_kind_with_trailing_newline_rejected(self) -> None:
+        envelope = pack(taint("hi", source="web"))
+        envelope["label_pool"][0]["endorsements"] = ["reviewed\n"]
         with pytest.raises(InterboltConfigError):
             unpack(envelope)
 

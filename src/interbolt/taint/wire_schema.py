@@ -238,7 +238,7 @@ class WireEnvelope(BaseModel):
     @field_validator("mac")
     @classmethod
     def _validate_mac(cls, value: str | None) -> str | None:
-        if value is not None and not _MAC_PATTERN.match(value):
+        if value is not None and not _MAC_PATTERN.fullmatch(value):
             raise ValueError("mac must match 'sha256:<64 lowercase hex chars>'")
         return value
 

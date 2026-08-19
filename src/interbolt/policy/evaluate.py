@@ -11,6 +11,7 @@ from typing import Any
 
 from celpy import celtypes
 from celpy.adapter import json_to_cel
+from celpy.evaluation import CELEvalError
 
 from interbolt.models.core import Action, Capability, Label, RunIngressEntry, TrustLevel
 from interbolt.policy.compile import CompiledSink
@@ -305,13 +306,22 @@ def evaluate_sink(
 
     Raises:
         celpy.evaluation.CELEvalError: If a rule's `when` references a missing
-            argument, a `None` value, or otherwise fails to evaluate.
+            argument, a `None` value, otherwise fails to evaluate, or
+            evaluates to a non-boolean result. CEL is for boolean conditions;
+            a `when` that evaluates to a string, number, list, or map is a
+            policy-authoring error rather than a value to truthy-coerce.
         celpy.evaluation.CELUnsupportedError: If a rule's `when` uses a CEL
             feature the runtime does not fully implement.
     """
     for rule in compiled_sink.rules:
         if rule.program is None:
             return rule.name, rule.action, rule.when
-        if bool(rule.program.evaluate(context)):
+        result = rule.program.evaluate(context)
+        if not isinstance(result, celtypes.BoolType):
+            raise CELEvalError(
+                f"rule {rule.name!r} when clause {rule.when!r} evaluated to "
+                f"{type(result).__name__}, not a boolean"
+            )
+        if result:
             return rule.name, rule.action, rule.when
     return None, default_action, None

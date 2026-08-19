@@ -82,6 +82,11 @@ def test_validate_agent_id_rejects_empty() -> None:
         validate_agent_id("")
 
 
+def test_validate_agent_id_rejects_trailing_newline() -> None:
+    with pytest.raises(InterboltConfigError, match="agent_id"):
+        validate_agent_id("admin\n")
+
+
 def test_validate_group_name_accepts_valid_chars() -> None:
     validate_group_name("payer-group_1.v2")
 
@@ -99,6 +104,11 @@ def test_validate_group_name_rejects_bad_char() -> None:
 def test_validate_group_name_rejects_empty() -> None:
     with pytest.raises(InterboltConfigError, match="group name"):
         validate_group_name("")
+
+
+def test_validate_group_name_rejects_trailing_newline() -> None:
+    with pytest.raises(InterboltConfigError, match="group name"):
+        validate_group_name("team\n")
 
 
 def test_label_is_frozen() -> None:
