@@ -144,7 +144,7 @@ def build_context(
     trifecta: frozenset[str],
     run_ingress: tuple[RunIngressEntry, ...],
     run_trifecta: frozenset[str],
-    run_capability_evicted: bool = False,
+    run_capability_evicted: bool,
     agent_id: str,
     groups: frozenset[str],
 ) -> dict[str, Any]:
@@ -172,8 +172,7 @@ def build_context(
             run, including by this call.
         run_capability_evicted: Whether the run-capability registry evicted
             this run past `RUN_CAPABILITY_MAX_TRACKED_RUNS`, so `run_trifecta`
-            may under-count. Defaults to `False` for internal callers (tests,
-            mainly) that build a context without going through `check()`.
+            may under-count.
         agent_id: The acting agent's durable identity, the same value
             resolved once in `Runtime.check` and stamped on `Decision`, so
             the CEL context and the audit record never disagree.
