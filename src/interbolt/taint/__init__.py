@@ -10,6 +10,9 @@ from interbolt.taint.carriers import _merge_labels as _merge_labels
 from interbolt.taint.endorse import endorse as endorse
 from interbolt.taint.ingress import taint as taint
 from interbolt.taint.ingress import track_model_call as track_model_call
+from interbolt.taint.runstate import (
+    capability_registry_evicted as capability_registry_evicted,
+)
 from interbolt.taint.runstate import clear_run_capabilities as clear_run_capabilities
 from interbolt.taint.runstate import clear_run_ingress as clear_run_ingress
 from interbolt.taint.runstate import (

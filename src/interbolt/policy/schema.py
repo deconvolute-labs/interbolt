@@ -230,7 +230,7 @@ def _has_relation(tree: lark.Tree[lark.Token], receiver: str, field: str) -> boo
 class SourceDeclaration(BaseModel):
     """A declared ingress source and the trust level it resolves to."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     name: str
     trust: TrustLevel
@@ -275,7 +275,7 @@ class SinkRule(BaseModel):
     one of the two.
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     name: str
     when: str | None = None
@@ -392,7 +392,7 @@ class PolicyDocument(BaseModel):
             capability legs.
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     version: str
     defaults: Defaults

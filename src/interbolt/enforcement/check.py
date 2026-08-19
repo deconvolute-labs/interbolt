@@ -7,8 +7,6 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-from celpy.evaluation import CELEvalError, CELUnsupportedError
-
 from interbolt.constants import EVENT_SCHEMA_VERSION, RECURSION_DEPTH
 from interbolt.enforcement.audit import AuditRegistry
 from interbolt.enforcement.signals import (
@@ -39,7 +37,12 @@ from interbolt.policy.evaluate import (
     resolve_labels,
     resolve_tool_capabilities,
 )
-from interbolt.taint import collect_labels, record_capabilities, unwrap
+from interbolt.taint import (
+    capability_registry_evicted,
+    collect_labels,
+    record_capabilities,
+    unwrap,
+)
 from interbolt.utils import current_trace_context, get_logger
 
 _logger = get_logger("enforcement")
@@ -96,6 +99,7 @@ def check(
         resolved_run_id, frozenset(capability.value for capability in call_capabilities)
     )
     run_trifecta = _compute_run_trifecta(run_ingress, accumulated_capabilities)
+    run_capability_evicted = capability_registry_evicted(resolved_run_id)
 
     action, matched_rule, matched_condition, evaluation_error = _evaluate(
         tool=tool,
@@ -104,6 +108,7 @@ def check(
         trifecta=trifecta,
         run_ingress=run_ingress,
         run_trifecta=run_trifecta,
+        run_capability_evicted=run_capability_evicted,
         agent_id=agent_id,
         policy=policy,
     )
@@ -166,15 +171,16 @@ def _evaluate(
     trifecta: frozenset[str],
     run_ingress: tuple[RunIngressEntry, ...],
     run_trifecta: frozenset[str],
+    run_capability_evicted: bool,
     agent_id: str,
     policy: Policy,
-) -> tuple[Action, str | None, str | None, CELEvalError | CELUnsupportedError | None]:
+) -> tuple[Action, str | None, str | None, Exception | None]:
     """Sink lookup, CEL context build, and rule evaluation. Pure."""
     compiled_sink = policy.compiled_sinks.get(tool)
     matched_rule: str | None = None
     matched_condition: str | None = None
     action: Action = policy.document.defaults.sink_action
-    evaluation_error: CELEvalError | CELUnsupportedError | None = None
+    evaluation_error: Exception | None = None
     try:
         if compiled_sink is not None:
             groups = resolve_agent_groups(agent_id, policy.id_to_groups)
@@ -185,6 +191,7 @@ def _evaluate(
                 trifecta=trifecta,
                 run_ingress=run_ingress,
                 run_trifecta=run_trifecta,
+                run_capability_evicted=run_capability_evicted,
                 agent_id=agent_id,
                 groups=groups,
             )
@@ -193,14 +200,17 @@ def _evaluate(
                 context,
                 default_action=policy.document.defaults.sink_action,
             )
-    except (CELEvalError, CELUnsupportedError) as exc:
+    except Exception as exc:  # noqa: BLE001 -- any exception in the guard is an
+        # evaluation error, per spec §9.3. CELEvalError/CELUnsupportedError (bad
+        # CEL, missing context field) are the expected cases; anything else is
+        # handled the same way rather than escaping uncaught.
         evaluation_error = exc
     return action, matched_rule, matched_condition, evaluation_error
 
 
 def _apply_mode(
     raw_action: Action,
-    evaluation_error: CELEvalError | CELUnsupportedError | None,
+    evaluation_error: Exception | None,
     mode: Mode,
 ) -> tuple[Action, Outcome]:
     """Map the raw action through the error-to-mode rule and the dry-run downgrade.

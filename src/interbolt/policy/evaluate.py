@@ -144,6 +144,7 @@ def build_context(
     trifecta: frozenset[str],
     run_ingress: tuple[RunIngressEntry, ...],
     run_trifecta: frozenset[str],
+    run_capability_evicted: bool = False,
     agent_id: str,
     groups: frozenset[str],
 ) -> dict[str, Any]:
@@ -169,6 +170,10 @@ def build_context(
             `taint`/`t.lineage` for a claim about this call's own arguments.
         run_trifecta: The trifecta legs satisfied anywhere in the active
             run, including by this call.
+        run_capability_evicted: Whether the run-capability registry evicted
+            this run past `RUN_CAPABILITY_MAX_TRACKED_RUNS`, so `run_trifecta`
+            may under-count. Defaults to `False` for internal callers (tests,
+            mainly) that build a context without going through `check()`.
         agent_id: The acting agent's durable identity, the same value
             resolved once in `Runtime.check` and stamped on `Decision`, so
             the CEL context and the audit record never disagree.
@@ -264,6 +269,9 @@ def build_context(
                 ),
                 celtypes.StringType("ingested_by"): celtypes.ListType(
                     [celtypes.StringType(agent) for agent in run_ingested_by]
+                ),
+                celtypes.StringType("capability_evicted"): celtypes.BoolType(
+                    run_capability_evicted
                 ),
                 celtypes.StringType("trifecta"): celtypes.ListType(
                     [celtypes.StringType(leg) for leg in sorted(run_trifecta)]

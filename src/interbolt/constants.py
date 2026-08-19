@@ -48,7 +48,14 @@ TRIFECTA_LEGS: frozenset[str] = frozenset(
 )
 
 RUN_COMPUTABLE_FIELDS: frozenset[str] = frozenset(
-    {"tainted", "sources", "untrusted_sources", "ingested_by", "trifecta"}
+    {
+        "tainted",
+        "sources",
+        "untrusted_sources",
+        "ingested_by",
+        "trifecta",
+        "capability_evicted",
+    }
 )
 AGENT_COMPUTABLE_FIELDS: frozenset[str] = frozenset({"id", "groups"})
 
