@@ -159,10 +159,7 @@ def unwrap(value: Any) -> Any:  # noqa: ANN401 -- accepts and returns any shape
 
     `Tainted`/`TaintedBytes` pass through unchanged, since they're already
     plain `str`/`bytes`. `LabeledValue` unwraps to its `.value`. Containers
-    are rebuilt with unwrapped elements, to `RECURSION_DEPTH` (the same bound
-    every other traversal shares; a self-referential or pathologically deep
-    argument passes through unrebuilt past the cutoff rather than blowing the
-    stack).
+    are rebuilt with unwrapped elements, to `RECURSION_DEPTH`.
 
     Used by `enforcement` to hand plain values to code that doesn't know
     about taint carriers, such as the CEL context builder in `policy.evaluate`.

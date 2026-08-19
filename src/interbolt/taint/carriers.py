@@ -88,7 +88,7 @@ def _drop_endorsements(label: Label) -> Label:
 
     Every propagating string/bytes operation is content-changing, so an
     endorsement about the parent value's content no longer describes the
-    derived value (spec §6.7). value_id and lineage are unchanged; this is
+    derived value. value_id and lineage are unchanged; this is
     not a merge.
     """
     if not label.endorsements:
