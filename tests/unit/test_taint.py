@@ -1343,11 +1343,23 @@ class TestUnwrap:
         assert unwrap(42) == 42
         assert unwrap(None) is None
 
-    def test_unwrap_reaches_labeled_value_far_below_recursion_depth(self) -> None:
+    def test_labeled_value_below_recursion_depth_passes_through_wrapped(self) -> None:
         lv = LabeledValue(value=42, label=_label())
-        nested = _nest(RECURSION_DEPTH + 5, lv)
+        total_depth = RECURSION_DEPTH + 5
+        nested = _nest(total_depth, lv)
         result = unwrap(nested)
-        assert _dig(result, RECURSION_DEPTH + 5) == 42
+
+        def _step(value: Any, steps: int) -> Any:  # noqa: ANN401
+            """Walk `steps` levels down from the root of the `total_depth`-deep tree."""
+            for i in reversed(range(total_depth - steps, total_depth)):
+                value = value[f"k{i}"]
+            return value
+
+        # The sub-container at the depth cutoff is returned unrebuilt (same object).
+        assert _step(result, RECURSION_DEPTH) is _step(nested, RECURSION_DEPTH)
+        # The LabeledValue buried past the cutoff is never reached, so it passes
+        # through unstripped rather than being unwrapped to its plain `.value`.
+        assert _step(result, total_depth) is lv
 
 
 class TestNamedtupleContainerHandling:

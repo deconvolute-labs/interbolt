@@ -83,12 +83,31 @@ def _labels_of(*values: Any) -> list[Label]:  # noqa: ANN401 - operands are arbi
     return [v.label for v in values if isinstance(v, (Tainted, TaintedBytes))]
 
 
+def _drop_endorsements(label: Label) -> Label:
+    """Return `label` with endorsements cleared, if it carries any.
+
+    Every propagating string/bytes operation is content-changing, so an
+    endorsement about the parent value's content no longer describes the
+    derived value. value_id and lineage are unchanged; this is
+    not a merge.
+    """
+    if not label.endorsements:
+        return label
+    return Label.model_construct(
+        source=label.source,
+        value_id=label.value_id,
+        lineage=label.lineage,
+        ingested_by=label.ingested_by,
+        endorsements=(),
+    )
+
+
 def _wrap(value: str, *labels: Label) -> Tainted:
-    return Tainted(value, label=_merge_labels(*labels))
+    return Tainted(value, label=_drop_endorsements(_merge_labels(*labels)))
 
 
 def _wrap_bytes(value: bytes, *labels: Label) -> TaintedBytes:
-    return TaintedBytes(value, label=_merge_labels(*labels))
+    return TaintedBytes(value, label=_drop_endorsements(_merge_labels(*labels)))
 
 
 class Tainted(str):

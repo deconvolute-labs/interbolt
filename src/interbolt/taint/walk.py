@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping
 from typing import Any
 
-from interbolt.constants import CONTAINER_TYPES
+from interbolt.constants import CONTAINER_TYPES, RECURSION_DEPTH
 from interbolt.models.core import Label
 from interbolt.taint.carriers import LabeledValue, Tainted, TaintedBytes
 from interbolt.utils import get_logger
@@ -159,7 +159,7 @@ def unwrap(value: Any) -> Any:  # noqa: ANN401 -- accepts and returns any shape
 
     `Tainted`/`TaintedBytes` pass through unchanged, since they're already
     plain `str`/`bytes`. `LabeledValue` unwraps to its `.value`. Containers
-    are rebuilt with unwrapped elements, to unbounded depth.
+    are rebuilt with unwrapped elements, to `RECURSION_DEPTH`.
 
     Used by `enforcement` to hand plain values to code that doesn't know
     about taint carriers, such as the CEL context builder in `policy.evaluate`.
@@ -172,4 +172,4 @@ def unwrap(value: Any) -> Any:  # noqa: ANN401 -- accepts and returns any shape
     """
     if isinstance(value, LabeledValue):
         return unwrap(value.value)
-    return map_leaves(value, depth=None, fn=_strip_labeled_value)
+    return map_leaves(value, depth=RECURSION_DEPTH, fn=_strip_labeled_value)

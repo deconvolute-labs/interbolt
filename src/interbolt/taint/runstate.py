@@ -66,6 +66,7 @@ def clear_run_ingress(run_id: str) -> None:
 
 
 _run_capabilities: OrderedDict[str, set[str]] = OrderedDict()
+_evicted_run_capabilities: OrderedDict[str, None] = OrderedDict()
 _capability_lock = threading.Lock()
 
 
@@ -81,14 +82,26 @@ def record_capabilities(run_id: str, capabilities: frozenset[str]) -> frozenset[
     Bounded to `constants.RUN_CAPABILITY_MAX_TRACKED_RUNS` runs, evicting the
     least-recently-touched entry past that cap. An evicted run's accumulated
     legs are gone; a later call under that run id starts a fresh empty set
-    rather than raising.
+    rather than raising. Eviction is logged at WARNING and recorded so
+    `capability_registry_evicted` can report it, since a silently degraded
+    `run.trifecta` fails open.
     """
     with _capability_lock:
         entry = _run_capabilities.setdefault(run_id, set())
         entry.update(capabilities)
         _run_capabilities.move_to_end(run_id)
         while len(_run_capabilities) > RUN_CAPABILITY_MAX_TRACKED_RUNS:
-            _run_capabilities.popitem(last=False)
+            evicted_run_id, _ = _run_capabilities.popitem(last=False)
+            _evicted_run_capabilities[evicted_run_id] = None
+            _evicted_run_capabilities.move_to_end(evicted_run_id)
+            while len(_evicted_run_capabilities) > RUN_CAPABILITY_MAX_TRACKED_RUNS:
+                _evicted_run_capabilities.popitem(last=False)
+            _logger.warning(
+                "record_capabilities(): evicted run %s past %d tracked runs; "
+                "its accumulated capability legs were dropped",
+                evicted_run_id,
+                RUN_CAPABILITY_MAX_TRACKED_RUNS,
+            )
         return frozenset(entry)
 
 
@@ -98,10 +111,17 @@ def run_capabilities(run_id: str) -> frozenset[str]:
         return frozenset(_run_capabilities.get(run_id, set()))
 
 
+def capability_registry_evicted(run_id: str) -> bool:
+    """Whether `run_id`'s accumulated capability legs were dropped by eviction."""
+    with _capability_lock:
+        return run_id in _evicted_run_capabilities
+
+
 def clear_run_capabilities(run_id: str) -> None:
     """Drop the recorded capability legs for a finished run."""
     with _capability_lock:
         _run_capabilities.pop(run_id, None)
+        _evicted_run_capabilities.pop(run_id, None)
 
 
 _taint_observer: Callable[[str, str, str], None] | None = None

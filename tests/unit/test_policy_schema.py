@@ -1567,6 +1567,12 @@ class TestSourceDeclaration:
         assert sd.name == "my_source"
         assert sd.trust == TrustLevel.TRUSTED
 
+    def test_unknown_key_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            SourceDeclaration.model_validate(
+                {"name": "my_source", "trust": TrustLevel.TRUSTED, "priority": 1}
+            )
+
 
 class TestAgentDeclaration:
     def test_default_groups_is_empty(self) -> None:
@@ -1614,6 +1620,26 @@ class TestSinkRule:
                 when="true",
                 require_endorsement="recipient_allowlisted",
                 action=Action.BLOCK,
+            )
+
+    def test_unknown_key_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            SinkRule.model_validate(
+                {"name": "r", "wehn": 'args.x == "y"', "action": Action.BLOCK}
+            )
+
+
+class TestPolicyDocument:
+    def test_unknown_key_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            PolicyDocument.model_validate(
+                {
+                    "version": "2.0",
+                    "defaults": {"sink_action": "allow"},
+                    "sources": [],
+                    "sinks": {},
+                    "notes": "not a real field",
+                }
             )
 
 

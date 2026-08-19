@@ -100,6 +100,7 @@
       "type": "object"
     },
     "SinkRule": {
+      "additionalProperties": false,
       "description": "One ordered rule within a sink's rule list. First match wins.\n\n`require_endorsement` is sugar for the common \"gate untrusted data\nlacking this endorsement kind\" shape: setting it compiles to the\nequivalent `when:` CEL text, so most rules needing this never\nhand-write CEL. Mutually exclusive with `when`; a rule may set at most\none of the two.",
       "properties": {
         "name": {
@@ -142,6 +143,7 @@
       "type": "object"
     },
     "SourceDeclaration": {
+      "additionalProperties": false,
       "description": "A declared ingress source and the trust level it resolves to.",
       "properties": {
         "name": {
@@ -169,6 +171,7 @@
       "type": "string"
     }
   },
+  "additionalProperties": false,
   "description": "The validated shape of a policy YAML file.\n\nAttributes:\n    sinks: One `SinkDeclaration` per guarded tool, keyed by the dotted\n        `namespace.tool` name. A tool absent from this mapping falls\n        through to `defaults.sink_action` and contributes no trifecta\n        capability legs.",
   "properties": {
     "version": {

@@ -1,3 +1,34 @@
+## [Unreleased]
+
+### 🔒 Security
+
+- **`SinkRule`, `PolicyDocument`, and `SourceDeclaration` now reject unknown
+  keys at load**, matching the existing treatment on `Defaults` and an
+  `agents:` entry. A misspelled `when:` previously produced an unconditional
+  match with no load-time warning, since a typo'd key was silently dropped
+  rather than rejected.
+
+- **`check()` now treats any exception raised during rule evaluation as an
+  evaluation error, not only `CELEvalError`/`CELUnsupportedError`.** An
+  unexpected exception previously escaped uncaught, raising past both
+  `enforce` and `monitor` mode instead of the documented block-or-log
+  behavior, with no `Event` emitted. `unwrap` is now bounded by
+  `RECURSION_DEPTH`, matching every other container traversal, closing an
+  unbounded-recursion path reachable from a self-referential or deeply
+  nested argument.
+
+- **A propagating string/bytes operation on an endorsed value now clears its
+  `endorsements` instead of carrying them through unchanged.** Only
+  `copy`/`deepcopy` and the `pack`/`unpack` round trip keep them, since only
+  those preserve the value's content; every operation that changes the
+  value now requires re-`endorse()`, the same as at ingress.
+
+- **The run-capability registry now logs at `WARNING` when it evicts a run
+  past `RUN_CAPABILITY_MAX_TRACKED_RUNS`, and exposes
+  `run.capability_evicted` in the CEL context.** A policy can now fail
+  closed on a run whose `run.trifecta` may be under-counted, instead of the
+  degraded state passing silently.
+
 ## [0.3.0] - 2026-08-05
 
 ### ⚠️ Breaking Changes
