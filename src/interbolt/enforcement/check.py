@@ -200,10 +200,8 @@ def _evaluate(
                 context,
                 default_action=policy.document.defaults.sink_action,
             )
-    except Exception as exc:  # noqa: BLE001 -- any exception in the guard is an
-        # evaluation error, per spec §9.3. CELEvalError/CELUnsupportedError (bad
-        # CEL, missing context field) are the expected cases; anything else is
-        # handled the same way rather than escaping uncaught.
+    except Exception as exc:  # noqa: BLE001 -- an exception here must become
+        # a decision, not crash the caller.
         evaluation_error = exc
     return action, matched_rule, matched_condition, evaluation_error
 

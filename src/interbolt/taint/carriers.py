@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 import uuid
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from interbolt.constants import DEFAULT_AGENT_ID
@@ -34,30 +34,17 @@ def _identity(value: Any) -> Any:  # noqa: ANN401 - pickle reconstruction target
     return value
 
 
-def _intersect_endorsements(labels: Sequence[Label]) -> tuple[str, ...]:
-    """Intersect every label's `endorsements`, order from the first label.
-
-    A merge is conservative: an endorsement kind survives only if every
-    contributing label carried it.
-    """
-    common = set(labels[0].endorsements)
-    for label in labels[1:]:
-        common &= set(label.endorsements)
-    return tuple(kind for kind in labels[0].endorsements if kind in common)
-
-
 def _merge_labels(*labels: Label) -> Label:
     """Union the lineage of one or more labels and mint a fresh value_id.
 
     Used both to retag a single-label transformation result and to merge
     two or more differently-sourced operands (lineage and ingested_by
-    union, endorsements intersection). This is an operand-level combine,
-    not a derivation hop, so it does not add the current agent to
-    `ingested_by`, unlike `taint(..., derived_from=...)`. A single label is
-    returned unchanged: it is frozen and safe to share, and there is
-    nothing to merge, so no new `value_id` is minted for a single-parent
-    derivation: the fast path for the common case of transforming one
-    already-tainted value.
+    union). This is an operand-level combine, not a derivation hop, so it
+    does not add the current agent to `ingested_by`, unlike
+    `taint(..., derived_from=...)`. A single label is returned unchanged: it
+    is frozen and safe to share, and there is nothing to merge, so no new
+    `value_id` is minted for a single-parent derivation: the fast path for
+    the common case of transforming one already-tainted value.
     """
     if not labels:
         raise InterboltUsageError("_merge_labels requires at least one label")
@@ -75,7 +62,7 @@ def _merge_labels(*labels: Label) -> Label:
         value_id=_new_value_id(),
         lineage=tuple(seen_lineage),
         ingested_by=tuple(seen_agents),
-        endorsements=_intersect_endorsements(labels),
+        endorsements=(),
     )
 
 
@@ -86,10 +73,7 @@ def _labels_of(*values: Any) -> list[Label]:  # noqa: ANN401 - operands are arbi
 def _drop_endorsements(label: Label) -> Label:
     """Return `label` with endorsements cleared, if it carries any.
 
-    Every propagating string/bytes operation is content-changing, so an
-    endorsement about the parent value's content no longer describes the
-    derived value. value_id and lineage are unchanged; this is
-    not a merge.
+    value_id, lineage, and ingested_by are unchanged.
     """
     if not label.endorsements:
         return label

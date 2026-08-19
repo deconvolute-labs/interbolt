@@ -131,6 +131,7 @@ class TestAnyMacroLiteralSafety:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -187,6 +188,7 @@ class TestAnyMacroLiteralSafety:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -202,6 +204,7 @@ class TestAnyMacroLiteralSafety:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -323,6 +326,7 @@ class TestBuildContext:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -346,6 +350,7 @@ class TestBuildContext:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="billing-agent",
             groups=frozenset(),
         )
@@ -359,6 +364,7 @@ class TestBuildContext:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -372,6 +378,7 @@ class TestBuildContext:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="billing-agent",
             groups=frozenset({"payer", "internal"}),
         )
@@ -387,6 +394,7 @@ class TestBuildContext:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -401,6 +409,7 @@ class TestBuildContext:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -414,6 +423,7 @@ class TestBuildContext:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -429,6 +439,7 @@ class TestBuildContext:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -444,6 +455,7 @@ class TestBuildContext:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -465,6 +477,7 @@ class TestBuildContext:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -482,6 +495,7 @@ class TestBuildContext:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -517,6 +531,7 @@ class TestLineageVsSourceAfterMerge:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -582,6 +597,7 @@ class TestRequireEndorsementSugar:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -624,6 +640,7 @@ class TestRequireEndorsementSugar:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="agent-1",
             groups=frozenset(),
         )
@@ -657,6 +674,7 @@ class TestAgentIdInCel:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="billing-agent",
             groups=frozenset(),
         )
@@ -686,6 +704,7 @@ class TestAgentIdInCel:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="support-agent",
             groups=frozenset(),
         )
@@ -709,6 +728,7 @@ class TestAgentIdInCel:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="x",
             groups=frozenset(),
         )
@@ -742,6 +762,7 @@ class TestRunFieldsInCel:
             trifecta=frozenset(),
             run_ingress=run_ingress,
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id=agent_id,
             groups=frozenset(),
         )
@@ -782,6 +803,7 @@ class TestRunFieldsInCel:
             trifecta=frozenset(),
             run_ingress=entries,
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="x",
             groups=frozenset(),
         )
@@ -853,6 +875,7 @@ class TestIngestedByInCel:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="support-agent",
             groups=frozenset(),
         )
@@ -876,6 +899,7 @@ class TestIngestedByInCel:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="support-agent",
             groups=frozenset(),
         )
@@ -914,6 +938,7 @@ class TestAgentGroupsInCel:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="billing-agent",
             groups=frozenset({"payer", "internal"}),
         )
@@ -931,6 +956,7 @@ class TestAgentGroupsInCel:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="unknown-agent",
             groups=frozenset(),
         )
@@ -960,6 +986,7 @@ class TestAgentGroupsInCel:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="billing-agent",
             groups=frozenset(),
         )
@@ -980,6 +1007,7 @@ class TestAgentGroupsInCel:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="researcher",
             groups=frozenset(),
         )
@@ -1012,6 +1040,7 @@ class TestAgentGroupsInCel:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="billing-agent",
             groups=frozenset({"payer", "internal"}),
         )
@@ -1047,6 +1076,7 @@ class TestEvaluateSink:
             trifecta=frozenset(),
             run_ingress=(),
             run_trifecta=frozenset(),
+            run_capability_evicted=False,
             agent_id="agent-1",
             groups=frozenset(),
         )

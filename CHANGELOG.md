@@ -1,5 +1,16 @@
 ## [Unreleased]
 
+### ⚠️ Breaking Changes
+
+- **A propagating string/bytes operation on an endorsed value now clears its
+  `endorsements` instead of carrying them through unchanged.** Only
+  `copy`/`deepcopy` and the `pack`/`unpack` round trip keep them, since only
+  those preserve the value's content; every operation that changes the
+  value now requires re-`endorse()`, the same as at ingress. A policy
+  relying on an endorsement surviving a transformation (`.upper()`,
+  `.replace()`, combining two endorsed values, and so on) needs the
+  transformed value re-endorsed after the change.
+
 ### 🔒 Security
 
 - **`SinkRule`, `PolicyDocument`, and `SourceDeclaration` now reject unknown
@@ -16,12 +27,6 @@
   `RECURSION_DEPTH`, matching every other container traversal, closing an
   unbounded-recursion path reachable from a self-referential or deeply
   nested argument.
-
-- **A propagating string/bytes operation on an endorsed value now clears its
-  `endorsements` instead of carrying them through unchanged.** Only
-  `copy`/`deepcopy` and the `pack`/`unpack` round trip keep them, since only
-  those preserve the value's content; every operation that changes the
-  value now requires re-`endorse()`, the same as at ingress.
 
 - **The run-capability registry now logs at `WARNING` when it evicts a run
   past `RUN_CAPABILITY_MAX_TRACKED_RUNS`, and exposes

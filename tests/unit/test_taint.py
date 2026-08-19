@@ -9,7 +9,12 @@ from typing import Any
 import pytest
 from pytest_mock import MockerFixture
 
-from interbolt.constants import DEFAULT_AGENT_ID, RECURSION_DEPTH
+from interbolt.constants import (
+    DEFAULT_AGENT_ID,
+    RECURSION_DEPTH,
+    RUN_CAPABILITY_EVICTION_MARKER_MAX_TRACKED,
+    RUN_CAPABILITY_MAX_TRACKED_RUNS,
+)
 from interbolt.errors import InterboltUsageError
 from interbolt.models.core import Endorsement, Label
 from interbolt.taint import (
@@ -18,6 +23,7 @@ from interbolt.taint import (
     TaintedBytes,
     _fresh_label,
     _merge_labels,
+    capability_registry_evicted,
     clear_run_capabilities,
     clear_run_ingress,
     collect_labels,
@@ -132,16 +138,10 @@ class TestFreshLabelAndMerge:
         with pytest.raises(InterboltUsageError):
             _merge_labels()
 
-    def test_merge_endorsements_intersects(self) -> None:
+    def test_merge_of_two_labels_always_clears_endorsements(self) -> None:
         a = Label(source="a", value_id="1", lineage=("a",), endorsements=("k1", "k2"))
-        b = Label(source="b", value_id="2", lineage=("b",), endorsements=("k2",))
+        b = Label(source="b", value_id="2", lineage=("b",), endorsements=("k1", "k2"))
         merged = _merge_labels(a, b)
-        assert merged.endorsements == ("k2",)
-
-    def test_merge_with_unendorsed_label_empties_endorsements(self) -> None:
-        endorsed = Label(source="a", value_id="1", lineage=("a",), endorsements=("k1",))
-        fresh = Label(source="b", value_id="2", lineage=("b",), endorsements=())
-        merged = _merge_labels(endorsed, fresh)
         assert merged.endorsements == ()
 
 
@@ -698,6 +698,50 @@ class TestSingleLabelFastPath:
         assert merged.label.value_id != b.label.value_id
 
 
+class TestEndorsementsDropOnTransform:
+    def test_upper_clears_endorsements(self) -> None:
+        original = endorse(taint("hello", source="s"), kind="checked")
+        result = original.upper()
+        assert result.label.endorsements == ()
+        assert result.label.lineage == original.label.lineage
+        assert result.label.value_id == original.label.value_id
+
+    def test_replace_clears_endorsements(self) -> None:
+        original = endorse(
+            taint("safe.example.com", source="s"), kind="url_allowlisted"
+        )
+        result = original.replace("safe.example.com", "evil.example.com")
+        assert result.label.endorsements == ()
+        assert result.label.lineage == original.label.lineage
+
+    def test_slice_clears_endorsements(self) -> None:
+        original = endorse(taint("hello world", source="s"), kind="checked")
+        result = original[0:5]
+        assert result.label.endorsements == ()
+        assert result.label.value_id == original.label.value_id
+
+    def test_two_label_merge_clears_endorsements(self) -> None:
+        a = endorse(taint("hello ", source="s1"), kind="checked")
+        b = endorse(taint("world", source="s2"), kind="checked")
+        merged = a + b
+        assert merged.label.endorsements == ()
+
+    def test_endorsed_bytes_transform_clears_endorsements(self) -> None:
+        original = endorse(taint(b"hello", source="s"), kind="checked")
+        result = original.upper()
+        assert result.label.endorsements == ()
+
+    def test_copy_preserves_endorsements(self) -> None:
+        original = endorse(taint("hello", source="s"), kind="checked")
+        copied = copy.copy(original)
+        assert copied.label.endorsements == ("checked",)
+
+    def test_deepcopy_preserves_endorsements(self) -> None:
+        original = endorse(taint("hello", source="s"), kind="checked")
+        copied = copy.deepcopy(original)
+        assert copied.label.endorsements == ("checked",)
+
+
 class TestEndorse:
     def test_preserves_lineage(self) -> None:
         original = taint("attacker@external.com", source="web_search")
@@ -1152,6 +1196,47 @@ class TestRunCapabilitiesRegistry:
         assert run_capabilities("run-cap-d") != frozenset()
         clear_run_capabilities("run-cap-d")
         assert run_capabilities("run-cap-d") == frozenset()
+
+    def test_eviction_marks_the_evicted_run(self) -> None:
+        for i in range(RUN_CAPABILITY_MAX_TRACKED_RUNS + 1):
+            record_capabilities(f"run-evict-a-{i}", frozenset({"reads_private"}))
+        assert capability_registry_evicted("run-evict-a-0") is True
+        assert (
+            capability_registry_evicted(
+                f"run-evict-a-{RUN_CAPABILITY_MAX_TRACKED_RUNS}"
+            )
+            is False
+        )
+
+    def test_eviction_marker_survives_further_churn(self) -> None:
+        for i in range(RUN_CAPABILITY_MAX_TRACKED_RUNS + 1):
+            record_capabilities(f"run-evict-b-{i}", frozenset({"reads_private"}))
+        assert capability_registry_evicted("run-evict-b-0") is True
+
+        # More evictions than the registry's own cap once shared, still well
+        # under RUN_CAPABILITY_EVICTION_MARKER_MAX_TRACKED.
+        churn = RUN_CAPABILITY_MAX_TRACKED_RUNS + 1
+        assert churn > RUN_CAPABILITY_MAX_TRACKED_RUNS
+        assert churn < RUN_CAPABILITY_EVICTION_MARKER_MAX_TRACKED
+        for i in range(churn):
+            record_capabilities(f"run-evict-b-churn-{i}", frozenset({"reads_private"}))
+
+        assert capability_registry_evicted("run-evict-b-0") is True
+
+    def test_clear_run_capabilities_clears_the_eviction_marker(self) -> None:
+        for i in range(RUN_CAPABILITY_MAX_TRACKED_RUNS + 1):
+            record_capabilities(f"run-evict-c-{i}", frozenset({"reads_private"}))
+        assert capability_registry_evicted("run-evict-c-0") is True
+        clear_run_capabilities("run-evict-c-0")
+        assert capability_registry_evicted("run-evict-c-0") is False
+
+    def test_eviction_logs_a_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level("WARNING", logger="interbolt.taint.runstate"):
+            for i in range(RUN_CAPABILITY_MAX_TRACKED_RUNS + 1):
+                record_capabilities(f"run-evict-d-{i}", frozenset({"reads_private"}))
+        assert any(
+            "evicted run run-evict-d-0" in record.message for record in caplog.records
+        )
 
 
 # ---------------------------------------------------------------------------

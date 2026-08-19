@@ -11,7 +11,10 @@ import threading
 from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping
 
-from interbolt.constants import RUN_CAPABILITY_MAX_TRACKED_RUNS
+from interbolt.constants import (
+    RUN_CAPABILITY_EVICTION_MARKER_MAX_TRACKED,
+    RUN_CAPABILITY_MAX_TRACKED_RUNS,
+)
 from interbolt.models.core import Endorsement
 from interbolt.utils import current_run_id, get_logger
 
@@ -83,8 +86,7 @@ def record_capabilities(run_id: str, capabilities: frozenset[str]) -> frozenset[
     least-recently-touched entry past that cap. An evicted run's accumulated
     legs are gone; a later call under that run id starts a fresh empty set
     rather than raising. Eviction is logged at WARNING and recorded so
-    `capability_registry_evicted` can report it, since a silently degraded
-    `run.trifecta` fails open.
+    `capability_registry_evicted` can report it.
     """
     with _capability_lock:
         entry = _run_capabilities.setdefault(run_id, set())
@@ -94,7 +96,10 @@ def record_capabilities(run_id: str, capabilities: frozenset[str]) -> frozenset[
             evicted_run_id, _ = _run_capabilities.popitem(last=False)
             _evicted_run_capabilities[evicted_run_id] = None
             _evicted_run_capabilities.move_to_end(evicted_run_id)
-            while len(_evicted_run_capabilities) > RUN_CAPABILITY_MAX_TRACKED_RUNS:
+            while (
+                len(_evicted_run_capabilities)
+                > RUN_CAPABILITY_EVICTION_MARKER_MAX_TRACKED
+            ):
                 _evicted_run_capabilities.popitem(last=False)
             _logger.warning(
                 "record_capabilities(): evicted run %s past %d tracked runs; "

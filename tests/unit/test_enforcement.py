@@ -430,6 +430,78 @@ class TestCheckFunction:
         assert len(reporter.events) == 1
         assert reporter.events[0].outcome == "evaluation_error"
 
+    def test_unexpected_exception_monitor_mode_returns_allow(
+        self, make_policy: Callable[..., Policy], mocker: MockerFixture
+    ) -> None:
+        policy = make_policy(
+            sinks={"default.t": (SinkRule(name="r", when="true", action=Action.BLOCK),)}
+        )
+        mocker.patch(
+            "interbolt.enforcement.check.evaluate_sink",
+            side_effect=RuntimeError("boom"),
+        )
+        decision = check(
+            tool="default.t",
+            args={},
+            agent_id="a",
+            run_id="r",
+            session_id=None,
+            policy=policy,
+            reporter=NullReporter(),
+            mode=Mode.MONITOR,
+        )
+        assert decision.action is Action.ALLOW
+
+    def test_unexpected_exception_enforce_mode_raises(
+        self, make_policy: Callable[..., Policy], mocker: MockerFixture
+    ) -> None:
+        from interbolt.errors import PolicyEvaluationError
+
+        policy = make_policy(
+            sinks={"default.t": (SinkRule(name="r", when="true", action=Action.BLOCK),)}
+        )
+        mocker.patch(
+            "interbolt.enforcement.check.evaluate_sink",
+            side_effect=RuntimeError("boom"),
+        )
+        with pytest.raises(PolicyEvaluationError) as exc_info:
+            check(
+                tool="default.t",
+                args={},
+                agent_id="a",
+                run_id="r",
+                session_id=None,
+                policy=policy,
+                reporter=NullReporter(),
+                mode=Mode.ENFORCE,
+            )
+        assert exc_info.value.decision is not None
+        assert exc_info.value.decision.action is Action.BLOCK
+
+    def test_unexpected_exception_still_emits_event(
+        self, make_policy: Callable[..., Policy], mocker: MockerFixture
+    ) -> None:
+        policy = make_policy(
+            sinks={"default.t": (SinkRule(name="r", when="true", action=Action.BLOCK),)}
+        )
+        mocker.patch(
+            "interbolt.enforcement.check.evaluate_sink",
+            side_effect=RuntimeError("boom"),
+        )
+        reporter = InMemoryReporter()
+        check(
+            tool="default.t",
+            args={},
+            agent_id="a",
+            run_id="r",
+            session_id=None,
+            policy=policy,
+            reporter=reporter,
+            mode=Mode.MONITOR,
+        )
+        assert len(reporter.events) == 1
+        assert reporter.events[0].outcome == "evaluation_error"
+
     def test_dry_run_downgrades_block_to_allow(
         self, make_policy: Callable[..., Policy]
     ) -> None:
