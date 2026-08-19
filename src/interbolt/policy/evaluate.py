@@ -307,9 +307,7 @@ def evaluate_sink(
     Raises:
         celpy.evaluation.CELEvalError: If a rule's `when` references a missing
             argument, a `None` value, otherwise fails to evaluate, or
-            evaluates to a non-boolean result. CEL is for boolean conditions;
-            a `when` that evaluates to a string, number, list, or map is a
-            policy-authoring error rather than a value to truthy-coerce.
+            evaluates to a non-boolean result.
         celpy.evaluation.CELUnsupportedError: If a rule's `when` uses a CEL
             feature the runtime does not fully implement.
     """
