@@ -25,7 +25,7 @@ def validate_agent_id(value: str) -> None:
         InterboltConfigError: If `value` contains a character outside
             `[A-Za-z0-9_.-]`, or is empty.
     """
-    if not _AGENT_ID_PATTERN.match(value):
+    if not _AGENT_ID_PATTERN.fullmatch(value):
         raise InterboltConfigError(
             f"agent_id {value!r} must match {_AGENT_ID_PATTERN.pattern!r}"
         )
@@ -46,7 +46,7 @@ def validate_group_name(value: str) -> None:
         InterboltConfigError: If `value` contains a character outside
             `[A-Za-z0-9_.-]`, or is empty.
     """
-    if not _GROUP_NAME_PATTERN.match(value):
+    if not _GROUP_NAME_PATTERN.fullmatch(value):
         raise InterboltConfigError(
             f"group name {value!r} must match {_GROUP_NAME_PATTERN.pattern!r}"
         )
@@ -66,7 +66,7 @@ def validate_endorsement_kind(value: str) -> None:
         InterboltConfigError: If `value` contains a character outside
             `[A-Za-z0-9_.-]`, or is empty.
     """
-    if not _ENDORSEMENT_KIND_PATTERN.match(value):
+    if not _ENDORSEMENT_KIND_PATTERN.fullmatch(value):
         raise InterboltConfigError(
             f"endorsement kind {value!r} must match "
             f"{_ENDORSEMENT_KIND_PATTERN.pattern!r}"

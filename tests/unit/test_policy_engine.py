@@ -1144,6 +1144,22 @@ class TestEvaluateSink:
         assert action is Action.ALLOW
         assert condition is None
 
+    def test_non_boolean_result_raises(self) -> None:
+        sink = self._conditional_sink("args.mode", Action.BLOCK)
+        context = build_context(
+            tool="t",
+            args={"mode": "prod"},
+            resolved_labels=(),
+            trifecta=frozenset(),
+            run_ingress=(),
+            run_trifecta=frozenset(),
+            run_capability_evicted=False,
+            agent_id="agent-1",
+            groups=frozenset(),
+        )
+        with pytest.raises(Exception, match="not a boolean"):  # noqa: B017
+            evaluate_sink(sink, context, default_action=Action.ALLOW)
+
 
 class TestPolicyFromFileRejectsAnyMacro:
     def test_raises_at_load_before_any_guarded_call(self, tmp_path: Path) -> None:

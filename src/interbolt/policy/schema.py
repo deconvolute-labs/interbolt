@@ -227,6 +227,65 @@ def _has_relation(tree: lark.Tree[lark.Token], receiver: str, field: str) -> boo
     return False
 
 
+_BOOLEAN_RELATIONS = frozenset(
+    {
+        "relation_lt",
+        "relation_le",
+        "relation_ge",
+        "relation_gt",
+        "relation_eq",
+        "relation_ne",
+        "relation_in",
+    }
+)
+_BOOLEAN_METHODS = frozenset(
+    {"exists", "all", "exists_one", "contains", "startsWith", "endsWith", "matches"}
+)
+_BOOLEAN_RUN_FIELDS = frozenset({"tainted", "capability_evicted"})
+
+
+def _is_boolean_shaped(node: lark.Tree[lark.Token] | lark.Token) -> bool:
+    """Whether `node`'s CEL shape is guaranteed to evaluate to a boolean.
+
+    A conservative allowlist over shapes that always produce `BoolType`:
+    comparisons, `&&`/`||`, `!`-negation, a bare boolean literal, the
+    boolean-returning macros/methods, the two bool-typed bare computable
+    fields (`run.tainted`, `run.capability_evicted`), and a ternary whose
+    both branches are themselves boolean-shaped. Everything else -- a bare
+    field access, a literal, an arithmetic expression -- is unrecognized,
+    even where it could coincidentally hold a boolean at runtime (a `bool(x)`
+    conversion call, for example): false negatives here are silent, false
+    positives break a policy that validates clean today.
+    """
+    node = unwrap_node(node)
+    if not isinstance(node, lark.Tree):
+        return False
+    if node.data == "relation" and len(node.children) == 2:
+        op_node = node.children[0]
+        return isinstance(op_node, lark.Tree) and op_node.data in _BOOLEAN_RELATIONS
+    if node.data in ("conditionalor", "conditionaland") and len(node.children) == 2:
+        return True
+    if node.data == "unary" and len(node.children) == 2:
+        op_node = node.children[0]
+        return isinstance(op_node, lark.Tree) and op_node.data == "unary_not"
+    if node.data == "literal":
+        token = node.children[0]
+        return isinstance(token, lark.Token) and token.type == "BOOL_LIT"
+    if node.data == "member_dot_arg" and len(node.children) == 3:
+        method_token = node.children[1]
+        return (
+            isinstance(method_token, lark.Token)
+            and method_token.value in _BOOLEAN_METHODS
+        )
+    if node.data == "member_dot":
+        return member_field(node, "run") in _BOOLEAN_RUN_FIELDS
+    if node.data == "expr" and len(node.children) == 3:
+        return _is_boolean_shaped(node.children[1]) and _is_boolean_shaped(
+            node.children[2]
+        )
+    return False
+
+
 class SourceDeclaration(BaseModel):
     """A declared ingress source and the trust level it resolves to."""
 
@@ -403,7 +462,7 @@ class PolicyDocument(BaseModel):
     @field_validator("version")
     @classmethod
     def _validate_version(cls, value: str) -> str:
-        if not _VERSION_PATTERN.match(value):
+        if not _VERSION_PATTERN.fullmatch(value):
             raise ValueError(
                 f"policy document version {value!r} is not supported; the "
                 'supported versions are "2.x" (for example "2.0")'
@@ -634,6 +693,15 @@ def validate_policy(path: str) -> list[str]:
                         "silently miss a value formed by merging two "
                         "differently-sourced inputs; use "
                         "t.lineage.exists(s, s == ...) instead"
+                    )
+                if not _is_boolean_shaped(tree):
+                    problems.append(
+                        f"warning: sink {sink_key!r}: rule {rule.name!r} has "
+                        "a `when` clause that is not verifiably "
+                        "boolean-shaped; at runtime a non-boolean result is "
+                        "now an evaluation error rather than a silent "
+                        "truthy match, so this rule may start blocking "
+                        "calls instead of matching them"
                     )
                 if rule.action is Action.ALLOW:
                     for field in (

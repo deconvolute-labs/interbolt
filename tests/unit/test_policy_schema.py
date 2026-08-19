@@ -767,6 +767,14 @@ sources: []
 sinks: {}
 """
 
+_POLICY_WITH_VERSION_TRAILING_NEWLINE = """\
+version: "2.0\\n"
+defaults:
+  sink_action: allow
+sources: []
+sinks: {}
+"""
+
 _POLICY_WITH_MISSPELLED_SINK_ENTRY_KEY = """\
 version: "2.0"
 defaults:
@@ -787,6 +795,45 @@ sources: []
 sinks:
   default.read_inbox:
     capabilities: [reads_private]
+"""
+
+_POLICY_WITH_NON_BOOLEAN_WHEN = """\
+version: "2.0"
+defaults:
+  sink_action: allow
+sources: []
+sinks:
+  default.tool:
+    rules:
+      - name: bad_shape
+        when: 'args.mode'
+        action: block
+      - name: default
+        action: allow
+"""
+
+_POLICY_WITH_BOOLEAN_SHAPED_WHENS = """\
+version: "2.0"
+defaults:
+  sink_action: allow
+sources: []
+agents:
+  billing-agent:
+    groups: [payer]
+sinks:
+  default.tool:
+    rules:
+      - name: comparison
+        when: 'agent.id == "billing-agent"'
+        action: block
+      - name: bare_bool_field
+        when: 'run.tainted'
+        action: block
+      - name: group_membership
+        when: 'agent.groups.exists(g, g == "payer")'
+        action: block
+      - name: default
+        action: allow
 """
 
 
@@ -923,6 +970,16 @@ class TestVersionGate:
         mocker.patch(
             "builtins.open",
             mocker.mock_open(read_data=_POLICY_WITH_UNSUPPORTED_VERSION),
+        )
+        with pytest.raises(PolicyEvaluationError):
+            load_policy_document("fake.yaml")
+
+    def test_version_with_trailing_newline_raises_policy_evaluation_error(
+        self, mocker: MockerFixture
+    ) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_VERSION_TRAILING_NEWLINE),
         )
         with pytest.raises(PolicyEvaluationError):
             load_policy_document("fake.yaml")
@@ -1158,6 +1215,25 @@ sinks:
         assert any(
             not p.startswith("warning:") and "agent.'role'" in p for p in problems
         )
+
+    def test_non_boolean_when_produces_warning(self, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_NON_BOOLEAN_WHEN),
+        )
+        problems = validate_policy("fake.yaml")
+        assert any(
+            p.startswith("warning:") and "bad_shape" in p and "boolean" in p
+            for p in problems
+        )
+
+    def test_boolean_shaped_whens_are_not_flagged(self, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "builtins.open",
+            mocker.mock_open(read_data=_POLICY_WITH_BOOLEAN_SHAPED_WHENS),
+        )
+        problems = validate_policy("fake.yaml")
+        assert not any("boolean" in p for p in problems)
 
     def test_agent_id_block_rule_is_valid(self, mocker: MockerFixture) -> None:
         mocker.patch(
