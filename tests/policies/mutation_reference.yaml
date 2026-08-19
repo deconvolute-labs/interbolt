@@ -1,0 +1,74 @@
+# Reference policy for tests/unit/test_policy_mutation.py.
+#
+# Shaped so that every mechanical perturbation of it is observable, which is
+# what lets the mutation suite treat a silent perturbation as a hard failure
+# with no allowlist. Three properties carry that, and TestReferencePolicy
+# asserts each one:
+#
+#   1. Each sink's rules widen strictly toward a trailing catch-all, and the
+#      three actions within a sink are distinct, so every adjacent swap and
+#      every deletion moves a probe onto a rule with a different action.
+#   2. Every rule is reached by at least one probe.
+#   3. defaults.sink_action differs from every catch-all's action.
+#
+# Every declared capability is also read by some rule, so dropping one shows up
+# in a decision and not only in a validate warning.
+
+version: "2.0"
+
+defaults:
+  sink_action: require_approval
+
+sources:
+  - name: web_search
+    trust: untrusted
+  - name: internal_kb
+    trust: trusted
+
+agents:
+  billing-agent:
+    groups: [payer]
+
+sinks:
+  crm.query_customers:
+    capabilities: [reads_private]
+    rules:
+      - name: block_private_read_from_web_search
+        when: >-
+          trifecta.contains("reads_private") &&
+          taint.exists(t, t.lineage.exists(s, s == "web_search"))
+        action: block
+      - name: approve_untrusted
+        when: 'taint.exists(t, t.trust == "untrusted")'
+        action: require_approval
+      - name: default
+        action: allow
+
+  email.send_email:
+    capabilities: [reaches_external]
+    rules:
+      - name: block_external_exfil
+        when: >-
+          trifecta.contains("reaches_external") &&
+          args.to.endsWith("@external.com") &&
+          taint.exists(t, t.trust == "untrusted")
+        action: block
+      - name: approve_untrusted
+        when: 'taint.exists(t, t.trust == "untrusted")'
+        action: require_approval
+      - name: default
+        action: allow
+
+  fs.write:
+    capabilities: []
+    rules:
+      - name: block_payer_untrusted
+        when: >-
+          agent.groups.exists(g, g == "payer") &&
+          max_trust == "untrusted"
+        action: block
+      - name: approve_untrusted
+        when: 'max_trust == "untrusted"'
+        action: require_approval
+      - name: default
+        action: allow
