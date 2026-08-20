@@ -1,8 +1,7 @@
 """The command tree itself: noun grouping, shared arguments, and deprecated aliases.
 
-Guards against the surface drifting once `scan` starts adding flags: every
-addition or rename to the tree must fail `TestCommandTree` until updated
-deliberately.
+Guards against the surface drifting. Every addition or rename to the tree must fail
+`TestCommandTree` until updated deliberately.
 """
 
 from __future__ import annotations

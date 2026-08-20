@@ -190,8 +190,7 @@ def main(argv: list[str] | None = None) -> int:
         return int(args.handler(args, console))
     except Exception as exc:  # noqa: BLE001
         # The last line of defense for the console script: an unexpected
-        # exception is reported as EXIT_INTERNAL rather than as a traceback
-        # a CI log will not explain. Command bodies still catch and map
-        # their own expected failures.
+        # exception is reported as EXIT_INTERNAL. Command bodies still catch
+        # and map their own expected failures.
         console.print(f"[red]x[/red] internal error: {exc}")
         return EXIT_INTERNAL
