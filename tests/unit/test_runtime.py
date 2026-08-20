@@ -238,7 +238,7 @@ class TestConfigure:
         with caplog.at_level("WARNING", logger="interbolt.runtime"):
             configure()
         warnings = [r.message for r in caplog.records if r.levelname == "WARNING"]
-        assert any("interbolt init" in m for m in warnings)
+        assert any("interbolt policy init" in m for m in warnings)
 
     def test_no_default_policy_warning_when_policy_given(
         self,
@@ -249,7 +249,7 @@ class TestConfigure:
         with caplog.at_level("WARNING", logger="interbolt.runtime"):
             configure(policy=make_policy())
         warnings = [r.message for r in caplog.records if r.levelname == "WARNING"]
-        assert not any("interbolt init" in m for m in warnings)
+        assert not any("interbolt policy init" in m for m in warnings)
 
     def test_configure_logs_caller_file_and_line(
         self,

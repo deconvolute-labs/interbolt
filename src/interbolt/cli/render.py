@@ -1,7 +1,8 @@
-"""Rendering: the shared `Console`, action colors, and record/explanation printers."""
+"""Rendering: the console factory, action colors, and record/explanation printers."""
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from collections.abc import Sequence
 
@@ -23,13 +24,36 @@ from interbolt import (
     describe_finding,
 )
 
-_console = Console()
-
 _ACTION_COLOR: dict[Action, str] = {
     Action.ALLOW: "green",
     Action.BLOCK: "red",
     Action.REQUIRE_APPROVAL: "yellow",
 }
+
+
+def build_console(*, quiet: bool = False, no_color: bool = False) -> Console:
+    """Build the console for one CLI invocation.
+
+    Args:
+        quiet: Reserved for the caller's own suppression decisions; the
+            console itself is unchanged, since a quiet run still prints
+            problems.
+        no_color: Disable ANSI color regardless of terminal detection.
+
+    Returns:
+        A `rich.console.Console` for this invocation.
+    """
+    return Console(no_color=no_color)
+
+
+def emit_json(console: Console, payload: dict[str, object]) -> None:
+    """Print a JSON payload verbatim, with no markup, highlighting, or wrapping."""
+    console.print(
+        json.dumps(payload, indent=2, sort_keys=False),
+        markup=False,
+        highlight=False,
+        soft_wrap=True,
+    )
 
 
 def _run_id_of(record: Event | Finding | Endorsement) -> str:
@@ -79,17 +103,15 @@ def _build_tree(records: Sequence[Event | Finding | Endorsement]) -> Tree:
     return root
 
 
-def _print_rule(rule: RuleExplanation) -> None:
+def _print_rule(console: Console, rule: RuleExplanation) -> None:
     """Print one rule's reachability outcome, colored by its action."""
     color = _ACTION_COLOR[rule.action]
     if rule.outcome is RuleOutcome.UNCONDITIONAL:
-        _console.print(
-            f"  [{color}]{rule.action}[/{color}] {rule.name} (unconditional)"
-        )
+        console.print(f"  [{color}]{rule.action}[/{color}] {rule.name} (unconditional)")
         return
     if rule.outcome is RuleOutcome.CONDITIONAL:
         label = "depends on which member" if rule.depends_on_member else "conditional"
-        _console.print(
+        console.print(
             f"  [{color}]{rule.action}[/{color}] {rule.name} ({label}: {rule.residual})"
         )
         return
@@ -98,35 +120,37 @@ def _print_rule(rule: RuleExplanation) -> None:
         detail = f"eliminated, shadowed by {rule.shadowed_by!r}"
         if rule.shadowed_by_reason is not None:
             detail += f" ({rule.shadowed_by_reason})"
-    _console.print(f"  [dim]{rule.name} ({detail})[/dim]")
+    console.print(f"  [dim]{rule.name} ({detail})[/dim]")
 
 
-def _print_sink(sink: SinkExplanation, show_eliminated: bool) -> None:
+def _print_sink(console: Console, sink: SinkExplanation, show_eliminated: bool) -> None:
     """Print one sink's rules (eliminated ones only when `show_eliminated`)."""
-    _console.print(f"[bold]{sink.sink_key}[/bold]")
+    console.print(f"[bold]{sink.sink_key}[/bold]")
     for rule in sink.rules:
         if rule.outcome is RuleOutcome.ELIMINATED and not show_eliminated:
             continue
-        _print_rule(rule)
+        _print_rule(console, rule)
     default_color = _ACTION_COLOR[sink.default_action]
-    _console.print(
+    console.print(
         f"  default: [{default_color}]{sink.default_action}[/{default_color}]"
     )
 
 
-def _print_tool_capabilities(capabilities: frozenset[Capability]) -> None:
+def _print_tool_capabilities(
+    console: Console, capabilities: frozenset[Capability]
+) -> None:
     """Print one tool's declared capabilities for `--tool`, or that none exist."""
     if capabilities:
-        _console.print("  capabilities: " + ", ".join(sorted(capabilities)))
+        console.print("  capabilities: " + ", ".join(sorted(capabilities)))
     else:
-        _console.print("  capabilities: none declared")
+        console.print("  capabilities: none declared")
 
 
-def _print_tool_mention(mention: ToolMention) -> None:
+def _print_tool_mention(console: Console, mention: ToolMention) -> None:
     """Print one rule's literal agent/group mentions for `--tool`."""
     color = _ACTION_COLOR[mention.action]
     if mention.when is None:
-        _console.print(
+        console.print(
             f"  [{color}]{mention.action}[/{color}] {mention.name} "
             "(catch-all, no identity reference)"
         )
@@ -137,4 +161,4 @@ def _print_tool_mention(mention: ToolMention) -> None:
     if mention.groups:
         refs.append("groups: " + ", ".join(sorted(mention.groups)))
     ref_text = "; ".join(refs) if refs else "no identity reference"
-    _console.print(f"  [{color}]{mention.action}[/{color}] {mention.name} ({ref_text})")
+    console.print(f"  [{color}]{mention.action}[/{color}] {mention.name} ({ref_text})")

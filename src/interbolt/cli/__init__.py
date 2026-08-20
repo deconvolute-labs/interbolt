@@ -1,4 +1,4 @@
-"""The `interbolt` command-line interface: validate, init, inspect, explain."""
+"""The `interbolt` CLI: `policy` init/validate/explain, `run` inspect."""
 
 from __future__ import annotations
 

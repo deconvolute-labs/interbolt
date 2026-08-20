@@ -57,7 +57,7 @@ def describe_event(event: Event) -> str:
 
     The building block for a custom console/CLI reporter: pass the result
     to a `rich.console.Console.print` (or strip the `[tag]...[/tag]` markup
-    for a plain-text sink). Used by `interbolt inspect` internally.
+    for a plain-text sink). Used by `interbolt run inspect` internally.
 
     Args:
         event: The event to describe.

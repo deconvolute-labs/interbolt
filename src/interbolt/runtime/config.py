@@ -83,7 +83,7 @@ def configure(
     Args:
         policy: The policy to enforce. With `None`, a built-in policy that
             declares no sources and no sinks is used, so every guarded call
-            needs approval. Run `interbolt init` to generate a real one.
+            needs approval. Run `interbolt policy init` to generate a real one.
         reporter: Where decisions and findings go. Defaults to `NullReporter`.
         approval_resolver: Decides `require_approval` calls. Defaults to
             `auto_deny`.
@@ -156,7 +156,7 @@ def configure(
         _logger.warning(
             "configure(): no policy given; using the built-in default policy "
             "(no sources, no sinks, every guarded call falls through to "
-            "require_approval); run `interbolt init` to generate a policy file"
+            "require_approval); run `interbolt policy init` to generate a policy file"
         )
 
     caller_file, caller_line = _caller_location()
@@ -165,7 +165,8 @@ def configure(
         "configure(): mode=%s policy_source=%s sources=%d sinks=%d audit=%s "
         "caller=%s:%d",
         resolved_mode.value,
-        policy.source or "programmatic (no file; interbolt init to generate one)",
+        policy.source
+        or "programmatic (no file; interbolt policy init to generate one)",
         len(policy.document.sources),
         len(policy.document.sinks),
         audit,
