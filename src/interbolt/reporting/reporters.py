@@ -131,7 +131,7 @@ class JsonlReporter:
             self._announced = True
             _logger.warning(
                 "interbolt: wrote provenance log to %s (inspect with "
-                "'interbolt inspect %s')",
+                "'interbolt run inspect %s')",
                 self.path,
                 self.path,
             )

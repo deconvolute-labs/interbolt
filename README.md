@@ -66,10 +66,10 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Generate a starter policy with `interbolt init`, then check it in CI with
-`interbolt validate policy.yaml`. Calling `configure()` without a policy uses a
-built-in default-deny posture (no sources, no sinks, every call requires
-approval) and logs a warning pointing to `interbolt init`.
+Generate a starter policy with `interbolt policy init`, then check it in CI with
+`interbolt policy validate policy.yaml`. Calling `configure()` without a policy
+uses a built-in default-deny posture (no sources, no sinks, every call requires
+approval) and logs a warning pointing to `interbolt policy init`.
 
 ## Getting the decision
 
@@ -181,11 +181,15 @@ blocks in `export` delays the decision that triggered it. See
 ## Command line
 
 ```bash
-interbolt init [path]              # write a starter policy; refuses to overwrite
-interbolt validate policy.yaml     # schema and CEL checks only, safe for CI
-interbolt explain policy.yaml --agent support-agent
-interbolt inspect provenance.jsonl # render a JsonlReporter log as a tree
+interbolt policy init [path]              # write a starter policy; refuses to overwrite
+interbolt policy validate policy.yaml     # schema and CEL checks only, safe for CI
+interbolt policy explain policy.yaml --agent support-agent
+interbolt run inspect provenance.jsonl    # render a JsonlReporter log as a tree
 ```
+
+Every command takes `--format text|json`, `--quiet`, and `--no-color`. Exit codes
+are 0 for clean, 1 for a failed check, 2 for a usage error, and 3 for an internal
+error. See the [command line reference](https://docs.deconvolutelabs.com/docs/reference/cli).
 
 `explain` answers "what can this agent actually do" by resolving each sink's
 rules against one agent, group, or tool, including which rules are unreachable.

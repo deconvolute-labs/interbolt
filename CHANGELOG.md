@@ -2,6 +2,16 @@
 
 ### ⚠️ Breaking Changes
 
+- **The CLI is regrouped by object: `interbolt policy init|validate|explain`
+  and `interbolt run inspect`.** The old flat names (`interbolt
+  init|validate|inspect|explain`) are removed, with no compatibility alias.
+  Exit codes are now a fixed 0/1/2/3 contract (clean, failed check, usage
+  error, internal error); several outcomes that previously returned `1` now
+  return `2` or `3` — see the [command line reference](https://docs.deconvolutelabs.com/docs/reference/cli).
+  `init`'s default write path changes from `policy.example.yaml` to
+  `policy.yaml`, matching `validate`/`explain`'s default read path. All four
+  commands gain `--format text|json`, `--quiet`, and `--no-color`.
+
 - **A propagating string/bytes operation on an endorsed value now clears its
   `endorsements` instead of carrying them through unchanged.** Only
   `copy`/`deepcopy` and the `pack`/`unpack` round trip keep them, since only

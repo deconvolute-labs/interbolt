@@ -107,7 +107,7 @@ import in `src/interbolt`. The rules it cannot check:
 | `compile.py` | one-time compilation of every sink's rule list |
 | `evaluate.py` | per-call trust resolution, CEL context, sink evaluation |
 | `policy.py` | the `Policy` class and the built-in default |
-| `identity_ast.py`, `shadowing.py`, `partial_eval.py`, `explain.py` | static analysis behind `interbolt explain` and the unreachable-rule check |
+| `identity_ast.py`, `shadowing.py`, `partial_eval.py`, `explain.py` | static analysis behind `interbolt policy explain` and the unreachable-rule check |
 
 **`enforcement/`** is the decision core: `check.py` (the pipeline), `signals.py`
 (trust signals derived once per call), `enforce.py` (decision to control flow),
@@ -199,8 +199,8 @@ thread boundary. A guarded call on a thread pool needs `agent(...)`, and a
   The one worth knowing before writing a policy is that `reads_private` and
   `reaches_external` are computed only for a tool whose `sinks:` entry
   declares `capabilities:`; an undeclared tool contributes neither leg, and
-  `interbolt validate` warns about any sink missing the key once at least one
-  other sink declares it.
+  `interbolt policy validate` warns about any sink missing the key once at
+  least one other sink declares it.
 - **Record schemas and the OTel mapping**:
   [events](https://docs.deconvolutelabs.com/docs/reference/events).
 - **Policy internals**, including the CEL context shape and what `validate`

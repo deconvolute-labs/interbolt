@@ -365,8 +365,8 @@ class SinkDeclaration(BaseModel):
         capabilities: What the tool does with the data it touches, which is
             what makes its `reads_private`/`reaches_external` trifecta legs
             computable. `None` means undeclared, which contributes no legs
-            and draws a warning from `interbolt validate` once at least one
-            sink in the policy declares capabilities. An empty tuple records
+            and draws a warning from `interbolt policy validate` once at
+            least one sink in the policy declares capabilities. An empty tuple records
             that the tool has neither capability, distinct from `None`.
         rules: The sink's ordered rules, first match wins. An entry with no
             rules falls through to `defaults.sink_action`, exactly as a tool

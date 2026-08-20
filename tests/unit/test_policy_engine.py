@@ -1182,7 +1182,7 @@ sinks:
             Policy.from_file(str(policy_path))
         # The bare celpy/InterboltConfigError message alone gives no clue
         # which rule in a large policy is at fault; the sink and rule name
-        # must be prefixed the same way `interbolt validate` prefixes them.
+        # must be prefixed the same way `interbolt policy validate` prefixes them.
         assert "'default.tool'" in str(excinfo.value)
         assert "'r'" in str(excinfo.value)
 
