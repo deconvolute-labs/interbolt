@@ -4,17 +4,14 @@ from __future__ import annotations
 
 import argparse
 
-from rich.console import Console
-
 from interbolt import __version__
 from interbolt.cli.commands_policy import _explain, _init, _validate
 from interbolt.cli.commands_run import _inspect
 from interbolt.cli.exit_codes import EXIT_INTERNAL
 from interbolt.cli.render import build_console
 
-# Part one: argument builders. Each adds one command's own arguments to a
-# parser it is given, called once for the noun-nested parser and once for
-# the deprecated top-level alias.
+# Part one: argument builders. Each adds one command's own arguments to the
+# noun-nested parser it is given.
 
 
 def _add_init_args(parser: argparse.ArgumentParser) -> None:
@@ -76,21 +73,6 @@ def _global_parser() -> argparse.ArgumentParser:
 # Part three: the tree.
 
 
-def _hide_alias(
-    subparsers: argparse._SubParsersAction[argparse.ArgumentParser], name: str
-) -> None:
-    """Drop a deprecated alias's help-listing entry.
-
-    `help=argparse.SUPPRESS` on `add_parser` only blanks the alias's help
-    text; it still renders an empty line in `--help` and still appears in
-    the usage synopsis. Removing its pseudo-action is the standard
-    workaround for full suppression.
-    """
-    subparsers._choices_actions = [
-        action for action in subparsers._choices_actions if action.dest != name
-    ]
-
-
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="interbolt")
     parser.add_argument("--version", action="version", version=__version__)
@@ -108,13 +90,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "init", parents=[parent], help="Write the starter policy file to disk."
     )
     _add_init_args(p)
-    p.set_defaults(handler=_init, deprecated_alias=None)
+    p.set_defaults(handler=_init)
 
     p = policy_sub.add_parser(
         "validate", parents=[parent], help="Static schema and CEL checks only."
     )
     _add_validate_args(p)
-    p.set_defaults(handler=_validate, deprecated_alias=None)
+    p.set_defaults(handler=_validate)
 
     p = policy_sub.add_parser(
         "explain",
@@ -122,7 +104,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Show which sink rules can fire for one agent, group, or tool.",
     )
     _add_explain_args(p)
-    p.set_defaults(handler=_explain, deprecated_alias=None)
+    p.set_defaults(handler=_explain)
 
     run_parser = subparsers.add_parser("run", help="Read the output of a run.")
     run_sub = run_parser.add_subparsers(dest="run_command", required=True)
@@ -133,40 +115,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Render a JsonlReporter provenance log as a console tree.",
     )
     _add_inspect_args(p)
-    p.set_defaults(handler=_inspect, deprecated_alias=None)
-
-    # Deprecated, hidden aliases: same argument builders, dispatch to the
-    # same handlers, removed in 0.5.0.
-    p = subparsers.add_parser("init", parents=[parent], help=argparse.SUPPRESS)
-    _add_init_args(p)
-    p.set_defaults(handler=_init, deprecated_alias="interbolt policy init")
-    _hide_alias(subparsers, "init")
-
-    p = subparsers.add_parser("validate", parents=[parent], help=argparse.SUPPRESS)
-    _add_validate_args(p)
-    p.set_defaults(handler=_validate, deprecated_alias="interbolt policy validate")
-    _hide_alias(subparsers, "validate")
-
-    p = subparsers.add_parser("inspect", parents=[parent], help=argparse.SUPPRESS)
-    _add_inspect_args(p)
-    p.set_defaults(handler=_inspect, deprecated_alias="interbolt run inspect")
-    _hide_alias(subparsers, "inspect")
-
-    p = subparsers.add_parser("explain", parents=[parent], help=argparse.SUPPRESS)
-    _add_explain_args(p)
-    p.set_defaults(handler=_explain, deprecated_alias="interbolt policy explain")
-    _hide_alias(subparsers, "explain")
+    p.set_defaults(handler=_inspect)
 
     return parser
-
-
-def _warn_deprecated(alias: str) -> None:
-    """Print the deprecation notice for a flat alias to stderr, never stdout."""
-    stderr_console = Console(stderr=True)
-    stderr_console.print(
-        "interbolt: this command name is deprecated and will be removed in "
-        f"0.5.0; use `{alias}`"
-    )
 
 
 # Part four: dispatch.
@@ -184,8 +135,6 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     console = build_console(quiet=args.quiet, no_color=args.no_color)
-    if args.deprecated_alias is not None:
-        _warn_deprecated(args.deprecated_alias)
     try:
         return int(args.handler(args, console))
     except Exception as exc:  # noqa: BLE001
