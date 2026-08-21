@@ -284,7 +284,9 @@ def check(
     up the ambient agent identity from `Runtime.agent_context` automatically.
 
     Args:
-        tool: The dotted qualified tool name.
+        tool: The tool name, bare or already dotted. Resolves the same way it
+            does under `guard`: a bare name gets `constants.DEFAULT_NAMESPACE`
+            prepended, and a dotted name is used as-is.
         args: The call's bound arguments.
         agent_id: The durable agent identity.
         run_id: The per-run identity. `None` resolves the ambient
@@ -298,11 +300,16 @@ def check(
     Raises:
         InterboltConfigError: If `agent_id` is a tainted value, fails the
             identifier charset check, or is the reserved fallback value
-            `constants.DEFAULT_AGENT_ID`.
+            `constants.DEFAULT_AGENT_ID`. Also if `tool` is an ambiguous
+            dotted name (more than one dot), via `_qualify_tool_name`.
     """
     _validate_explicit_agent_id(agent_id)
     return _current().check(
-        tool=tool, args=args, agent_id=agent_id, run_id=run_id, session_id=session_id
+        tool=_qualify_tool_name(tool),
+        args=args,
+        agent_id=agent_id,
+        run_id=run_id,
+        session_id=session_id,
     )
 
 

@@ -44,6 +44,24 @@
   closed on a run whose `run.trifecta` may be under-counted, instead of the
   degraded state passing silently.
 
+- **`check()` now qualifies a bare `tool` name the same way `@guard` already
+  does.** Previously only the decorator path resolved `tool` through
+  `_qualify_tool_name`; a caller of `check(tool="send_email", ...)` got the
+  raw string passed straight through to the sink lookup, a plain
+  exact-string match against the policy's dotted sink keys. The mismatch
+  silently skipped the sink's rules (falling through to
+  `defaults.sink_action`) and dropped its capability legs from both the
+  call's `trifecta` and the run's accumulated `run_trifecta`. One behavior
+  change: a `tool` with more than one dot, previously passed through
+  unchanged, now raises `InterboltConfigError`, matching `@guard`'s existing
+  rejection of an ambiguous dotted name — this matters for an MCP router or
+  tool registry that passes an external tool name straight through.
+
+- **`check()` now logs a `WARNING` when a call's qualified `tool` matches no
+  declared sink, while at least one sink is declared.** Catches a typo on
+  either the `check()` or `@guard` path that previously fell through to
+  `defaults.sink_action` with no signal at all.
+
 ## [0.3.0] - 2026-08-05
 
 ### ⚠️ Breaking Changes
