@@ -90,6 +90,13 @@ def check(
     plain_args = unwrap(args)
     sources_table = policy.sources_table
     resolved_labels = resolve_labels(labels, sources_table)
+    if policy.compiled_sinks and tool not in policy.compiled_sinks:
+        _logger.warning(
+            "check(): tool=%s matches no declared sink (%d sink(s) declared); "
+            "falls through to defaults.sink_action and contributes no capability legs",
+            tool,
+            len(policy.compiled_sinks),
+        )
     call_capabilities = resolve_tool_capabilities(tool, policy.tool_capabilities)
     trifecta = _compute_trifecta(resolved_labels, call_capabilities)
     untrusted_sources = _compute_untrusted_sources(resolved_labels)

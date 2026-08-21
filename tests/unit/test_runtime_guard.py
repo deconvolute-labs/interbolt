@@ -14,7 +14,7 @@ from interbolt.errors import (
     InterboltUsageError,
     PolicyViolation,
 )
-from interbolt.models.core import Action, Decision
+from interbolt.models.core import Action, Capability, Decision
 from interbolt.policy import Policy
 from interbolt.reporting import InMemoryReporter
 from interbolt.runtime import check as _ambient_check
@@ -307,6 +307,42 @@ class TestAgentHandle:
 
         my_function("value")
         assert reporter.decisions[0].tool == "default.my_function"
+
+
+class TestCheckRunTrifectaParity:
+    """Regression: an unqualified `check()` call used to silently drop
+    `reaches_external` from the run's trifecta, since the raw tool name never
+    matched the policy's dotted sink key. `check()` now qualifies `tool` the
+    same way `@guard`/`_build_wrapper` already do, so a bare-name `check()`
+    call and an equivalent `@guard` call must accumulate identical
+    `run_trifecta` values.
+    """
+
+    def test_bare_check_and_guard_produce_identical_run_trifecta(
+        self, make_policy: Callable[..., Policy], reset_runtime: None
+    ) -> None:
+        reporter = InMemoryReporter()
+        rt = configure(
+            policy=make_policy(
+                capabilities={"default.send_email": (Capability.REACHES_EXTERNAL,)}
+            ),
+            reporter=reporter,
+        )
+        handle = AgentHandle("agent", runtime_resolver=lambda: rt)
+
+        @handle.guard(tool="send_email")
+        def send_email(x: str) -> str:
+            return x
+
+        send_email("value")
+        guard_decision = reporter.decisions[-1]
+
+        check_decision = _ambient_check(
+            tool="send_email", args={"x": "value"}, agent_id="agent"
+        )
+
+        assert guard_decision.run_trifecta == frozenset({"reaches_external"})
+        assert check_decision.run_trifecta == guard_decision.run_trifecta
 
 
 class TestAgentIdValidation:
