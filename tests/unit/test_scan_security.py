@@ -1,4 +1,4 @@
-"""§10/§11 of `dev/features/scanner.md`: the scanner's own security invariants."""
+"""the scanner's own security invariants."""
 
 from __future__ import annotations
 
@@ -183,7 +183,7 @@ class TestIsForbiddenText:
         assert is_forbidden_text("a‮b") is True
 
     def test_line_separator_rejected(self) -> None:
-        assert is_forbidden_text("a b") is True
+        assert is_forbidden_text("ab") is True
 
     def test_unicode_letters_not_rejected(self) -> None:
         assert is_forbidden_text("aktualisieren") is False

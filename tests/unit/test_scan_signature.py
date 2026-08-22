@@ -1,4 +1,4 @@
-"""`scan/signature.py`: parameter-list and return-annotation rendering (§6.2)."""
+"""`scan/signature.py`: parameter-list and return-annotation rendering."""
 
 from __future__ import annotations
 

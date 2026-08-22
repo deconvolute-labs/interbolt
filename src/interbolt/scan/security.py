@@ -4,8 +4,7 @@
 Three primitives here are used across `walk.py`, `detect.py`, and
 `evidence.py` so no module reimplements them: rejecting a string that could
 display differently than it parses, confirming a path never escapes the
-scan root, and walking an AST without recursing (so a pathologically nested
-expression cannot exhaust the Python call stack).
+scan root, and walking an AST without recursing.
 """
 
 from __future__ import annotations

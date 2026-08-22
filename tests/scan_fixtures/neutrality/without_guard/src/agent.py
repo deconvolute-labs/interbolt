@@ -1,4 +1,4 @@
-"""§3.5 neutrality fixture: no Interbolt import anywhere in this tree."""
+"""neutrality fixture: no Interbolt import anywhere in this tree."""
 
 import httpx
 from langchain_core.tools import tool

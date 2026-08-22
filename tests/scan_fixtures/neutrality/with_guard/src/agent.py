@@ -1,4 +1,4 @@
-"""§3.5 neutrality fixture: identical to without_guard/, plus `@guard` on each tool."""
+"""neutrality fixture: identical to without_guard/, plus `@guard` on each tool."""
 
 import httpx
 from langchain_core.tools import tool

@@ -1,4 +1,4 @@
-"""Artifact schema shape, determinism, and the §3.5 neutrality invariant."""
+"""Artifact schema shape, determinism, and the neutrality invariant."""
 
 from __future__ import annotations
 
@@ -86,12 +86,12 @@ class TestNeutrality:
             assert other.qualified_name == tool.qualified_name
             # Not `line`: the fixture adds an import and a decorator line
             # above each function, which legitimately shifts its line
-            # number. Line is metadata, never part of identity (§3.1).
+            # number. Line is metadata, never part of identity.
             assert other.definition.path == tool.definition.path
             assert other.definition.symbol == tool.definition.symbol
             # Only these are expected to change by adding `@guard`: it is
             # detected (guarded), and detector_detail names it as
-            # authoritative (§3.1), since a policy declaration is what the
+            # authoritative, since a policy declaration is what the
             # scanner exists to prompt, but decoration alone changes
             # nothing about what was already discovered.
             assert tool.guarded is False
