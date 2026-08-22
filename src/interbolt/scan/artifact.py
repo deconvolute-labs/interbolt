@@ -13,10 +13,10 @@ from interbolt.models.core import Capability
 class Verdict(StrEnum):
     """An agent's coverage verdict, computed from its bound tools' declarations.
 
-    `trifecta` cannot be reached in v1: `Capability` is a closed two-member
-    set (`reads_private`, `reaches_external`), and the third lethal-trifecta
-    leg, `from_untrusted`, is derived from taint at runtime and has no
-    declarable, static form. A fully declared agent returns `clear`.
+    `Capability` is a closed two-member set (`reads_private`,
+    `reaches_external`); the third lethal-trifecta leg, `from_untrusted`, is
+    derived from taint at runtime and has no declarable, static form, so
+    `trifecta` is never produced. A fully declared agent returns `clear`.
     """
 
     NO_POLICY = "no_policy"
@@ -44,10 +44,8 @@ class UndetectedKind(StrEnum):
     `rejected_name` covers a discovered name containing a control or
     Unicode-format character that could make a report display differently
     than the code parses (Trojan Source, CVE-2021-42574). `files_truncated`
-    and `traversal_truncated` are not named in the design document's closed
-    enum; they fill a gap between it and the resource-bound requirements
-    that explicitly call for an `undetected` entry on truncation, using the
-    same naming convention as the rest of the set.
+    and `traversal_truncated` mark a scan or traversal that stopped at its
+    resource bound before finishing.
     """
 
     MCP_SERVER = "mcp_server"
@@ -120,10 +118,8 @@ class ScanUndetected(BaseModel):
 class ScanCollision(BaseModel):
     """Two or more definitions resolving to the same qualified name.
 
-    A defect in the codebase's naming, not a security observation: one
-    policy rule would govern two different tools. Neither definition is
-    included in `ScanArtifact.tools`, since there is no principled way to
-    pick a winner.
+    One policy rule would govern two different tools. Neither definition is
+    included in `ScanArtifact.tools`.
 
     Attributes:
         qualified_name: The colliding identity.
@@ -137,13 +133,12 @@ class ScanCollision(BaseModel):
 
 
 class ScanAgentIdentity(BaseModel):
-    """An agent's binding-site identity. Always unresolved in v1.
+    """An agent's binding-site identity, currently always unresolved.
 
     Attributes:
-        resolved: Always `False` in v1; agent boundary detection is not
-            implemented.
-        agent_id: Always `None` in v1.
-        binding_site: Always `None` in v1.
+        resolved: Always `False`.
+        agent_id: Always `None`.
+        binding_site: Always `None`.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -166,12 +161,12 @@ class ScanTool(BaseModel):
         detector_detail: Human-readable provenance, naming the decorator or
             binding site.
         declared: Whether the policy declares `capabilities:` for this tool.
-            Always `False` in v1, since PR1 ships with no policy support.
-        capabilities: The declared capabilities, sorted. Always empty in v1.
+            Always `False`.
+        capabilities: The declared capabilities, sorted. Always empty.
         guarded: Whether an Interbolt guard decorator (`@guard` or
             `@<handle>.guard`) was found on the definition.
         policy_rules: Names of the rules in this tool's sink entry, in
-            policy order. Always empty in v1.
+            policy order. Always empty.
         evidence: External symbols this tool's body (or a function it calls)
             reaches, sorted by `(depth, path, line, symbol)`.
     """
@@ -193,20 +188,19 @@ class ScanTool(BaseModel):
 class ScanAgent(BaseModel):
     """The rolled-up view of one agent's bound tools.
 
-    v1 emits exactly one agent, `key="repo"`, `scope="repo"`, holding every
-    tool found: agent boundary detection is not implemented, so the verdict
-    describes the whole repository rather than one agent loop, and
-    over-reports for a repository holding more than one agent.
+    Exactly one agent is emitted, `key="repo"`, `scope="repo"`, holding
+    every tool found. The verdict describes the whole repository rather
+    than one agent loop, and over-reports for a repository holding more
+    than one agent.
 
     Attributes:
-        key: Scan-local identifier. Always `"repo"` in v1.
-        scope: Always `"repo"` in v1. Reserved for `"loop"` once agent
-            detection lands.
+        key: Scan-local identifier. Always `"repo"`.
+        scope: Always `"repo"`. `"loop"` is reserved for a narrower scope.
         identity: The agent's binding-site identity. Always unresolved.
         tools: Qualified names of every bound tool, sorted.
         capabilities: Rolled up from the bound tools' declared capabilities,
-            sorted and de-duplicated. Always empty in v1.
-        verdict: The coverage verdict. Always `Verdict.NO_POLICY` in v1.
+            sorted and de-duplicated. Always empty.
+        verdict: The coverage verdict. Always `Verdict.NO_POLICY`.
         undeclared_tool_count: The undeclared worklist size.
     """
 
@@ -265,12 +259,11 @@ class ScanPolicyRef(BaseModel):
     """Which policy, if any, coverage was computed against.
 
     Attributes:
-        source: `"file"`, `"remote"`, or `"none"`. Only `"none"` occurs in
-            v1, since PR1 ships with no `--policy` support.
+        source: `"file"`, `"remote"`, or `"none"`. Currently always
+            `"none"`.
         ref: The path, for `"file"`. `None` for `"none"`.
         fingerprint: `Policy.fingerprint`, for `"file"`. `None` for `"none"`.
-        scope: Reserved for the platform's scoped projection. Always `None`
-            in v1.
+        scope: Reserved for the platform's scoped projection. Always `None`.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -310,14 +303,13 @@ class ScanArtifact(BaseModel):
         repository: Repository identity, read from `.git` directly.
         scan_root: POSIX-relative path from the repository root.
         policy: Which policy, if any, coverage was computed against. Always
-            `source="none"` in v1.
-        agents: Sorted by `key`. Exactly one entry in v1.
+            `source="none"` currently.
+        agents: Sorted by `key`. Exactly one entry currently.
         tools: Sorted by `qualified_name`.
         undetected: Sorted by `(path, line, kind)`.
         collisions: Sorted by `qualified_name`.
-        unmatched_policy_sinks: Sorted by `sink_key`. Always empty in v1.
-        paths: Reserved, always empty in v1; the shape is undefined until
-            agent-boundary detection lands.
+        unmatched_policy_sinks: Sorted by `sink_key`. Always empty.
+        paths: Reserved for future use. Currently always empty.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -332,4 +324,4 @@ class ScanArtifact(BaseModel):
     undetected: tuple[ScanUndetected, ...]
     collisions: tuple[ScanCollision, ...]
     unmatched_policy_sinks: tuple[ScanUnmatchedSink, ...]
-    paths: tuple[Any, ...] = ()  # shape reserved, undefined until §13.2 lands
+    paths: tuple[Any, ...] = ()  # shape reserved for future use, currently always empty

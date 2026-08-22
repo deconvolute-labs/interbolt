@@ -73,11 +73,9 @@ def walk_ast_bounded(
 ) -> Iterator[tuple[ast.AST, int, bool]]:
     """Walk every descendant of `node`, depth-tagged, without recursing.
 
-    An explicit stack rather than recursive descent, so a pathologically
-    nested expression cannot raise `RecursionError` out of the traversal
-    itself. A branch deeper than `max_depth` is reported once, with the
-    third element `True`, and not descended into further; every other node
-    is reported with `False`.
+    A branch deeper than `max_depth` is reported once, with the third
+    element `True`, and not descended into further; every other node is
+    reported with `False`.
 
     Args:
         node: The AST root to walk (a module, or a function body).

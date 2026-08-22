@@ -1,10 +1,10 @@
-"""Render a tool's parameter list and return annotation, from the AST only (§6.2).
+"""Render a tool's parameter list and return annotation, from the AST only.
 
-`ast.unparse` on the argument and annotation nodes, never source-text
-slicing, so no comment can enter the artifact through this field. A
-default value renders only when its node is a plain `ast.Constant`; any
-other default (a call, a name reference, an f-string, ...) is dropped, and
-the parameter still renders without it.
+Uses `ast.unparse` on the argument and annotation nodes, so no comment can
+enter the artifact through this field. A default value renders only when
+its node is a plain `ast.Constant`; any other default (a call, a name
+reference, an f-string, ...) is dropped, and the parameter still renders
+without it.
 """
 
 from __future__ import annotations
@@ -22,8 +22,8 @@ def render_signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str | None
 
     Returns:
         The rendered signature, or `None` if rendering fails, or if the
-        result contains a control or Unicode-format character (§10.3) —
-        the tool itself is still discovered; only this field is withheld.
+        result contains a control or Unicode-format character. The tool
+        itself is still discovered; only this field is withheld.
     """
     try:
         rendered = _render(node)

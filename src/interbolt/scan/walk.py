@@ -96,7 +96,7 @@ def parse_python_file(path: Path) -> ast.Module | None:
 
     Every failure (too large, undecodable, unparseable, or a defensive catch
     for a pathological input) is logged at warning level and degrades to
-    `None`; the caller skips the file rather than aborting the scan.
+    `None`, so the caller skips the file and the scan continues.
 
     Args:
         path: The file to read and parse.

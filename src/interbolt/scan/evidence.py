@@ -1,12 +1,11 @@
-"""Evidence collection: the external symbols a tool body reaches (§7).
+"""Evidence collection: the external symbols a tool body reaches.
 
 Resolution uses each file's own import table. A call resolving to a
 function defined elsewhere in the scanned tree is followed rather than
-recorded, to a bounded depth; a call resolving to anything else (a stdlib
-or third-party import, most commonly) is recorded as evidence. A call that
-resolves to neither — a method call on a local variable, a dynamically
-constructed target — is silently skipped: recording it would produce a
-symbol with no library attached, which is noise.
+recorded, to a bounded depth. A call resolving to anything else (a stdlib
+or third-party import, most commonly) is recorded as evidence. A call
+resolving to neither, a method call on a local variable, or a dynamically
+constructed target, is skipped and produces no evidence entry.
 """
 
 from __future__ import annotations
@@ -162,10 +161,9 @@ def _build_import_table(tree: ast.Module, current_path: str) -> dict[str, str]:
 def _resolve_call_symbol(call: ast.Call, import_table: dict[str, str]) -> str | None:
     """Resolve a call's target to `module.symbol`, one attribute level deep at most.
 
-    `import a.b.c` then `a.b.c.d()` is not resolved: only a bare imported
-    name, or one attribute access on a bare imported name, is. Deeper
-    attribute chains are rare in practice and this mirrors the "a method
-    call on a local variable is not recorded" scope limit already in §7.
+    Resolves a bare imported name, or one attribute access on a bare
+    imported name. A chain of the form `import a.b.c` then `a.b.c.d()` is
+    not resolved.
     """
     func = call.func
     if isinstance(func, ast.Name):

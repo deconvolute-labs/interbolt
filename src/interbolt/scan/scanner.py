@@ -27,14 +27,13 @@ def scan_repository(
     """Scan a Python repository and return the artifact `interbolt scan` writes.
 
     Reads source with the `ast` module only: never imports the scanned
-    code, never executes it, and makes no network call unless a remote
-    policy is configured, which this release does not support. Tools are
-    discovered by decorator only (§6.2 of `dev/features/scanner.md`); no
-    policy is consulted, so every agent's `verdict` is `Verdict.NO_POLICY`.
+    code, never executes it, and makes no network call. Tools are
+    discovered by decorator only; no policy is consulted, so every agent's
+    `verdict` is `Verdict.NO_POLICY`.
 
     Args:
-        path: The scan root, or `None` to resolve it per §6.1 (`src/` if it
-            exists at the current directory, else the current directory).
+        path: The scan root, or `None` to resolve it as `src/` if it exists
+            at the current directory, else the current directory.
         exclude: `--exclude` globs, additive to the default exclusions.
         depth: The maximum call-hop depth for evidence collection.
 

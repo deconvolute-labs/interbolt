@@ -1,9 +1,7 @@
-"""Tool discovery by decorator (§6.2 of `dev/features/scanner.md`).
+"""Tool discovery by decorator.
 
-Schema-literal detection, registration/MCP detection, and policy-name
-grounding are out of scope for PR1 (§12: PR2/PR3); this module matches only
-the five decorator forms LangChain, the OpenAI Agents SDK, FastMCP, and
-Interbolt's `@guard`/`@<handle>.guard` ship.
+Matches the five decorator forms LangChain, the OpenAI Agents SDK, FastMCP,
+and Interbolt's `@guard`/`@<handle>.guard` ship.
 """
 
 from __future__ import annotations
@@ -84,13 +82,13 @@ def _collect_function(
     matches_by_name: dict[str, list[_Match]],
     undetected: list[ScanUndetected],
 ) -> None:
-    """Match every decorator on one function def against the §6.2 table.
+    """Match every decorator on one function def against the recognized forms.
 
     When more than one decorator matches, an Interbolt match (`@guard` or
     `@<handle>.guard`) is authoritative for the name and detail, since
-    `tool=` is the user's explicit assertion (§3.1); `guarded` is set
-    whenever any matched decorator is Interbolt, independent of which one
-    is authoritative.
+    `tool=` is the user's explicit assertion; `guarded` is set whenever any
+    matched decorator is Interbolt, independent of which one is
+    authoritative.
     """
     resolved = [
         r
@@ -217,7 +215,7 @@ def _attribute_chain_text(node: ast.expr) -> str:
 def _resolve_decorator(
     decorator: ast.expr, func_name: str
 ) -> tuple[str, str, bool, str, str | None] | None:
-    """Match `decorator` against the §6.2 table and resolve its tool name.
+    """Match `decorator` against the recognized decorator forms and resolve a tool name.
 
     Returns `(framework, decorator_display, is_interbolt, raw_name,
     source)`, or `None` if `decorator` does not match any recognized form.

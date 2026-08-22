@@ -1,10 +1,10 @@
 """Repository identity, read directly from `.git`. Never a `git` subprocess.
 
 A repository-local `.git/config` can set `core.fsmonitor` or similar to run
-an arbitrary command on an ordinary `git` invocation, which makes shelling
-out to `git` inside an untrusted checkout a code-execution channel. Every
-field here is read from the filesystem instead, bounded, and degrades to
-`None` on any failure rather than raising.
+an arbitrary command on an ordinary `git` invocation, so shelling out to
+`git` inside an untrusted checkout is a code-execution risk. Every field
+here is read from the filesystem, bounded, and degrades to `None` on any
+failure.
 """
 
 from __future__ import annotations
