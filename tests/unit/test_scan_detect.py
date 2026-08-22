@@ -325,3 +325,55 @@ class TestSortOrder:
         )
         tools, _, _ = detect_decorated_tools(trees)
         assert [t.qualified_name for t in tools] == ["aaa.first", "zzz.last"]
+
+
+class TestSignature:
+    """End-to-end wiring only; rendering shapes are `test_scan_signature.py`'s job."""
+
+    def test_signature_populated_from_resolved_definition(self) -> None:
+        trees = _trees(
+            **{
+                "a.py": """
+                from interbolt import guard
+
+                @guard
+                def send_email(to: str, body: str) -> None: ...
+                """
+            }
+        )
+        tools, _, _ = detect_decorated_tools(trees)
+        assert tools[0].signature == "(to: str, body: str) -> None"
+
+    def test_async_def_signature_also_populated(self) -> None:
+        trees = _trees(
+            **{
+                "a.py": """
+                from interbolt import guard
+
+                @guard
+                async def send_email(to: str) -> None: ...
+                """
+            }
+        )
+        tools, _, _ = detect_decorated_tools(trees)
+        assert tools[0].signature == "(to: str) -> None"
+
+    def test_bidi_override_in_default_flows_through_escaped_not_raw(self) -> None:
+        bidi = "‮"  # RIGHT-TO-LEFT OVERRIDE, the Trojan Source character
+        trees = _trees(
+            **{
+                "a.py": f"""
+                from interbolt import guard
+
+                @guard
+                def send_email(to: str, cc: str = "a{bidi}b") -> None: ...
+                """
+            }
+        )
+        tools, collisions, undetected = detect_decorated_tools(trees)
+        assert not collisions
+        assert not undetected
+        assert len(tools) == 1
+        assert tools[0].qualified_name == "default.send_email"
+        assert tools[0].signature is not None
+        assert bidi not in tools[0].signature

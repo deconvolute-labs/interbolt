@@ -180,6 +180,7 @@ class ScanTool(BaseModel):
 
     qualified_name: str
     definition: ScanDefinition | None
+    signature: str | None  # "(to: str, body: str) -> None"
     discovery: Discovery
     detector_detail: str
     declared: bool

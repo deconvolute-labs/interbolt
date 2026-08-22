@@ -20,6 +20,7 @@ from interbolt.scan.artifact import (
     ScanUndetected,
     UndetectedKind,
 )
+from interbolt.scan.signature import render_signature
 from interbolt.utils.names import qualify_tool_name
 
 
@@ -29,6 +30,7 @@ class _Match:
 
     qualified_name: str
     definition: ScanDefinition
+    signature: str | None
     detector_detail: str
     guarded: bool
 
@@ -120,6 +122,7 @@ def _collect_function(
     match = _Match(
         qualified_name=qualified_name,
         definition=ScanDefinition(path=path, line=node.lineno, symbol=node.name),
+        signature=render_signature(node),
         detector_detail=_detector_detail(framework, display, source, qualified_name),
         guarded=guarded,
     )
@@ -151,6 +154,7 @@ def _resolve_collisions(
             ScanTool(
                 qualified_name=match.qualified_name,
                 definition=match.definition,
+                signature=match.signature,
                 discovery=Discovery.DECORATOR,
                 detector_detail=match.detector_detail,
                 declared=False,
