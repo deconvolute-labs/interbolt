@@ -86,6 +86,18 @@ def _add_scan_args(parser: argparse.ArgumentParser) -> None:
         default=1,
         help="Evidence call-hop depth (default: 1)",
     )
+    parser.add_argument(
+        "--policy",
+        default=None,
+        metavar="PATH",
+        help="Classify tools and compute coverage against a policy file",
+    )
+    parser.add_argument(
+        "--fail-on",
+        choices=("none", "undeclared"),
+        default="none",
+        help="Exit 1 when the condition holds. 'undeclared' requires --policy",
+    )
 
 
 # Part two: the shared parent every leaf subparser inherits.

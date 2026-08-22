@@ -161,12 +161,14 @@ class ScanTool(BaseModel):
         detector_detail: Human-readable provenance, naming the decorator or
             binding site.
         declared: Whether the policy declares `capabilities:` for this tool.
-            Always `False`.
-        capabilities: The declared capabilities, sorted. Always empty.
+            `False` when no policy was given.
+        capabilities: The declared capabilities, sorted. Empty whenever
+            `declared` is `False`.
         guarded: Whether an Interbolt guard decorator (`@guard` or
             `@<handle>.guard`) was found on the definition.
         policy_rules: Names of the rules in this tool's sink entry, in
-            policy order. Always empty.
+            policy order. Empty when the policy has no entry for this tool,
+            or when no policy was given.
         evidence: External symbols this tool's body (or a function it calls)
             reaches, sorted by `(depth, path, line, symbol)`.
     """
@@ -199,9 +201,12 @@ class ScanAgent(BaseModel):
         identity: The agent's binding-site identity. Always unresolved.
         tools: Qualified names of every bound tool, sorted.
         capabilities: Rolled up from the bound tools' declared capabilities,
-            sorted and de-duplicated. Always empty.
-        verdict: The coverage verdict. Always `Verdict.NO_POLICY`.
-        undeclared_tool_count: The undeclared worklist size.
+            sorted and de-duplicated. Empty when no policy was given.
+        verdict: The coverage verdict. `Verdict.NO_POLICY` when no policy
+            was given.
+        undeclared_tool_count: The undeclared worklist size. Equal to
+            `len(tools)` when no policy was given, since every tool is
+            undeclared by construction.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -259,8 +264,8 @@ class ScanPolicyRef(BaseModel):
     """Which policy, if any, coverage was computed against.
 
     Attributes:
-        source: `"file"`, `"remote"`, or `"none"`. Currently always
-            `"none"`.
+        source: `"file"` when `--policy` was given, `"none"` otherwise.
+            `"remote"` is reserved for a future platform-served policy.
         ref: The path, for `"file"`. `None` for `"none"`.
         fingerprint: `Policy.fingerprint`, for `"file"`. `None` for `"none"`.
         scope: Reserved for the platform's scoped projection. Always `None`.
@@ -302,13 +307,13 @@ class ScanArtifact(BaseModel):
         scanner: Which scanner version and detectors produced this artifact.
         repository: Repository identity, read from `.git` directly.
         scan_root: POSIX-relative path from the repository root.
-        policy: Which policy, if any, coverage was computed against. Always
-            `source="none"` currently.
+        policy: Which policy, if any, coverage was computed against.
         agents: Sorted by `key`. Exactly one entry currently.
         tools: Sorted by `qualified_name`.
         undetected: Sorted by `(path, line, kind)`.
         collisions: Sorted by `qualified_name`.
-        unmatched_policy_sinks: Sorted by `sink_key`. Always empty.
+        unmatched_policy_sinks: Sorted by `sink_key`. Empty when no policy
+            was given.
         paths: Reserved for future use. Currently always empty.
     """
 
