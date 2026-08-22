@@ -1,7 +1,7 @@
 """The shared `Match` shape and collision resolution, used by every detector.
 
-A tool's identity is its qualified name, never the detector that found it
-(§3.1 of the design). `resolve_matches` is the single place that turns a
+A tool's identity is its qualified name, never the detector that found it.
+`resolve_matches` is the single place that turns a
 name collected by more than one detector into either one `ScanTool` or a
 `ScanCollision`, so a decorator match and a schema-literal match landing on
 the same qualified name collide correctly regardless of which detector saw
@@ -41,7 +41,7 @@ def _dedupe_same_definition(matches: list[Match]) -> list[Match]:
     same tool discovered twice: a decorator-discovered function whose name
     also appears in an unrelated `tools=` schema list resolves to one
     definition site either way. When that happens, keep the match from the
-    strongest detector (`discovery`'s own ranking, §5.2), since it carries
+    strongest detector (`discovery`'s own ranking), since it carries
     the most accurate `guarded`/`detector_detail`.
     """
     by_definition: dict[tuple[str, int, str], list[Match]] = {}

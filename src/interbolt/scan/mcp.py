@@ -2,7 +2,7 @@
 
 A file named `mcp.json` or `.mcp.json`, or any JSON file with a top-level
 `mcpServers` key, configures a set of MCP servers. Connecting to one to
-enumerate its tools is out of scope (§2, "Out of scope for v1"); each
+enumerate its tools is out of scope; each
 configured server is instead reported as unreadable surface.
 """
 

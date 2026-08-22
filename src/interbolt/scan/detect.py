@@ -4,7 +4,7 @@ Decorator matching here matches the five forms LangChain, the OpenAI Agents
 SDK, FastMCP, and Interbolt's `@guard`/`@<handle>.guard` ship.
 `detect_tools` is the combined entry point: it merges decorator matches with
 `literal.py`'s schema-literal matches before resolving collisions once, so
-identity (the qualified name, §3.1) governs regardless of which detector
+identity (the qualified name) governs regardless of which detector
 found a tool, and folds in `registry.py`'s registration blind spots.
 """
 
@@ -35,7 +35,7 @@ def detect_tools(
     Merges decorator matches and schema-literal matches into one
     `qualified_name`-keyed pool before resolving, so a name discovered by
     both counts as a collision regardless of which detector found it
-    (identity is the qualified name, never the detector, per §3.1).
+    (identity is the qualified name).
 
     Args:
         trees: Every scanned file's parsed module, keyed by its
