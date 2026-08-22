@@ -185,6 +185,7 @@ interbolt policy init [path]              # write a starter policy; refuses to o
 interbolt policy validate policy.yaml     # schema and CEL checks only, safe for CI
 interbolt policy explain policy.yaml --agent support-agent
 interbolt run inspect provenance.jsonl    # render a JsonlReporter log as a tree
+interbolt scan                            # inventory every tool, with evidence
 ```
 
 Every command takes `--format text|json`, `--quiet`, and `--no-color`. Exit codes

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from interbolt.constants import DEFAULT_NAMESPACE
 from interbolt.errors import InterboltConfigError
 
 _ENDORSEMENT_KIND_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -108,3 +109,28 @@ def split_qualified_name(value: str) -> tuple[str, str] | None:
     validate_qualified_name_part(namespace, part="namespace")
     validate_qualified_name_part(tool, part="tool")
     return namespace, tool
+
+
+def qualify_tool_name(tool: str) -> str:
+    """Resolve a bare or explicitly-qualified tool name to its dotted form.
+
+    A bare name (no dot) gets `constants.DEFAULT_NAMESPACE` prepended. A
+    dotted name is treated as already-qualified `namespace.tool`. Shared by
+    `runtime/guard.py` (`@guard`, `check()`) and `scan/detect.py`, so a
+    decorator's bare name and the runtime's resolution of that same name
+    always agree.
+
+    Args:
+        tool: The candidate tool name, bare or already dotted.
+
+    Returns:
+        The dotted `namespace.tool` name.
+
+    Raises:
+        InterboltConfigError: If `tool` is an ambiguous dotted name (its
+            namespace or tool half itself contains a dot).
+    """
+    if split_qualified_name(tool) is not None:
+        return tool
+    validate_qualified_name_part(tool, part="tool")
+    return f"{DEFAULT_NAMESPACE}.{tool}"

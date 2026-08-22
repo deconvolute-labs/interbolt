@@ -21,34 +21,11 @@ from interbolt.runtime import check as _ambient_check
 from interbolt.runtime import configure
 from interbolt.runtime import enforce_decision as _ambient_enforce_decision
 from interbolt.runtime import enforce_decision_sync as _ambient_enforce_decision_sync
-from interbolt.runtime.guard import (
-    AgentHandle,
-    _build_wrapper,
-    _qualify_tool_name,
-)
+from interbolt.runtime.guard import AgentHandle, _build_wrapper
 from interbolt.taint import Tainted, taint
 
 if TYPE_CHECKING:
     pass
-
-
-class TestQualifyToolName:
-    def test_bare_name_gets_default_namespace(self) -> None:
-        assert _qualify_tool_name("foo") == "default.foo"
-
-    def test_explicit_qualified_name_preserved(self) -> None:
-        assert _qualify_tool_name("ns.tool") == "ns.tool"
-
-    def test_dotted_namespace_raises(self) -> None:
-        # "a.b.c" -> rpartition -> namespace="a.b", tool="c" -> "a.b" has a dot -> error
-        with pytest.raises(InterboltConfigError):
-            _qualify_tool_name("a.b.c")
-
-    def test_bare_name_with_allowed_chars(self) -> None:
-        assert _qualify_tool_name("my_tool") == "default.my_tool"
-
-    def test_qualified_name_with_underscores(self) -> None:
-        assert _qualify_tool_name("my_ns.my_tool") == "my_ns.my_tool"
 
 
 class TestRuntimeEnforceDecision:

@@ -73,6 +73,9 @@ artifacts = [
 line-length = 88
 target-version = "py312"
 src = ["src", "tests"]
+# Scan fixture trees are stand-ins for an arbitrary third-party repository
+# being scanned, not this project's own code, so they are not linted as such.
+extend-exclude = ["tests/scan_fixtures"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "S", "UP", "ANN", "BLE", "D"] # pycodestyle, pyflakes, isort, bugbear, pydocstyle
@@ -98,6 +101,10 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true  # Force you to write types for every function
 ignore_missing_imports = true # Prevents errors if a 3rd party lib has no types
+# Scan fixture trees are stand-ins for an arbitrary third-party repository
+# being scanned, not this project's own code, so they are not type-checked
+# as such; several deliberately share a module name across fixture trees.
+exclude = ["tests/scan_fixtures/"]
 
 [[tool.mypy.overrides]]
 module = "tests.*"

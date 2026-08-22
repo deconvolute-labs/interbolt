@@ -7,6 +7,7 @@ import argparse
 from interbolt import __version__
 from interbolt.cli.commands_policy import _explain, _init, _validate
 from interbolt.cli.commands_run import _inspect
+from interbolt.cli.commands_scan import _scan
 from interbolt.cli.exit_codes import EXIT_INTERNAL
 from interbolt.cli.render import build_console
 
@@ -59,6 +60,34 @@ def _add_inspect_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--run-id", default=None, help="Only render this run_id")
 
 
+def _add_scan_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "path",
+        nargs="?",
+        default=None,
+        metavar="PATH",
+        help="Scan root (default: src/ if it exists, else the current directory)",
+    )
+    parser.add_argument(
+        "--out",
+        default=".interbolt/scan.json",
+        help="Artifact path, or '-' for stdout (default: .interbolt/scan.json)",
+    )
+    parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="GLOB",
+        help="Exclude paths matching GLOB. Repeatable, additive to the defaults",
+    )
+    parser.add_argument(
+        "--depth",
+        type=int,
+        default=1,
+        help="Evidence call-hop depth (default: 1)",
+    )
+
+
 # Part two: the shared parent every leaf subparser inherits.
 
 
@@ -77,7 +106,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="interbolt")
     parser.add_argument("--version", action="version", version=__version__)
     subparsers = parser.add_subparsers(
-        dest="command", required=True, metavar="{policy,run}"
+        dest="command", required=True, metavar="{policy,run,scan}"
     )
     parent = _global_parser()
 
@@ -116,6 +145,14 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_inspect_args(p)
     p.set_defaults(handler=_inspect)
+
+    p = subparsers.add_parser(
+        "scan",
+        parents=[parent],
+        help="Inventory the tools a Python repository's agent can call.",
+    )
+    _add_scan_args(p)
+    p.set_defaults(handler=_scan)
 
     return parser
 
