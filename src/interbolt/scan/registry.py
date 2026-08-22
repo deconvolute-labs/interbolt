@@ -1,9 +1,8 @@
 """Dynamic tool registration: calls the scanner can see but cannot enumerate.
 
 A call to `register_tool`, `add_tool`, `register`, `add_tools`, or a `.tool(`
-call outside decorator position, hands a tool to the runtime through a value
-the scanner cannot resolve statically. These are reported as blind spots,
-never as discovered tools.
+call outside decorator position hands a tool to the runtime through a value
+the scanner cannot resolve statically. These are reported as blind spots.
 """
 
 from __future__ import annotations

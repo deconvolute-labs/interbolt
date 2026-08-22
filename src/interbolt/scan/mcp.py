@@ -1,9 +1,9 @@
 """MCP server configuration: detected, never enumerated.
 
 A file named `mcp.json` or `.mcp.json`, or any JSON file with a top-level
-`mcpServers` key, configures a set of MCP servers. Connecting to one to
-enumerate its tools is out of scope; each
-configured server is instead reported as unreadable surface.
+`mcpServers` key, configures a set of MCP servers. The scanner does not
+connect to a server to enumerate its tools; each configured server is
+reported as unreadable surface instead.
 """
 
 from __future__ import annotations
@@ -93,11 +93,10 @@ def _server_entries(path: str, source: str, servers: object) -> list[ScanUndetec
 def _locate_key(source: str, key: str) -> int:
     """The 1-indexed line of `key`'s first appearance as a JSON object key.
 
-    A best-effort text search for `"key":` rather than a real JSON parse
-    with position tracking, since the standard library's parser discards
-    positions. Falls back to line 1 if the key's quoted form does not
-    appear verbatim, which can happen for a key containing a character
-    `json.dumps` would escape.
+    Found by a text search for `key`'s quoted form, since the standard
+    library's JSON parser discards position information. Falls back to
+    line 1 if the quoted form does not appear verbatim, which can happen
+    for a key containing a character `json.dumps` would escape.
     """
     needle = json.dumps(key)
     index = source.find(needle)

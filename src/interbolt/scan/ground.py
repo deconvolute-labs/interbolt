@@ -5,9 +5,6 @@ already discoverable from source is resolved the same way a schema-literal
 name is (`literal.index_module_functions`): by a unique module-level
 function name match.
 
-Not yet wired into `scan_repository()`. `--policy` and the CLI surface that
-would call this land with coverage computation; this module exists so that
-work has the grounding algorithm ready to call.
 """
 
 from __future__ import annotations
@@ -31,18 +28,14 @@ def ground_policy_names(
         trees: Every scanned file's parsed module, keyed by its
             scan-root-relative POSIX path.
         policy: The policy whose declared sink keys become candidate tool
-            names. Every key in `policy.document.sinks`, not just
-            `policy.tool_capabilities`, is a candidate: a bare entry with
-            neither `capabilities:` nor `rules:` is exactly what the
-            recovery loop this function supports depends on.
+            names. Uses every key in `policy.document.sinks`, not just
+            `policy.tool_capabilities`, which excludes sinks with no
+            declared capabilities.
 
     Returns:
         `(resolved_tools, unresolved_keys)`. A resolved key becomes a
         `ScanTool` with `discovery=Discovery.POLICY_NAME`. A key matching
-        zero or more than one function collapses into the same
-        "unresolved" outcome, since the caller reports it as an
-        `unmatched_policy_sinks` entry, which has no field to distinguish
-        the two failure modes the way `UndetectedKind` does.
+        zero or more than one function is reported as unresolved either way.
     """
     functions_by_name = index_module_functions(trees)
     resolved: list[ScanTool] = []
