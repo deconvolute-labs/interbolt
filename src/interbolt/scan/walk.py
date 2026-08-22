@@ -54,10 +54,22 @@ def walk_python_files(
 ) -> tuple[list[Path], bool]:
     """Discover every `*.py` file under `scan_root`, bounded and exclusion-aware.
 
-    Symbolic links are never followed, for directories or for files.
-    Directories named in `DEFAULT_EXCLUDED_DIRS`, plus every `--exclude`
-    glob (matched against the scan-root-relative POSIX path), are skipped.
-    The walk stops once `constants.SCAN_MAX_FILES` files have been found.
+    Args:
+        scan_root: The resolved scan root.
+        exclude: User-supplied `--exclude` globs, additive to the defaults.
+
+    Returns:
+        `(files, truncated)`: the discovered files in a deterministic
+        (sorted-per-directory) order, and whether the file-count bound
+        stopped the walk before it finished.
+    """
+    return _walk_files(scan_root, exclude, suffix=".py")
+
+
+def walk_json_files(scan_root: Path, exclude: Sequence[str]) -> tuple[list[Path], bool]:
+    """Discover every `*.json` file under `scan_root`, bounded and exclusion-aware.
+
+    Used to find MCP server configuration, which is JSON rather than Python.
 
     Args:
         scan_root: The resolved scan root.
@@ -68,6 +80,19 @@ def walk_python_files(
         (sorted-per-directory) order, and whether the file-count bound
         stopped the walk before it finished.
     """
+    return _walk_files(scan_root, exclude, suffix=".json")
+
+
+def _walk_files(
+    scan_root: Path, exclude: Sequence[str], *, suffix: str
+) -> tuple[list[Path], bool]:
+    """Discover every file with `suffix` under `scan_root`, bounded and exclusion-aware.
+
+    Symbolic links are never followed, for directories or for files.
+    Directories named in `DEFAULT_EXCLUDED_DIRS`, plus every `--exclude`
+    glob (matched against the scan-root-relative POSIX path), are skipped.
+    The walk stops once `constants.SCAN_MAX_FILES` files have been found.
+    """
     files: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(scan_root, followlinks=False):
         current = Path(dirpath)
@@ -77,7 +102,7 @@ def walk_python_files(
             if name not in DEFAULT_EXCLUDED_DIRS and not (current / name).is_symlink()
         )
         for filename in sorted(filenames):
-            if not filename.endswith(".py"):
+            if not filename.endswith(suffix):
                 continue
             file_path = current / filename
             if file_path.is_symlink():

@@ -1,15 +1,18 @@
-"""Tool discovery by decorator.
+"""Tool discovery: decorator matching, and combining it with the other detectors.
 
-Matches the five decorator forms LangChain, the OpenAI Agents SDK, FastMCP,
-and Interbolt's `@guard`/`@<handle>.guard` ship.
+Decorator matching here matches the five forms LangChain, the OpenAI Agents
+SDK, FastMCP, and Interbolt's `@guard`/`@<handle>.guard` ship.
+`detect_tools` is the combined entry point: it merges decorator matches with
+`literal.py`'s schema-literal matches before resolving collisions once, so
+identity (the qualified name) governs regardless of which detector
+found a tool, and folds in `registry.py`'s registration blind spots.
 """
 
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
 
-from interbolt.scan import security
+from interbolt.scan import registry, security
 from interbolt.scan.artifact import (
     Discovery,
     ScanCollision,
@@ -18,25 +21,51 @@ from interbolt.scan.artifact import (
     ScanUndetected,
     UndetectedKind,
 )
+from interbolt.scan.literal import collect_schema_literal_matches
+from interbolt.scan.matches import Match, resolve_matches
 from interbolt.scan.signature import render_signature
 from interbolt.utils.names import qualify_tool_name
 
 
-@dataclass(frozen=True)
-class _Match:
-    """One decorator match on one function, before collision resolution."""
+def detect_tools(
+    trees: dict[str, ast.Module],
+) -> tuple[list[ScanTool], list[ScanCollision], list[ScanUndetected]]:
+    """Run every wired detector and resolve collisions once, across all of them.
 
-    qualified_name: str
-    definition: ScanDefinition
-    signature: str | None
-    detector_detail: str
-    guarded: bool
+    Merges decorator matches and schema-literal matches into one
+    `qualified_name`-keyed pool before resolving, so a name discovered by
+    both counts as a collision regardless of which detector found it
+    (identity is the qualified name).
+
+    Args:
+        trees: Every scanned file's parsed module, keyed by its
+            scan-root-relative POSIX path.
+
+    Returns:
+        `(tools, collisions, undetected)`.
+    """
+    decorator_matches, decorator_undetected = collect_decorator_matches(trees)
+    literal_matches, literal_undetected = collect_schema_literal_matches(trees)
+
+    matches_by_name: dict[str, list[Match]] = {}
+    for name, matches in decorator_matches.items():
+        matches_by_name.setdefault(name, []).extend(matches)
+    for name, matches in literal_matches.items():
+        matches_by_name.setdefault(name, []).extend(matches)
+
+    tools, collisions = resolve_matches(matches_by_name)
+    undetected = [
+        *decorator_undetected,
+        *literal_undetected,
+        *registry.detect_registration(trees),
+    ]
+    return tools, collisions, undetected
 
 
 def detect_decorated_tools(
     trees: dict[str, ast.Module],
 ) -> tuple[list[ScanTool], list[ScanCollision], list[ScanUndetected]]:
-    """Find every decorator-discovered tool across a parsed file set.
+    """Find every decorator-discovered tool across a parsed file set, in isolation.
 
     Args:
         trees: Every scanned file's parsed module, keyed by its
@@ -49,7 +78,25 @@ def detect_decorated_tools(
         unsafe discovered name) and `traversal_truncated` (an AST branch
         past the depth bound) entries.
     """
-    matches_by_name: dict[str, list[_Match]] = {}
+    matches_by_name, undetected = collect_decorator_matches(trees)
+    tools, collisions = resolve_matches(matches_by_name)
+    return tools, collisions, undetected
+
+
+def collect_decorator_matches(
+    trees: dict[str, ast.Module],
+) -> tuple[dict[str, list[Match]], list[ScanUndetected]]:
+    """Find every decorator match, without resolving collisions yet.
+
+    Args:
+        trees: Every scanned file's parsed module, keyed by its
+            scan-root-relative POSIX path.
+
+    Returns:
+        `(matches_by_name, undetected)`, for merging against another
+        detector's matches before a single, combined collision resolution.
+    """
+    matches_by_name: dict[str, list[Match]] = {}
     undetected: list[ScanUndetected] = []
 
     for path, tree in trees.items():
@@ -72,14 +119,13 @@ def detect_decorated_tools(
                 continue
             _collect_function(path, node, matches_by_name, undetected)
 
-    tools, collisions = _resolve_collisions(matches_by_name)
-    return tools, collisions, undetected
+    return matches_by_name, undetected
 
 
 def _collect_function(
     path: str,
     node: ast.FunctionDef | ast.AsyncFunctionDef,
-    matches_by_name: dict[str, list[_Match]],
+    matches_by_name: dict[str, list[Match]],
     undetected: list[ScanUndetected],
 ) -> None:
     """Match every decorator on one function def against the recognized forms.
@@ -117,54 +163,15 @@ def _collect_function(
         return
 
     qualified_name = qualify_tool_name(raw_name)
-    match = _Match(
+    match = Match(
         qualified_name=qualified_name,
         definition=ScanDefinition(path=path, line=node.lineno, symbol=node.name),
         signature=render_signature(node),
+        discovery=Discovery.DECORATOR,
         detector_detail=_detector_detail(framework, display, source, qualified_name),
         guarded=guarded,
     )
     matches_by_name.setdefault(qualified_name, []).append(match)
-
-
-def _resolve_collisions(
-    matches_by_name: dict[str, list[_Match]],
-) -> tuple[list[ScanTool], list[ScanCollision]]:
-    """Split resolved matches into single-definition tools and collisions."""
-    tools: list[ScanTool] = []
-    collisions: list[ScanCollision] = []
-    for qualified_name, matches in matches_by_name.items():
-        if len(matches) > 1:
-            collisions.append(
-                ScanCollision(
-                    qualified_name=qualified_name,
-                    definitions=tuple(
-                        sorted(
-                            (m.definition for m in matches),
-                            key=lambda d: (d.path, d.line),
-                        )
-                    ),
-                )
-            )
-            continue
-        match = matches[0]
-        tools.append(
-            ScanTool(
-                qualified_name=match.qualified_name,
-                definition=match.definition,
-                signature=match.signature,
-                discovery=Discovery.DECORATOR,
-                detector_detail=match.detector_detail,
-                declared=False,
-                capabilities=(),
-                guarded=match.guarded,
-                policy_rules=(),
-                evidence=(),
-            )
-        )
-    tools.sort(key=lambda t: t.qualified_name)
-    collisions.sort(key=lambda c: c.qualified_name)
-    return tools, collisions
 
 
 def _decorator_shape(decorator: ast.expr) -> tuple[ast.expr, ast.Call | None]:
