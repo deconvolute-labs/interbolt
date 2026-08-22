@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from interbolt import __version__
 from interbolt.constants import SCAN_MAX_FILES, SCAN_SCHEMA_VERSION
 from interbolt.errors import InterboltConfigError
-from interbolt.scan import detect, evidence, repository, security, walk
+from interbolt.scan import detect, evidence, mcp, repository, security, walk
 from interbolt.scan.artifact import (
     ScanAgent,
     ScanAgentIdentity,
@@ -28,8 +28,8 @@ def scan_repository(
 
     Reads source with the `ast` module only: never imports the scanned
     code, never executes it, and makes no network call. Tools are
-    discovered by decorator only; no policy is consulted, so every agent's
-    `verdict` is `Verdict.NO_POLICY`.
+    discovered by decorator and literal schema; no policy is consulted, so
+    every agent's `verdict` is `Verdict.NO_POLICY`.
 
     Args:
         path: The scan root, or `None` to resolve it as `src/` if it exists
@@ -73,10 +73,29 @@ def scan_repository(
             )
         )
 
-    tools, collisions, detect_undetected = detect.detect_decorated_tools(trees)
+    tools, collisions, detect_undetected = detect.detect_tools(trees)
     undetected.extend(detect_undetected)
     tools, evidence_undetected = evidence.collect_all_evidence(tools, trees, depth)
     undetected.extend(evidence_undetected)
+    mcp_undetected, mcp_truncated = mcp.detect_mcp_servers(scan_root, exclude)
+    undetected.extend(mcp_undetected)
+    if mcp_truncated:
+        undetected.append(
+            ScanUndetected(
+                kind=UndetectedKind.FILES_TRUNCATED,
+                path=".",
+                line=0,
+                identifier=None,
+                detail=(
+                    f"the scan stopped after {SCAN_MAX_FILES} JSON files; "
+                    "MCP configuration below may be incomplete"
+                ),
+            )
+        )
+    # `literal.py` and `registry.py` each run their own bounded AST walk
+    # over the same trees `detect.py` walks, so the same truncated branch
+    # can surface once per detector; the artifact reports it once.
+    undetected = list(dict.fromkeys(undetected))
     undetected.sort(key=lambda u: (u.path, u.line, u.kind))
 
     located = repository.locate_repository(scan_root)
@@ -100,7 +119,9 @@ def scan_repository(
     return ScanArtifact(
         schema_version=SCAN_SCHEMA_VERSION,
         scanner=ScanScannerInfo(
-            version=__version__, detectors=("decorator",), evidence_depth=depth
+            version=__version__,
+            detectors=("decorator", "schema_literal"),
+            evidence_depth=depth,
         ),
         repository=repo,
         scan_root=scan_root_relative,
