@@ -7,6 +7,7 @@ import importlib.resources
 from pathlib import Path
 
 from rich.console import Console
+from rich.markup import escape
 
 from interbolt import (
     AgentExplanation,
@@ -26,6 +27,7 @@ from interbolt.cli.render import (
     _print_tool_mention,
     emit_json,
 )
+from interbolt.errors import InterboltConfigError
 
 
 def _validate(args: argparse.Namespace, console: Console) -> int:
@@ -63,7 +65,35 @@ def _validate(args: argparse.Namespace, console: Console) -> int:
     return EXIT_OK
 
 
+def _init_usage_error(args: argparse.Namespace, console: Console, message: str) -> int:
+    if args.format == "json":
+        emit_json(
+            console,
+            {
+                "command": "policy init",
+                "policy_path": args.policy_path,
+                "written": False,
+                "error": message,
+            },
+        )
+    else:
+        console.print(f"[red]✗[/red] {escape(message)}")
+    return EXIT_USAGE
+
+
 def _init(args: argparse.Namespace, console: Console) -> int:
+    if args.non_interactive and args.from_scan is None:
+        return _init_usage_error(
+            args, console, "--non-interactive requires --from-scan"
+        )
+
+    if args.from_scan is not None:
+        try:
+            from interbolt.cli.wizard import run_from_scan
+        except InterboltConfigError as exc:
+            return _init_usage_error(args, console, str(exc))
+        return run_from_scan(args, console)
+
     target = Path(args.policy_path)
     if target.exists():
         message = f"{args.policy_path!r} already exists; remove it first"
