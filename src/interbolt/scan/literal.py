@@ -1,15 +1,17 @@
 """Tool discovery from a `tools=` keyword argument's list value.
 
 A `tools=` keyword is resolved element by element, in three shapes: a
-reference to a function defined or imported in the same file (the dominant
-shape in real code), a dictionary literal in the OpenAI or Anthropic tool
-schema shape, resolved by searching every scanned file's module-level
-functions for a unique name match (the same rule policy name grounding
-reuses, `ground.py`), or a bare name that itself resolves to a module-level
-list constant, whose elements are then resolved the same way. An element
-that resolves to neither shape is counted rather than voiding the whole
-list: the site reports how many of its elements resolved, so a partially
-readable list is never mistaken for a complete or an entirely unreadable one.
+reference to a function, resolved through the referencing file's import
+table to any file in the scanned tree, or to its own module-level
+definitions when the name is not imported, with a unique cross-tree name
+match as a fallback when neither identifies a target; a dictionary literal
+in the OpenAI or Anthropic tool schema shape, resolved by the same
+cross-tree unique-name match (the rule policy name grounding reuses,
+`ground.py`); or a bare name that itself resolves to a module-level list
+constant, whose elements are then resolved the same way. An element that
+resolves to neither shape is counted rather than voiding the whole list:
+the site reports how many of its elements resolved, so a partially readable
+list is never mistaken for a complete or an entirely unreadable one.
 """
 
 from __future__ import annotations
@@ -239,6 +241,7 @@ def _resolve_list_elements(
             if _resolve_reference_element(
                 path,
                 item,
+                functions_by_name,
                 module_functions,
                 import_tables,
                 module_index,
@@ -283,6 +286,7 @@ def _maybe_emit_partial(
 def _resolve_reference_element(
     path: str,
     item: ast.Name | ast.Attribute,
+    functions_by_name: dict[str, list[tuple[str, _FunctionNode]]],
     module_functions: dict[str, dict[str, _FunctionNode]],
     import_tables: dict[str, dict[str, str]],
     module_index: dict[str, str],
@@ -293,7 +297,7 @@ def _resolve_reference_element(
 ) -> bool:
     """Resolve one `ast.Name`/`ast.Attribute` list element to a tool, if it is one."""
     target_path, node = _resolve_reference_target(
-        path, item, module_functions, import_tables, module_index
+        path, item, functions_by_name, module_functions, import_tables, module_index
     )
     if target_path is None or node is None:
         return False
@@ -332,56 +336,65 @@ def _resolve_reference_element(
     return True
 
 
+def _resolve_unique_cross_tree(
+    name: str, functions_by_name: dict[str, list[tuple[str, _FunctionNode]]]
+) -> tuple[str, _FunctionNode] | tuple[None, None]:
+    """The single module-level function named `name` anywhere in the tree, if unique."""
+    candidates = functions_by_name.get(name, [])
+    if len(candidates) != 1:
+        return None, None
+    return candidates[0]
+
+
 def _resolve_reference_target(
     path: str,
     item: ast.Name | ast.Attribute,
+    functions_by_name: dict[str, list[tuple[str, _FunctionNode]]],
     module_functions: dict[str, dict[str, _FunctionNode]],
     import_tables: dict[str, dict[str, str]],
     module_index: dict[str, str],
 ) -> tuple[str, _FunctionNode] | tuple[None, None]:
-    """Resolve a list element to `(path, node)` via one file's imports or definitions.
+    """Resolve a list element to `(path, node)` via imports, definitions, or a fallback.
 
     An `ast.Attribute` (`mod.func`) resolves one hop: `mod` must be a bare
     module import in the same file, resolved to a scanned file via the
     module index. An `ast.Name` resolves through the same file's import
     table when it is a `from X import name` binding (resolved the same
     way), or, when it is not imported at all, as a same-file module-level
-    definition only — the one place an unqualified name could mean
-    anything in Python's own name resolution at this scope.
+    definition. When neither identifies a module, the bare name falls back
+    to a unique module-level function of that name anywhere in the scanned
+    tree; zero or more than one match leaves the reference unresolved.
     """
     import_table = import_tables.get(path, {})
     if isinstance(item, ast.Attribute):
         if not isinstance(item.value, ast.Name):
             return None, None
         base_module = import_table.get(item.value.id)
-        if base_module is None:
-            return None, None
-        target_path = module_index.get(base_module)
-        if target_path is None:
-            return None, None
-        node = module_functions.get(target_path, {}).get(item.attr)
-        if node is None:
-            return None, None
-        return target_path, node
+        if base_module is not None:
+            target_path = module_index.get(base_module)
+            if target_path is not None:
+                node = module_functions.get(target_path, {}).get(item.attr)
+                if node is not None:
+                    return target_path, node
+        return _resolve_unique_cross_tree(item.attr, functions_by_name)
 
     if item.id in import_table:
         resolved = import_table[item.id]
-        if "." not in resolved:
-            # A bare `import mod` binding: a module, never a callable symbol.
-            return None, None
-        module_part, _, attr_part = resolved.rpartition(".")
-        target_path = module_index.get(module_part)
-        if target_path is None:
-            return None, None
-        node = module_functions.get(target_path, {}).get(attr_part)
-        if node is None:
-            return None, None
-        return target_path, node
+        if "." in resolved:
+            module_part, _, attr_part = resolved.rpartition(".")
+            target_path = module_index.get(module_part)
+            if target_path is not None:
+                node = module_functions.get(target_path, {}).get(attr_part)
+                if node is not None:
+                    return target_path, node
+            return _resolve_unique_cross_tree(item.id, functions_by_name)
+        # A bare `import mod` binding: a module, never a callable symbol.
+        return None, None
 
     node = module_functions.get(path, {}).get(item.id)
-    if node is None:
-        return None, None
-    return path, node
+    if node is not None:
+        return path, node
+    return _resolve_unique_cross_tree(item.id, functions_by_name)
 
 
 def _unresolved_tool_list(path: str, value: ast.expr) -> ScanUndetected:

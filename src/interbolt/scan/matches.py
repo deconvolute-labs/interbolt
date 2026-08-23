@@ -10,7 +10,7 @@ them.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from interbolt.scan.artifact import (
     Discovery,
@@ -50,17 +50,26 @@ def _dedupe_same_definition(matches: list[Match]) -> list[Match]:
     same tool discovered twice: a decorator-discovered function whose name
     also appears in an unrelated `tools=` schema list resolves to one
     definition site either way. When that happens, keep the match from the
-    strongest detector (`discovery`'s own ranking), since it carries
-    the most accurate `guarded`/`detector_detail`.
+    strongest detector (`discovery`'s own ranking), since it carries the
+    most accurate `guarded`/`detector_detail` — but still carry over a
+    `binding_site` from another match in the group if the winner has none
+    of its own, since the same tool is still bound by that list.
     """
     by_definition: dict[tuple[str, int, str], list[Match]] = {}
     for match in matches:
         key = (match.definition.path, match.definition.line, match.definition.symbol)
         by_definition.setdefault(key, []).append(match)
-    return [
-        min(group, key=lambda m: _DISCOVERY_STRENGTH[m.discovery])
-        for group in by_definition.values()
-    ]
+    deduped: list[Match] = []
+    for group in by_definition.values():
+        winner = min(group, key=lambda m: _DISCOVERY_STRENGTH[m.discovery])
+        if winner.binding_site is None:
+            borrowed = next(
+                (m.binding_site for m in group if m.binding_site is not None), None
+            )
+            if borrowed is not None:
+                winner = replace(winner, binding_site=borrowed)
+        deduped.append(winner)
+    return deduped
 
 
 def resolve_matches(

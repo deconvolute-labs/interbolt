@@ -21,9 +21,7 @@ _REGISTRATION_NAMES = frozenset({"register_tool", "add_tool", "register", "add_t
 # matching one of these is a real tool declaration, never a registration
 # blind spot, regardless of how broadly the patterns below would match it.
 _CORE_ALLOWLIST_SEGMENTS = frozenset({"tool", "function_tool", "beta_tool", "guard"})
-_BROAD_REGISTRATION_EXACT = frozenset(
-    {"register", "tool", "tools", "action", "call_tool", "list_tools"}
-)
+_BROAD_REGISTRATION_EXACT = frozenset({"action", "call_tool", "list_tools"})
 
 
 def detect_registration(trees: dict[str, ast.Module]) -> list[ScanUndetected]:
