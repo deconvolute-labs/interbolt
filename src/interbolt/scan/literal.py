@@ -4,20 +4,28 @@ A `tools=` keyword is resolved element by element, in three shapes: a
 reference to a function, resolved through the referencing file's import
 table to any file in the scanned tree, or to its own module-level
 definitions when the name is not imported, with a unique cross-tree name
-match as a fallback when neither identifies a target; a dictionary literal
+match as a fallback whenever that resolution fails; a dictionary literal
 in the OpenAI or Anthropic tool schema shape, resolved by the same
 cross-tree unique-name match (the rule policy name grounding reuses,
 `ground.py`); or a bare name that itself resolves to a module-level list
 constant, whose elements are then resolved the same way. An element that
 resolves to neither shape is counted rather than voiding the whole list:
-the site reports how many of its elements resolved, so a partially readable
-list is never mistaken for a complete or an entirely unreadable one.
+the site names which elements resolved and which did not, so a partially
+readable list is never mistaken for a complete or an entirely unreadable
+one.
+
+A `tools=` value that is bound to one of the enclosing function's own
+parameters, or that is an attribute access such as `self.tools`, is
+plumbing rather than a declaration: the function accepts a list from its
+caller rather than naming one itself, and the caller's own site is scanned
+separately. Neither case is treated as unreadable.
 """
 
 from __future__ import annotations
 
 import ast
 
+from interbolt.constants import SCAN_MAX_AST_DEPTH, SCAN_UNRESOLVED_NAMES_SHOWN
 from interbolt.scan import security
 from interbolt.scan.artifact import (
     Discovery,
@@ -26,7 +34,11 @@ from interbolt.scan.artifact import (
     ScanUndetected,
     UndetectedKind,
 )
-from interbolt.scan.imports import build_import_table, build_module_index
+from interbolt.scan.imports import (
+    build_import_table,
+    build_init_files,
+    build_module_index,
+)
 from interbolt.scan.matches import Match
 from interbolt.scan.signature import render_signature
 from interbolt.utils.names import qualify_tool_name
@@ -98,10 +110,11 @@ def collect_schema_literal_matches(
     """
     functions_by_name = index_module_functions(trees)
     module_functions = _index_module_functions_per_file(trees)
+    init_files = build_init_files(trees.keys())
     import_tables = {
-        path: build_import_table(tree, path) for path, tree in trees.items()
+        path: build_import_table(tree, path, init_files) for path, tree in trees.items()
     }
-    module_index = build_module_index(trees.keys())
+    module_index = build_module_index(trees.keys(), init_files)
     matches_by_name: dict[str, list[Match]] = {}
     undetected: list[ScanUndetected] = []
 
@@ -151,7 +164,13 @@ def _collect_tools_keyword(
     matches_by_name: dict[str, list[Match]],
     undetected: list[ScanUndetected],
 ) -> None:
-    """Handle one `tools=` value: a direct list, a named constant, or unreadable."""
+    """Handle one `tools=` value: a list, a named constant, plumbing, or unreadable.
+
+    A value bound to one of the enclosing function's own parameters, or an
+    attribute access such as `self.tools`, is plumbing rather than a
+    declaration and is skipped entirely: nothing is added to `undetected`
+    for it.
+    """
     if isinstance(value, ast.List):
         binding_site = ScanBindingSite(path=path, line=value.lineno)
         _resolve_list_elements(
@@ -168,7 +187,11 @@ def _collect_tools_keyword(
             undetected,
         )
         return
+    if isinstance(value, ast.Attribute):
+        return
     if isinstance(value, ast.Name):
+        if _is_function_parameter(_enclosing_function(trees[path], value), value.id):
+            return
         binding_site = ScanBindingSite(path=path, line=value.lineno)
         target_list = _resolve_module_constant_list(trees[path], value.id)
         if target_list is None:
@@ -189,6 +212,43 @@ def _collect_tools_keyword(
         )
         return
     undetected.append(_unresolved_tool_list(path, value))
+
+
+def _enclosing_function(tree: ast.Module, target: ast.AST) -> _FunctionNode | None:
+    """The nearest enclosing function of `target`, or `None` at module level.
+
+    A bounded, non-recursive stack search rather than a precomputed map
+    over every node: a `tools=` value needing this is rare per file, so
+    searching on demand costs less than indexing every node up front.
+    """
+    stack: list[tuple[ast.AST, int, _FunctionNode | None]] = [(tree, 0, None)]
+    while stack:
+        current, depth, current_fn = stack.pop()
+        if current is target:
+            return current_fn
+        if depth > SCAN_MAX_AST_DEPTH:
+            continue
+        next_fn = (
+            current
+            if isinstance(current, ast.FunctionDef | ast.AsyncFunctionDef)
+            else current_fn
+        )
+        for child in ast.iter_child_nodes(current):
+            stack.append((child, depth + 1, next_fn))
+    return None
+
+
+def _is_function_parameter(function: _FunctionNode | None, name: str) -> bool:
+    """True if `name` is one of `function`'s own parameters, `*args`, or `**kwargs`."""
+    if function is None:
+        return False
+    args = function.args
+    names = {a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)}
+    if args.vararg is not None:
+        names.add(args.vararg.arg)
+    if args.kwarg is not None:
+        names.add(args.kwarg.arg)
+    return name in names
 
 
 def _resolve_module_constant_list(tree: ast.Module, name: str) -> ast.List | None:
@@ -229,16 +289,15 @@ def _resolve_list_elements(
     undetected: list[ScanUndetected],
 ) -> None:
     """Resolve every list element, then report the list as partial if any failed."""
-    resolved_count = 0
+    resolved_names: list[str] = []
+    unresolved_names: list[str] = []
     for item in elts:
         if isinstance(item, ast.Dict):
-            if _resolve_schema_tool_element(
+            ok = _resolve_schema_tool_element(
                 path, item, functions_by_name, matches_by_name, undetected
-            ):
-                resolved_count += 1
-            continue
-        if isinstance(item, ast.Name | ast.Attribute):
-            if _resolve_reference_element(
+            )
+        elif isinstance(item, ast.Name | ast.Attribute):
+            ok = _resolve_reference_element(
                 path,
                 item,
                 functions_by_name,
@@ -249,25 +308,54 @@ def _resolve_list_elements(
                 binding_site,
                 matches_by_name,
                 undetected,
-            ):
-                resolved_count += 1
-            continue
-        # A call, a constant, a comprehension element, or anything else:
-        # counted as unresolved, no specific entry (the partial-list
-        # message below names how many of the list's elements failed).
+            )
+        else:
+            # A call, a constant, a comprehension element, or anything
+            # else: no specific entry of its own, but still named below.
+            ok = False
+        (resolved_names if ok else unresolved_names).append(_element_display_name(item))
 
-    _maybe_emit_partial(path, report_node, len(elts), resolved_count, undetected)
+    _maybe_emit_partial(
+        path, report_node, len(elts), resolved_names, unresolved_names, undetected
+    )
+
+
+def _element_display_name(item: ast.expr) -> str:
+    """A short, readable label for one list element, for a partial-list detail."""
+    if isinstance(item, ast.Name):
+        return item.id
+    if isinstance(item, ast.Attribute):
+        return item.attr
+    if isinstance(item, ast.Dict):
+        name = _schema_dict_name(item)
+        return name if name is not None else _expression_kind(item)
+    return _expression_kind(item)
+
+
+def _format_names(names: list[str]) -> str:
+    """Render up to `SCAN_UNRESOLVED_NAMES_SHOWN` names, `+N more` beyond that."""
+    if not names:
+        return "none"
+    shown = names[:SCAN_UNRESOLVED_NAMES_SHOWN]
+    remainder = len(names) - len(shown)
+    rendered = ", ".join(shown)
+    return f"{rendered}, +{remainder} more" if remainder else rendered
 
 
 def _maybe_emit_partial(
     path: str,
     report_node: ast.expr,
     total: int,
-    resolved: int,
+    resolved_names: list[str],
+    unresolved_names: list[str],
     undetected: list[ScanUndetected],
 ) -> None:
-    """Report a list as unresolved_tool_list when fewer than all elements resolved."""
-    if total == 0 or resolved == total:
+    """Report a list as unresolved_tool_list when fewer than all elements resolved.
+
+    Names which elements resolved and which did not, rather than only a
+    count, so a resolution failure is diagnosable from the artifact alone.
+    """
+    if total == 0 or not unresolved_names:
         return
     undetected.append(
         ScanUndetected(
@@ -276,8 +364,9 @@ def _maybe_emit_partial(
             line=report_node.lineno,
             identifier=None,
             detail=(
-                f"tools= list has {total} elements; {resolved} resolved to "
-                f"tools, {total - resolved} did not"
+                f"tools= list has {total} elements; "
+                f"resolved: {_format_names(resolved_names)}; "
+                f"unresolved: {_format_names(unresolved_names)}"
             ),
         )
     )
@@ -361,9 +450,10 @@ def _resolve_reference_target(
     module index. An `ast.Name` resolves through the same file's import
     table when it is a `from X import name` binding (resolved the same
     way), or, when it is not imported at all, as a same-file module-level
-    definition. When neither identifies a module, the bare name falls back
-    to a unique module-level function of that name anywhere in the scanned
-    tree; zero or more than one match leaves the reference unresolved.
+    definition. On any resolution failure past that point, the bare name
+    falls back to a unique module-level function of that name anywhere in
+    the scanned tree; zero or more than one match leaves the reference
+    unresolved.
     """
     import_table = import_tables.get(path, {})
     if isinstance(item, ast.Attribute):
@@ -387,9 +477,10 @@ def _resolve_reference_target(
                 node = module_functions.get(target_path, {}).get(attr_part)
                 if node is not None:
                     return target_path, node
-            return _resolve_unique_cross_tree(item.id, functions_by_name)
-        # A bare `import mod` binding: a module, never a callable symbol.
-        return None, None
+        # A bare `import mod` binding, or a dotted one whose module or
+        # symbol did not resolve: falls back the same way a missing
+        # import-table entry would.
+        return _resolve_unique_cross_tree(item.id, functions_by_name)
 
     node = module_functions.get(path, {}).get(item.id)
     if node is not None:
