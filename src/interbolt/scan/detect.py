@@ -1,11 +1,13 @@
 """Tool discovery: decorator matching, and combining it with the other detectors.
 
-Decorator matching here matches the five forms LangChain, the OpenAI Agents
-SDK, FastMCP, and Interbolt's `@guard`/`@<handle>.guard` ship.
-`detect_tools` is the combined entry point: it merges decorator matches with
-`literal.py`'s schema-literal matches before resolving collisions once, so
-identity (the qualified name) governs regardless of which detector
-found a tool, and folds in `registry.py`'s registration blind spots.
+Decorator matching here matches the six forms LangChain, the OpenAI Agents
+SDK, FastMCP, the Anthropic SDK, and Interbolt's `@guard`/`@<handle>.guard`
+ship. `detect_tools` is the combined entry point: it merges decorator
+matches with `literal.py`'s list-based and schema-literal matches before
+resolving collisions once, so identity (the qualified name) governs
+regardless of which detector found a tool, folds in `registry.py`'s
+registration blind spots, and backstops a codebase that calls a model and
+declares no tools any detector recognized.
 """
 
 from __future__ import annotations
@@ -32,10 +34,11 @@ def detect_tools(
 ) -> tuple[list[ScanTool], list[ScanCollision], list[ScanUndetected]]:
     """Run every wired detector and resolve collisions once, across all of them.
 
-    Merges decorator matches and schema-literal matches into one
+    Merges decorator matches and `literal.py`'s matches (`tools=` list
+    references, module constants, and dict-literal schemas) into one
     `qualified_name`-keyed pool before resolving, so a name discovered by
-    both counts as a collision regardless of which detector found it
-    (identity is the qualified name).
+    more than one detector counts as a collision regardless of which one
+    found it (identity is the qualified name).
 
     Args:
         trees: Every scanned file's parsed module, keyed by its
@@ -59,7 +62,58 @@ def detect_tools(
         *literal_undetected,
         *registry.detect_registration(trees),
     ]
+    if not tools and _has_model_call_site(trees):
+        undetected.append(
+            ScanUndetected(
+                kind=UndetectedKind.UNDETECTED_TOOL_SURFACE,
+                path=".",
+                line=0,
+                identifier=None,
+                detail=(
+                    "the codebase appears to run an agent, and no tool "
+                    "declaration mechanism was recognized"
+                ),
+            )
+        )
     return tools, collisions, undetected
+
+
+_MODEL_CALL_SUFFIXES = (
+    ("chat", "completions", "create"),
+    ("messages", "create"),
+    ("responses", "create"),
+    ("Runner", "run"),
+)
+
+
+def _call_chain_segments(node: ast.expr) -> list[str] | None:
+    """The dotted segments of a call target (`a.b.c` -> `[a, b, c]`), or `None`."""
+    if isinstance(node, ast.Name):
+        return [node.id]
+    if isinstance(node, ast.Attribute):
+        base = _call_chain_segments(node.value)
+        return None if base is None else [*base, node.attr]
+    return None
+
+
+def _has_model_call_site(trees: dict[str, ast.Module]) -> bool:
+    """Whether any scanned file calls a recognized model-client method.
+
+    Matched by dotted-segment suffix (never a naive string `endswith`, which
+    would false-positive on e.g. `notchat.completions.create`).
+    """
+    for tree in trees.values():
+        for node, _depth, truncated in security.walk_ast_bounded(tree):
+            if truncated or not isinstance(node, ast.Call):
+                continue
+            chain = _call_chain_segments(node.func)
+            if chain is None:
+                continue
+            if any(
+                chain[-len(suffix) :] == list(suffix) for suffix in _MODEL_CALL_SUFFIXES
+            ):
+                return True
+    return False
 
 
 def detect_decorated_tools(
@@ -72,11 +126,11 @@ def detect_decorated_tools(
             scan-root-relative POSIX path.
 
     Returns:
-        `(tools, collisions, undetected)`. `tools` has no duplicate
-        `qualified_name`: a colliding name is excluded from it and reported
-        only in `collisions`. `undetected` carries `rejected_name` (an
-        unsafe discovered name) and `traversal_truncated` (an AST branch
-        past the depth bound) entries.
+        `(tools, collisions, undetected)`. A name with more than one
+        definition site still gets one `tools` entry, with `collision=True`
+        and no resolved definition, alongside its `collisions` entry.
+        `undetected` carries `rejected_name` (an unsafe discovered name) and
+        `traversal_truncated` (an AST branch past the depth bound) entries.
     """
     matches_by_name, undetected = collect_decorator_matches(trees)
     tools, collisions = resolve_matches(matches_by_name)
@@ -259,6 +313,11 @@ def _resolve_decorator(
         if name is not None:
             return "openai agents sdk", display, False, name, "name_override"
         return "openai agents sdk", display, False, func_name, None
+    if segment == "beta_tool" and not is_attribute:
+        name = _string_keyword(call, "name")
+        if name is not None:
+            return "anthropic sdk", display, False, name, "name"
+        return "anthropic sdk", display, False, func_name, None
     if segment == "guard":
         name = _string_keyword(call, "tool")
         if name is not None:

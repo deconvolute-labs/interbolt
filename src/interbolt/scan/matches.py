@@ -12,7 +12,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from interbolt.scan.artifact import Discovery, ScanCollision, ScanDefinition, ScanTool
+from interbolt.scan.artifact import (
+    Discovery,
+    ScanBindingSite,
+    ScanCollision,
+    ScanDefinition,
+    ScanTool,
+)
 
 
 @dataclass(frozen=True)
@@ -25,12 +31,15 @@ class Match:
     discovery: Discovery
     detector_detail: str
     guarded: bool
+    binding_site: ScanBindingSite | None = None
 
 
 _DISCOVERY_STRENGTH = {
     Discovery.DECORATOR: 0,
-    Discovery.SCHEMA_LITERAL: 1,
-    Discovery.POLICY_NAME: 2,
+    Discovery.TOOL_LIST_REFERENCE: 1,
+    Discovery.TOOL_LIST_CONSTANT: 2,
+    Discovery.SCHEMA_LITERAL: 3,
+    Discovery.POLICY_NAME: 4,
 }
 
 
@@ -57,7 +66,7 @@ def _dedupe_same_definition(matches: list[Match]) -> list[Match]:
 def resolve_matches(
     matches_by_name: dict[str, list[Match]],
 ) -> tuple[list[ScanTool], list[ScanCollision]]:
-    """Split every collected match into single-definition tools and collisions.
+    """Split every collected match into tools and collisions.
 
     Args:
         matches_by_name: Every match found by every detector, keyed by
@@ -66,8 +75,10 @@ def resolve_matches(
     Returns:
         `(tools, collisions)`, both sorted by `qualified_name`. A name with
         more than one distinct definition site, whether found by one
-        detector or several, is excluded from `tools` and reported only in
-        `collisions`.
+        detector or several, is reported in `collisions` and still gets a
+        `tools` entry, with `collision=True` and no resolved definition,
+        since the name itself is real even though its implementation is
+        ambiguous.
     """
     tools: list[ScanTool] = []
     collisions: list[ScanCollision] = []
@@ -85,6 +96,23 @@ def resolve_matches(
                     ),
                 )
             )
+            authoritative = min(matches, key=lambda m: _DISCOVERY_STRENGTH[m.discovery])
+            tools.append(
+                ScanTool(
+                    qualified_name=qualified_name,
+                    definition=None,
+                    signature=None,
+                    discovery=authoritative.discovery,
+                    detector_detail=f"{len(matches)} definitions resolve to this name",
+                    binding_site=None,
+                    declared=False,
+                    capabilities=(),
+                    guarded=False,
+                    policy_rules=(),
+                    evidence=(),
+                    collision=True,
+                )
+            )
             continue
         match = matches[0]
         tools.append(
@@ -94,11 +122,13 @@ def resolve_matches(
                 signature=match.signature,
                 discovery=match.discovery,
                 detector_detail=match.detector_detail,
+                binding_site=match.binding_site,
                 declared=False,
                 capabilities=(),
                 guarded=match.guarded,
                 policy_rules=(),
                 evidence=(),
+                collision=False,
             )
         )
     tools.sort(key=lambda t: t.qualified_name)

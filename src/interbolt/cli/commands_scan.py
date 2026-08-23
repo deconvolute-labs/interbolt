@@ -7,7 +7,7 @@ import json
 import os
 import sys
 from collections.abc import Sequence
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from rich.console import Console
 from rich.markup import escape
@@ -19,11 +19,16 @@ from interbolt import (
     ScanArtifact,
     ScanTool,
     ScanUndetected,
+    UndetectedKind,
     scan_repository,
 )
 from interbolt.cli.exit_codes import EXIT_FINDINGS, EXIT_OK, EXIT_USAGE
 from interbolt.cli.render import emit_json
-from interbolt.constants import ENV_API_KEY
+from interbolt.constants import (
+    ENV_API_KEY,
+    SCAN_TEXT_COLUMN_MAX_WIDTH,
+    SCAN_UNDETECTED_LOCATIONS_SHOWN,
+)
 
 
 def _scan(args: argparse.Namespace, console: Console) -> int:
@@ -138,8 +143,11 @@ def _print_text_summary(
     """The three-block text report: tools, unreadable surface, verdict."""
     console.print(_header(artifact))
     console.print()
-    _print_tools(console, artifact.tools)
-    _print_undetected(console, artifact.undetected)
+    collision_counts = {
+        c.qualified_name: len(c.definitions) for c in artifact.collisions
+    }
+    _print_tools(console, artifact.tools, collision_counts)
+    _print_undetected(console, artifact.undetected, out_arg)
     _print_undeclared_worklist(console, artifact, out_arg)
     console.print()
     console.print(f"repo scope: verdict {_verdict_line(artifact)}")
@@ -166,34 +174,127 @@ def _header(artifact: ScanArtifact) -> str:
     return f"Scanned {name}{suffix}"
 
 
-def _print_tools(console: Console, tools: Sequence[ScanTool]) -> None:
+def _truncate_middle(text: str, width: int) -> str:
+    """Truncate `text` to `width`, keeping both ends via a middle ellipsis."""
+    if len(text) <= width:
+        return text
+    if width < 5:
+        return text[:width]
+    keep = width - 1
+    left = (keep + 1) // 2
+    right = keep - left
+    return f"{text[:left]}…{text[-right:]}"
+
+
+_COLUMN_GAP = "    "  # visual separation between computed-width columns
+
+
+def _fit(text: str, width: int) -> str:
+    r"""Fit repository-derived `text` to a computed column, then escape it.
+
+    Truncates before escaping, never after: `rich.markup.escape()` can
+    lengthen a string (`[` becomes `\[`), and truncating an already-escaped
+    string could split that sequence and leave a stray backslash for rich
+    to reinterpret.
+    """
+    capped = min(width, SCAN_TEXT_COLUMN_MAX_WIDTH)
+    return escape(_truncate_middle(text, capped)).ljust(capped)
+
+
+def _print_tools(
+    console: Console, tools: Sequence[ScanTool], collision_counts: dict[str, int]
+) -> None:
     if not tools:
         console.print("no tools found")
         return
     plural = "" if len(tools) == 1 else "s"
     console.print(f"{len(tools)} tool{plural} found")
+
+    rows: list[tuple[str, str, str]] = []
     for tool in tools:
-        name = f"{escape(tool.qualified_name):<26}"
-        if tool.declared:
-            capabilities = ", ".join(tool.capabilities) or "no capabilities"
-            console.print(f"  {name}{capabilities:<20}declared")
-            continue
-        line = f"  {name}undeclared"
-        if tool.evidence:
+        status = "declared" if tool.declared else "undeclared"
+        if tool.collision:
+            count = collision_counts.get(tool.qualified_name, 0)
+            detail = f"{count} definitions, see collisions"
+        elif tool.declared:
+            detail = ", ".join(tool.capabilities) or "no capabilities"
+        elif tool.evidence:
             top = tool.evidence[0]  # sorted by (depth, path, line, symbol)
-            line += f"    {escape(top.symbol)} at {escape(top.path)}:{top.line}"
-        console.print(line)
+            detail = f"{top.symbol} at {top.path}:{top.line}"
+        else:
+            detail = ""
+        rows.append((tool.qualified_name, status, detail))
+
+    name_width = max(len(row[0]) for row in rows)
+    status_width = max(len(row[1]) for row in rows)
+    for name, status, detail in rows:
+        line = f"  {_fit(name, name_width)}{_COLUMN_GAP}{_fit(status, status_width)}"
+        if detail:
+            line += f"{_COLUMN_GAP}{escape(detail)}"
+        console.print(line.rstrip())
 
 
-def _print_undetected(console: Console, undetected: Sequence[ScanUndetected]) -> None:
+_KIND_LABELS: dict[UndetectedKind, str] = {
+    UndetectedKind.MCP_SERVER: "MCP server",
+    UndetectedKind.DYNAMIC_REGISTRATION: "dynamic registration",
+    UndetectedKind.UNRESOLVED_TOOL_LIST: "unresolved tool list",
+    UndetectedKind.UNRESOLVED_IMPLEMENTATION: "unresolved impl",
+    UndetectedKind.AMBIGUOUS_IMPLEMENTATION: "ambiguous impl",
+    UndetectedKind.REJECTED_NAME: "rejected name",
+    UndetectedKind.FILES_TRUNCATED: "files truncated",
+    UndetectedKind.TRAVERSAL_TRUNCATED: "traversal truncated",
+    UndetectedKind.UNDETECTED_TOOL_SURFACE: "undetected tool surface",
+}
+
+
+def _format_locations(items: Sequence[ScanUndetected]) -> str:
+    """Format up to `SCAN_UNDETECTED_LOCATIONS_SHOWN` locations for one group.
+
+    The first location always shows its full path. A later location in the
+    same file as the one just shown drops the directory, since repeating it
+    adds nothing; a location in a different file keeps its full path. An
+    identifier, when the entry has one, follows the location.
+    """
+    parts: list[str] = []
+    previous_path: str | None = None
+    for item in items:
+        shown = (
+            item.path if item.path != previous_path else PurePosixPath(item.path).name
+        )
+        location = f"{shown}:{item.line}"
+        if item.identifier:
+            location += f"  {item.identifier!r}"
+        parts.append(location)
+        previous_path = item.path
+    return ", ".join(parts)
+
+
+def _print_undetected(
+    console: Console, undetected: Sequence[ScanUndetected], out_arg: str
+) -> None:
     if not undetected:
         return
     console.print()
     plural = "" if len(undetected) == 1 else "s"
     console.print(f"{len(undetected)} surface{plural} not readable")
+
+    groups: dict[UndetectedKind, list[ScanUndetected]] = {}
     for item in undetected:
-        location = f"{escape(item.path)}:{item.line}"
-        console.print(f"  {location:<24}{escape(item.detail)}")
+        groups.setdefault(item.kind, []).append(item)
+    ordered = sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0].value))
+
+    count_width = max(len(str(len(items))) for _, items in ordered)
+    label_width = max(len(_KIND_LABELS[kind]) for kind, _ in ordered)
+    for kind, items in ordered:
+        count_text = f"{len(items):>{count_width}}"
+        shown = items[:SCAN_UNDETECTED_LOCATIONS_SHOWN]
+        locations = _format_locations(shown)
+        remaining = len(items) - len(shown)
+        if remaining > 0:
+            locations += f", +{remaining} more"
+        label = _KIND_LABELS[kind].ljust(label_width)
+        console.print(f"  {count_text}  {label}  {escape(locations)}")
+    console.print(f"  full detail in {escape(out_arg)}")
 
 
 def _print_undeclared_worklist(

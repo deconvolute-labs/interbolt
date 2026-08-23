@@ -26,14 +26,21 @@ class Verdict(StrEnum):
 
 
 class Discovery(StrEnum):
-    """How a tool entry was found. The three are not equally strong claims.
+    """How a tool entry was found. The five are not equally strong claims.
 
     A `decorator` match is evidence read directly from the code. A
-    `policy_name` match is the user's assertion that a tool exists, plus a
-    name lookup.
+    `tool_list_reference` resolves a `tools=[...]` element that names a
+    function directly, with no separate name-matching step. A
+    `tool_list_constant` is the same, one indirection hop through a
+    module-level list constant. A `schema_literal` match resolves a
+    dictionary-literal tool schema by a unique name search across the
+    scanned tree. A `policy_name` match is the user's assertion that a tool
+    exists, plus a name lookup.
     """
 
     DECORATOR = "decorator"
+    TOOL_LIST_REFERENCE = "tool_list_reference"
+    TOOL_LIST_CONSTANT = "tool_list_constant"
     SCHEMA_LITERAL = "schema_literal"
     POLICY_NAME = "policy_name"
 
@@ -45,7 +52,9 @@ class UndetectedKind(StrEnum):
     Unicode-format character that could make a report display differently
     than the code parses (Trojan Source, CVE-2021-42574). `files_truncated`
     and `traversal_truncated` mark a scan or traversal that stopped at its
-    resource bound before finishing.
+    resource bound before finishing. `undetected_tool_surface` marks a scan
+    that found a model-client call site and zero tools: a codebase that
+    almost certainly has tools somewhere no detector could read.
     """
 
     MCP_SERVER = "mcp_server"
@@ -56,6 +65,7 @@ class UndetectedKind(StrEnum):
     REJECTED_NAME = "rejected_name"
     FILES_TRUNCATED = "files_truncated"
     TRAVERSAL_TRUNCATED = "traversal_truncated"
+    UNDETECTED_TOOL_SURFACE = "undetected_tool_surface"
 
 
 class ScanDefinition(BaseModel):
@@ -72,6 +82,23 @@ class ScanDefinition(BaseModel):
     path: str
     line: int
     symbol: str
+
+
+class ScanBindingSite(BaseModel):
+    """Where a `tools=` list that bound a tool was found.
+
+    Attributes:
+        path: POSIX-relative path from `scan_root`.
+        line: 1-indexed line of the `tools=` keyword's value: the list
+            literal's own line for a direct list, or the bare name's usage
+            site for a module constant, never the constant's own
+            definition site.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    path: str
+    line: int
 
 
 class ScanEvidence(BaseModel):
@@ -156,10 +183,14 @@ class ScanTool(BaseModel):
             entry would use. File, line, and symbol are metadata, never part
             of identity.
         definition: Where the implementation was found, or `None` when the
-            name is known but no implementation resolved.
+            name is known but no implementation resolved, or the name is a
+            collision.
         discovery: How this entry was found.
         detector_detail: Human-readable provenance, naming the decorator or
             binding site.
+        binding_site: The `tools=` list this tool was bound in, when
+            discovered through one. `None` for a decorator, policy-name, or
+            schema-literal discovery.
         declared: Whether the policy declares `capabilities:` for this tool.
             `False` when no policy was given.
         capabilities: The declared capabilities, sorted. Empty whenever
@@ -170,7 +201,12 @@ class ScanTool(BaseModel):
             policy order. Empty when the policy has no entry for this tool,
             or when no policy was given.
         evidence: External symbols this tool's body (or a function it calls)
-            reaches, sorted by `(depth, path, line, symbol)`.
+            reaches, sorted by `(depth, path, line, symbol)`. Empty when
+            `collision` is `True`.
+        collision: Whether more than one definition resolves to this
+            qualified name. `definition`, `signature`, and `evidence` are
+            then `None` or empty, and `ScanArtifact.collisions` holds the
+            definition sites.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -180,11 +216,13 @@ class ScanTool(BaseModel):
     signature: str | None  # "(to: str, body: str) -> None"
     discovery: Discovery
     detector_detail: str
+    binding_site: ScanBindingSite | None
     declared: bool
     capabilities: tuple[Capability, ...]
     guarded: bool
     policy_rules: tuple[str, ...]
     evidence: tuple[ScanEvidence, ...]
+    collision: bool
 
 
 class ScanAgent(BaseModel):

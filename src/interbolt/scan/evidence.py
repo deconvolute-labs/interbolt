@@ -11,8 +11,6 @@ constructed target, is skipped and produces no evidence entry.
 from __future__ import annotations
 
 import ast
-from collections.abc import Iterable
-from pathlib import PurePosixPath
 
 from interbolt.scan import security
 from interbolt.scan.artifact import (
@@ -21,6 +19,7 @@ from interbolt.scan.artifact import (
     ScanUndetected,
     UndetectedKind,
 )
+from interbolt.scan.imports import build_import_table, build_module_index
 
 _FunctionNode = ast.FunctionDef | ast.AsyncFunctionDef
 
@@ -46,7 +45,7 @@ def collect_all_evidence(
         it can truncate at a point `detect.py`'s whole-module walk did not.
     """
     by_location, by_name = _index_functions(trees)
-    module_index = _build_module_index(trees.keys())
+    module_index = build_module_index(trees.keys())
     result: list[ScanTool] = []
     undetected: list[ScanUndetected] = []
     for tool in tools:
@@ -93,71 +92,6 @@ def _index_functions(
     return by_location, by_name
 
 
-def _module_dotted_path(path: str) -> str:
-    """The dotted module path a scan-root-relative file path corresponds to."""
-    parts = PurePosixPath(path)
-    stem = (
-        parts.parts[:-1]
-        if parts.name == "__init__.py"
-        else (*parts.parts[:-1], parts.stem)
-    )
-    return ".".join(stem)
-
-
-def _build_module_index(paths: Iterable[str]) -> dict[str, str]:
-    """Map every scanned file's dotted module path to its own file path."""
-    return {_module_dotted_path(path): path for path in paths}
-
-
-def _package_of(path: str) -> str:
-    """The dotted package path containing `path` (its parent directory)."""
-    parent = PurePosixPath(path).parent
-    return "" if str(parent) in (".", "") else str(parent).replace("/", ".")
-
-
-def _resolve_relative_module(
-    current_path: str, level: int, module: str | None
-) -> str | None:
-    """Best-effort dotted module path for a `from .[...] import ...` statement."""
-    package = _package_of(current_path)
-    parts = package.split(".") if package else []
-    strip = level - 1
-    if strip > len(parts):
-        return None
-    base_parts = parts[: len(parts) - strip] if strip else parts
-    base = ".".join(base_parts)
-    if module:
-        return f"{base}.{module}" if base else module
-    return base or None
-
-
-def _build_import_table(tree: ast.Module, current_path: str) -> dict[str, str]:
-    """Map every locally-bound import name to its resolved `module.symbol` form."""
-    table: dict[str, str] = {}
-    for node in tree.body:
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                top_level = alias.name.split(".")[0]
-                local = alias.asname or top_level
-                table[local] = alias.name if alias.asname else top_level
-        elif isinstance(node, ast.ImportFrom):
-            if node.level == 0:
-                if node.module is None:
-                    continue
-                resolved_module = node.module
-            else:
-                resolved = _resolve_relative_module(
-                    current_path, node.level, node.module
-                )
-                if resolved is None:
-                    continue
-                resolved_module = resolved
-            for alias in node.names:
-                local = alias.asname or alias.name
-                table[local] = f"{resolved_module}.{alias.name}"
-    return table
-
-
 def _resolve_call_symbol(call: ast.Call, import_table: dict[str, str]) -> str | None:
     """Resolve a call's target to `module.symbol`, one attribute level deep at most.
 
@@ -192,7 +126,7 @@ def _collect_evidence(
         if (path, node.name) in visited:
             return
         visited.add((path, node.name))
-        import_table = _build_import_table(trees[path], path)
+        import_table = build_import_table(trees[path], path)
         local_functions = by_name.get(path, {})
         for stmt in node.body:
             for sub, _depth2, truncated in security.walk_ast_bounded(stmt):
