@@ -230,13 +230,18 @@ class TestMethodInClass:
             }
         )
         tools, collisions, _ = detect_decorated_tools(trees)
-        assert tools == []
+        assert len(tools) == 1
+        assert tools[0].qualified_name == "default.send"
+        assert tools[0].collision is True
+        assert tools[0].definition is None
+        assert tools[0].signature is None
+        assert tools[0].evidence == ()
         assert [c.qualified_name for c in collisions] == ["default.send"]
         assert len(collisions[0].definitions) == 2
 
 
 class TestCollisions:
-    def test_two_files_same_qualified_name_collide_and_are_excluded_from_tools(
+    def test_two_files_same_qualified_name_collide_and_tool_carries_collision_true(
         self,
     ) -> None:
         trees = _trees(
@@ -256,7 +261,12 @@ class TestCollisions:
             }
         )
         tools, collisions, _ = detect_decorated_tools(trees)
-        assert tools == []
+        assert len(tools) == 1
+        assert tools[0].qualified_name == "email.send_email"
+        assert tools[0].collision is True
+        assert tools[0].definition is None
+        assert tools[0].signature is None
+        assert tools[0].evidence == ()
         assert len(collisions) == 1
         assert collisions[0].qualified_name == "email.send_email"
         assert {d.path for d in collisions[0].definitions} == {"a.py", "b.py"}

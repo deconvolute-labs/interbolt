@@ -64,11 +64,13 @@ def ground_policy_names(
                 signature=render_signature(node),
                 discovery=Discovery.POLICY_NAME,
                 detector_detail=f"policy sink key {sink_key!r}",
+                binding_site=None,
                 declared=False,
                 capabilities=(),
                 guarded=False,
                 policy_rules=(),
                 evidence=(),
+                collision=False,
             )
         )
 
