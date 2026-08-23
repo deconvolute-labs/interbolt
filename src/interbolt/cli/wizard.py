@@ -129,6 +129,15 @@ def run_from_scan(args: argparse.Namespace, console: Console) -> int:
         )
 
     policy_path = Path(args.policy_path)
+    if not policy_path.parent.exists():
+        console.print(f"[yellow]![/yellow] creating {escape(str(policy_path.parent))}")
+        try:
+            policy_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            return _fail(
+                console, args, f"could not create {str(policy_path.parent)!r}: {exc}"
+            )
+
     yaml = _build_yaml()
     try:
         source_text = (
