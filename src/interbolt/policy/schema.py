@@ -448,7 +448,9 @@ class PolicyDocument(BaseModel):
         sinks: One `SinkDeclaration` per guarded tool, keyed by the dotted
             `namespace.tool` name. A tool absent from this mapping falls
             through to `defaults.sink_action` and contributes no trifecta
-            capability legs.
+            capability legs. A `null` value (a bare `<tool>:` key) coerces to
+            `SinkDeclaration()`, declaring the tool a sink with nothing
+            further said about it, equivalent to `<tool>: {}`.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -468,6 +470,16 @@ class PolicyDocument(BaseModel):
                 'supported versions are "2.x" (for example "2.0")'
             )
         return value
+
+    @field_validator("sinks", mode="before")
+    @classmethod
+    def _coerce_null_sinks(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        return {
+            key: (SinkDeclaration() if declaration is None else declaration)
+            for key, declaration in value.items()
+        }
 
     @field_validator("sinks")
     @classmethod

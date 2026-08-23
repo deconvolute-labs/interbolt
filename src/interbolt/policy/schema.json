@@ -172,7 +172,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "The validated shape of a policy YAML file.\n\nAttributes:\n    sinks: One `SinkDeclaration` per guarded tool, keyed by the dotted\n        `namespace.tool` name. A tool absent from this mapping falls\n        through to `defaults.sink_action` and contributes no trifecta\n        capability legs.",
+  "description": "The validated shape of a policy YAML file.\n\nAttributes:\n    sinks: One `SinkDeclaration` per guarded tool, keyed by the dotted\n        `namespace.tool` name. A tool absent from this mapping falls\n        through to `defaults.sink_action` and contributes no trifecta\n        capability legs. A `null` value (a bare `<tool>:` key) coerces to\n        `SinkDeclaration()`, declaring the tool a sink with nothing\n        further said about it, equivalent to `<tool>: {}`.",
   "properties": {
     "version": {
       "title": "Version",
