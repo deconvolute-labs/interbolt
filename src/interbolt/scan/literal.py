@@ -323,11 +323,10 @@ def _resolve_list_elements(
 def _element_display_name(item: ast.expr) -> str:
     """A short, readable label for one list element, for a partial-list detail.
 
-    A schema dict's `name` value is a string literal rather than a Python
-    identifier, so unlike `ast.Name`/`ast.Attribute` it can carry a rejected
-    character; a name `security.is_forbidden_text` would reject is never
-    embedded here; the element's own `rejected_name` entry carries the
-    location instead.
+    A schema dict's `name` value is a string literal, so unlike
+    `ast.Name`/`ast.Attribute`it can carry a rejected character; a name
+    `security.is_forbidden_text` would reject is never embedded here; the element's
+    own `rejected_name` entry carries the location instead.
     """
     if isinstance(item, ast.Name):
         return item.id
