@@ -3,8 +3,7 @@
 Finds every call site that passes a string-literal `source=` argument to
 `taint`, matched by the call target's final attribute (or bare-name)
 segment, the same convention `detect.py` uses for decorators. A `source=`
-that is not a string literal is skipped rather than reported: a computed
-source name is ordinary code, not a gap in the tool surface.
+that is not a string literal is skipped.
 """
 
 from __future__ import annotations
