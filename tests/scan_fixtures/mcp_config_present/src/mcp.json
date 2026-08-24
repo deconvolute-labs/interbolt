@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "acme-tools": {
+      "command": "acme-mcp-server"
+    }
+  }
+}

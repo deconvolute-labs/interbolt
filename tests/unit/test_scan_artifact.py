@@ -98,3 +98,40 @@ class TestNeutrality:
             assert other.guarded is True
             assert tool.declared is False
             assert other.declared is False
+
+
+class TestFixtureTrees:
+    def test_schema_literal_only_finds_both_tools_by_schema_literal(self) -> None:
+        artifact = scan_repository(str(FIXTURES_DIR / "schema_literal_only" / "src"))
+        assert {t.qualified_name for t in artifact.tools} == {
+            "default.query_customers",
+            "default.send_alert",
+        }
+        assert all(t.discovery == "schema_literal" for t in artifact.tools)
+        assert artifact.undetected == ()
+
+    def test_registry_based_finds_zero_tools_and_one_blind_spot(self) -> None:
+        # The honesty guarantee: a registry-based codebase must report a
+        # blind spot rather than reading as a clean, empty scan.
+        artifact = scan_repository(str(FIXTURES_DIR / "registry_based" / "src"))
+        assert artifact.tools == ()
+        assert len(artifact.undetected) == 1
+        assert artifact.undetected[0].kind == "dynamic_registration"
+
+    def test_mcp_config_present_finds_zero_tools_and_one_server_entry(self) -> None:
+        artifact = scan_repository(str(FIXTURES_DIR / "mcp_config_present" / "src"))
+        assert artifact.tools == ()
+        assert len(artifact.undetected) == 1
+        assert artifact.undetected[0].kind == "mcp_server"
+        assert artifact.undetected[0].identifier == "acme-tools"
+
+    def test_name_collision_reports_one_collided_tool_entry(self) -> None:
+        artifact = scan_repository(str(FIXTURES_DIR / "name_collision" / "src"))
+        assert [t.qualified_name for t in artifact.tools] == ["default.send"]
+        assert artifact.tools[0].collision is True
+        assert artifact.tools[0].definition is None
+        assert [c.qualified_name for c in artifact.collisions] == ["default.send"]
+        assert {d.path for d in artifact.collisions[0].definitions} == {
+            "tools/a.py",
+            "tools/b.py",
+        }
