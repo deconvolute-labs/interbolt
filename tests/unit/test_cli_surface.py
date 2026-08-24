@@ -14,6 +14,7 @@ from interbolt import __version__
 from interbolt.cli import main
 from interbolt.cli.commands_policy import _explain, _init, _validate
 from interbolt.cli.commands_run import _inspect
+from interbolt.cli.commands_scan import _scan
 from interbolt.cli.main import _build_parser
 
 
@@ -30,7 +31,7 @@ class TestCommandTree:
     def test_exact_tree_structure(self) -> None:
         parser = _build_parser()
         top_level = _leaf_choices(parser, "command")
-        assert set(top_level) == {"policy", "run"}
+        assert set(top_level) == {"policy", "run", "scan"}
 
         policy_commands = _leaf_choices(top_level["policy"], "policy_command")
         assert set(policy_commands) == {"init", "validate", "explain"}
@@ -79,6 +80,7 @@ class TestEveryCommandParsesAndDispatches:
             (["policy", "validate"], _validate),
             (["policy", "explain", "--agent", "a"], _explain),
             (["run", "inspect", "path.jsonl"], _inspect),
+            (["scan"], _scan),
         ],
     )
     def test_dispatches_to_expected_handler(
@@ -95,6 +97,7 @@ class TestEveryCommandParsesAndDispatches:
             ["policy", "validate"],
             ["policy", "explain", "--agent", "a"],
             ["run", "inspect", "path.jsonl"],
+            ["scan"],
         ],
     )
     def test_shared_arguments_accepted(self, leaf: list[str]) -> None:

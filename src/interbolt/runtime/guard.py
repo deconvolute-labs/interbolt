@@ -7,7 +7,7 @@ import inspect
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, TypeVar, overload
 
-from interbolt.constants import DEFAULT_AGENT_ID, DEFAULT_NAMESPACE
+from interbolt.constants import DEFAULT_AGENT_ID
 from interbolt.errors import InterboltConfigError
 from interbolt.models.core import Decision
 from interbolt.runtime.current import _current
@@ -15,11 +15,7 @@ from interbolt.taint import LabeledValue, Tainted, TaintedBytes
 from interbolt.taint import track_model_call as _track_model_call
 from interbolt.utils import bind_arguments
 from interbolt.utils import current_agent_id as current_agent_id
-from interbolt.utils.names import (
-    split_qualified_name,
-    validate_agent_id,
-    validate_qualified_name_part,
-)
+from interbolt.utils.names import qualify_tool_name, validate_agent_id
 
 if TYPE_CHECKING:
     from interbolt.runtime.runtime import Runtime
@@ -69,18 +65,6 @@ def _validate_explicit_agent_id(agent_id: str) -> None:
             f"agent_id {agent_id!r} is reserved for the implicit "
             "no-context fallback and cannot be supplied explicitly"
         )
-
-
-def _qualify_tool_name(tool: str) -> str:
-    """Resolve a bare or explicitly-qualified tool name to its dotted form.
-
-    A bare name (no dot) gets `constants.DEFAULT_NAMESPACE` prepended. A
-    dotted name is treated as already-qualified `namespace.tool`.
-    """
-    if split_qualified_name(tool) is not None:
-        return tool
-    validate_qualified_name_part(tool, part="tool")
-    return f"{DEFAULT_NAMESPACE}.{tool}"
 
 
 class AgentHandle:
@@ -171,7 +155,7 @@ def _build_wrapper[F: Callable[..., Any]](
     call `rt.check(...)` identically; only the resolver-await and call-through
     differ.
     """
-    qualified_tool = _qualify_tool_name(tool)
+    qualified_tool = qualify_tool_name(tool)
     sig = inspect.signature(fn)
 
     if inspect.iscoroutinefunction(fn):
@@ -301,11 +285,11 @@ def check(
         InterboltConfigError: If `agent_id` is a tainted value, fails the
             identifier charset check, or is the reserved fallback value
             `constants.DEFAULT_AGENT_ID`. Also if `tool` is an ambiguous
-            dotted name (more than one dot), via `_qualify_tool_name`.
+            dotted name (more than one dot), via `qualify_tool_name`.
     """
     _validate_explicit_agent_id(agent_id)
     return _current().check(
-        tool=_qualify_tool_name(tool),
+        tool=qualify_tool_name(tool),
         args=args,
         agent_id=agent_id,
         run_id=run_id,

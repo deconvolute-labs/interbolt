@@ -916,8 +916,8 @@ class TestRunTrifectaLifecycle:
 
 
 class TestAgentIdPolicyIntegration:
-    """End-to-end: `agent.id` in a real policy's `when:`, the §3.2-shaped
-    least-privilege scenario (block unless the right agent, then a
+    """End-to-end: `agent.id` in a real policy's `when:`, the least-privilege
+    scenario (block unless the right agent, then a
     provenance check still applies for the right agent).
     """
 

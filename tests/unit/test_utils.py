@@ -3,10 +3,13 @@ from __future__ import annotations
 import inspect
 import logging
 
+import pytest
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 
+from interbolt.errors import InterboltConfigError
 from interbolt.utils import bind_arguments, current_trace_context, get_logger
+from interbolt.utils.names import qualify_tool_name
 
 _tracer = TracerProvider().get_tracer("test_utils")
 
@@ -73,3 +76,22 @@ class TestCurrentTraceContext:
         assert span_id == format(ctx.span_id, "016x")
         assert len(trace_id) == 32
         assert len(span_id) == 16
+
+
+class TestQualifyToolName:
+    def test_bare_name_gets_default_namespace(self) -> None:
+        assert qualify_tool_name("foo") == "default.foo"
+
+    def test_explicit_qualified_name_preserved(self) -> None:
+        assert qualify_tool_name("ns.tool") == "ns.tool"
+
+    def test_dotted_namespace_raises(self) -> None:
+        # "a.b.c" -> rpartition -> namespace="a.b", tool="c" -> "a.b" has a dot -> error
+        with pytest.raises(InterboltConfigError):
+            qualify_tool_name("a.b.c")
+
+    def test_bare_name_with_allowed_chars(self) -> None:
+        assert qualify_tool_name("my_tool") == "default.my_tool"
+
+    def test_qualified_name_with_underscores(self) -> None:
+        assert qualify_tool_name("my_ns.my_tool") == "my_ns.my_tool"

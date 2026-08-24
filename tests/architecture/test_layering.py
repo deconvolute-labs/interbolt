@@ -16,7 +16,7 @@ LAYERS = (
     ("errors", "constants", "utils"),
     ("models",),
     ("taint", "policy"),
-    ("enforcement",),
+    ("enforcement", "scan"),
     ("reporting",),
     ("runtime",),
     ("cli", "integrations"),

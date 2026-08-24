@@ -1,0 +1,405 @@
+"""Pydantic models for the scan artifact: `interbolt scan`'s versioned JSON output."""
+
+from __future__ import annotations
+
+from enum import StrEnum
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict
+
+from interbolt.models.core import Capability
+
+
+class Verdict(StrEnum):
+    """An agent's coverage verdict, computed from its bound tools' declarations.
+
+    `Capability` is a closed two-member set (`reads_private`,
+    `reaches_external`); the third lethal-trifecta leg, `from_untrusted`, is
+    derived from taint at runtime and has no declarable, static form, so
+    `trifecta` is never produced. A fully declared agent returns `clear`.
+    """
+
+    NO_POLICY = "no_policy"
+    INCOMPLETE = "incomplete"
+    CLEAR = "clear"
+    TRIFECTA = "trifecta"
+
+
+class Discovery(StrEnum):
+    """How a tool entry was found. The five are not equally strong claims.
+
+    A `decorator` match is evidence read directly from the code. A
+    `tool_list_reference` resolves a `tools=[...]` element that names a
+    function directly, with no separate name-matching step. A
+    `tool_list_constant` is the same, one indirection hop through a
+    module-level list constant. A `schema_literal` match resolves a
+    dictionary-literal tool schema by a unique name search across the
+    scanned tree. A `policy_name` match is the user's assertion that a tool
+    exists, plus a name lookup.
+    """
+
+    DECORATOR = "decorator"
+    TOOL_LIST_REFERENCE = "tool_list_reference"
+    TOOL_LIST_CONSTANT = "tool_list_constant"
+    SCHEMA_LITERAL = "schema_literal"
+    POLICY_NAME = "policy_name"
+
+
+class UndetectedKind(StrEnum):
+    """Why a piece of tool surface could not be resolved to a `ScanTool`.
+
+    `rejected_name` covers a discovered name containing a control or
+    Unicode-format character that could make a report display differently
+    than the code parses (Trojan Source, CVE-2021-42574). `files_truncated`
+    and `traversal_truncated` mark a scan or traversal that stopped at its
+    resource bound before finishing. `undetected_tool_surface` marks a scan
+    that found a model-client call site and zero tools: a codebase that
+    almost certainly has tools somewhere no detector could read.
+    """
+
+    MCP_SERVER = "mcp_server"
+    DYNAMIC_REGISTRATION = "dynamic_registration"
+    UNRESOLVED_TOOL_LIST = "unresolved_tool_list"
+    UNRESOLVED_IMPLEMENTATION = "unresolved_implementation"
+    AMBIGUOUS_IMPLEMENTATION = "ambiguous_implementation"
+    REJECTED_NAME = "rejected_name"
+    FILES_TRUNCATED = "files_truncated"
+    TRAVERSAL_TRUNCATED = "traversal_truncated"
+    UNDETECTED_TOOL_SURFACE = "undetected_tool_surface"
+
+
+class ScanDefinition(BaseModel):
+    """Where a tool's implementation was found.
+
+    Attributes:
+        path: POSIX-relative path from `scan_root`.
+        line: 1-indexed line of the `def`/`async def`.
+        symbol: The function's own name, ignoring any enclosing class.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    path: str
+    line: int
+    symbol: str
+
+
+class ScanBindingSite(BaseModel):
+    """Where a `tools=` list that bound a tool was found.
+
+    Attributes:
+        path: POSIX-relative path from `scan_root`.
+        line: 1-indexed line of the `tools=` keyword's value: the list
+            literal's own line for a direct list, or the bare name's usage
+            site for a module constant, never the constant's own
+            definition site.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    path: str
+    line: int
+
+
+class ScanEvidence(BaseModel):
+    """One external symbol a tool body (or a function it calls) reaches.
+
+    Attributes:
+        symbol: The resolved `module.attr` form, from the file's import table.
+        path: POSIX-relative path of the call site.
+        line: 1-indexed line of the call site.
+        depth: 0 for the tool body itself; each further hop into a
+            same-tree function increments this by one.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    symbol: str
+    path: str
+    line: int
+    depth: int
+
+
+class ScanUndetected(BaseModel):
+    """A piece of tool surface the scanner could not resolve.
+
+    Attributes:
+        kind: Why it could not be resolved. See `UndetectedKind`.
+        path: POSIX-relative path from `scan_root`.
+        line: 1-indexed line, or `0` when the entry has no single location
+            (a whole-scan truncation).
+        identifier: A server name, variable name, or similar, when one is
+            readable. Never the rejected text itself for `rejected_name`.
+        detail: One sentence naming what could not be read and why.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    kind: UndetectedKind
+    path: str
+    line: int
+    identifier: str | None
+    detail: str
+
+
+class ScanSourceSite(BaseModel):
+    """Where a literal `taint(source=...)` call site was found.
+
+    Attributes:
+        path: POSIX-relative path from `scan_root`.
+        line: 1-indexed line of the call.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    path: str
+    line: int
+
+
+class ScanSource(BaseModel):
+    """One source name discovered from a literal `taint(source=...)` call site.
+
+    Attributes:
+        name: The source name, exactly as passed to `source=`.
+        sites: Every call site using this name, sorted by `(path, line)`.
+        declared: Whether the policy's `sources:` table names it. `False`
+            when no policy was given.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str
+    sites: tuple[ScanSourceSite, ...]
+    declared: bool
+
+
+class ScanCollision(BaseModel):
+    """Two or more definitions resolving to the same qualified name.
+
+    One policy rule would govern two different tools. Neither definition is
+    included in `ScanArtifact.tools`.
+
+    Attributes:
+        qualified_name: The colliding identity.
+        definitions: Every definition site that produced it.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    qualified_name: str
+    definitions: tuple[ScanDefinition, ...]
+
+
+class ScanAgentIdentity(BaseModel):
+    """An agent's binding-site identity, currently always unresolved.
+
+    Attributes:
+        resolved: Always `False`.
+        agent_id: Always `None`.
+        binding_site: Always `None`.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    resolved: bool
+    agent_id: str | None
+    binding_site: str | None
+
+
+class ScanTool(BaseModel):
+    """One discovered tool: its identity, provenance, coverage, and evidence.
+
+    Attributes:
+        qualified_name: The tool's identity, and the key a policy `sinks:`
+            entry would use. File, line, and symbol are metadata, never part
+            of identity.
+        definition: Where the implementation was found, or `None` when the
+            name is known but no implementation resolved, or the name is a
+            collision.
+        discovery: How this entry was found.
+        detector_detail: Human-readable provenance, naming the decorator or
+            binding site.
+        binding_site: The `tools=` list this tool was bound in, when
+            discovered through one. `None` for a decorator, policy-name, or
+            schema-literal discovery.
+        declared: Whether the policy declares `capabilities:` for this tool.
+            `False` when no policy was given.
+        capabilities: The declared capabilities, sorted. Empty whenever
+            `declared` is `False`.
+        guarded: Whether an Interbolt guard decorator (`@guard` or
+            `@<handle>.guard`) was found on the definition.
+        policy_rules: Names of the rules in this tool's sink entry, in
+            policy order. Empty when the policy has no entry for this tool,
+            or when no policy was given.
+        evidence: External symbols this tool's body (or a function it calls)
+            reaches, sorted by `(depth, path, line, symbol)`. Empty when
+            `collision` is `True`.
+        collision: Whether more than one definition resolves to this
+            qualified name. `definition`, `signature`, and `evidence` are
+            then `None` or empty, and `ScanArtifact.collisions` holds the
+            definition sites.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    qualified_name: str
+    definition: ScanDefinition | None
+    signature: str | None  # "(to: str, body: str) -> None"
+    discovery: Discovery
+    detector_detail: str
+    binding_site: ScanBindingSite | None
+    declared: bool
+    capabilities: tuple[Capability, ...]
+    guarded: bool
+    policy_rules: tuple[str, ...]
+    evidence: tuple[ScanEvidence, ...]
+    collision: bool
+
+
+class ScanAgent(BaseModel):
+    """The rolled-up view of one agent's bound tools.
+
+    Exactly one agent is emitted, `key="repo"`, `scope="repo"`, holding
+    every tool found. The verdict describes the whole repository rather
+    than one agent loop, and over-reports for a repository holding more
+    than one agent.
+
+    Attributes:
+        key: Scan-local identifier. Always `"repo"`.
+        scope: Always `"repo"`. `"loop"` is reserved for a narrower scope.
+        identity: The agent's binding-site identity. Always unresolved.
+        tools: Qualified names of every bound tool, sorted.
+        capabilities: Rolled up from the bound tools' declared capabilities,
+            sorted and de-duplicated. Empty when no policy was given.
+        verdict: The coverage verdict. `Verdict.NO_POLICY` when no policy
+            was given.
+        undeclared_tool_count: The undeclared worklist size. Equal to
+            `len(tools)` when no policy was given, since every tool is
+            undeclared by construction.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    key: str
+    scope: str
+    identity: ScanAgentIdentity
+    tools: tuple[str, ...]
+    capabilities: tuple[Capability, ...]
+    verdict: Verdict
+    undeclared_tool_count: int
+
+
+class ScanScannerInfo(BaseModel):
+    """Which scanner version and detectors produced this artifact.
+
+    Attributes:
+        version: `interbolt.__version__` at scan time.
+        detectors: Which detectors ran, sorted. Present so a coverage change
+            between releases is distinguishable from a code change.
+        evidence_depth: The `--depth` value in force.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    version: str
+    detectors: tuple[str, ...]
+    evidence_depth: int
+
+
+class ScanRepository(BaseModel):
+    """Repository identity, read directly from `.git`. No field ever raises.
+
+    Attributes:
+        uri: From `.git/config`'s `[remote "origin"]` `url`, normalized to
+            drop credentials and a trailing `.git`. `None` outside a git
+            repository or with no origin remote.
+        revision: The full 40-character commit SHA `HEAD` resolves to.
+            `None` outside a git repository.
+        branch: The branch `HEAD` points at. `None` on a detached `HEAD` or
+            outside a git repository.
+        root_name: The repository root directory's name. Always present, so
+            identity exists even outside git.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    uri: str | None
+    revision: str | None
+    branch: str | None
+    root_name: str
+
+
+class ScanPolicyRef(BaseModel):
+    """Which policy, if any, coverage was computed against.
+
+    Attributes:
+        source: `"file"` when `--policy` was given, `"none"` otherwise.
+            `"remote"` is reserved for a future platform-served policy.
+        ref: The path, for `"file"`. `None` for `"none"`.
+        fingerprint: `Policy.fingerprint`, for `"file"`. `None` for `"none"`.
+        scope: Reserved for the platform's scoped projection. Always `None`.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    source: Literal["file", "remote", "none"]
+    ref: str | None
+    fingerprint: str | None
+    scope: str | None
+
+
+class ScanUnmatchedSink(BaseModel):
+    """A policy sink key the scan did not find a matching tool for.
+
+    Attributes:
+        sink_key: The declared key.
+        detail: Why it is reported this way rather than as a defect.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    sink_key: str
+    detail: str
+
+
+class ScanArtifact(BaseModel):
+    """The complete, versioned JSON artifact `interbolt scan` writes.
+
+    Deterministic: two scans of the same commit, with the same flags and
+    the same policy, produce byte-identical output. Every list here is
+    sorted by the key named on its own model; nested lists are sorted too.
+
+    Attributes:
+        schema_version: `constants.SCAN_SCHEMA_VERSION`. Bumped on any
+            breaking shape change, the same discipline as
+            `EVENT_SCHEMA_VERSION`.
+        scanner: Which scanner version and detectors produced this artifact.
+        repository: Repository identity, read from `.git` directly.
+        scan_root: POSIX-relative path from the repository root.
+        policy: Which policy, if any, coverage was computed against.
+        sources: Source names discovered from literal `taint(source=...)`
+            call sites, sorted by `name`. Empty on a codebase not using
+            Interbolt.
+        agents: Sorted by `key`. Exactly one entry currently.
+        tools: Sorted by `qualified_name`.
+        undetected: Sorted by `(path, line, kind)`.
+        collisions: Sorted by `qualified_name`.
+        unmatched_policy_sinks: Sorted by `sink_key`. Empty when no policy
+            was given.
+        paths: Reserved for future use. Currently always empty.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    schema_version: int
+    scanner: ScanScannerInfo
+    repository: ScanRepository
+    scan_root: str
+    policy: ScanPolicyRef
+    sources: tuple[ScanSource, ...]
+    agents: tuple[ScanAgent, ...]
+    tools: tuple[ScanTool, ...]
+    undetected: tuple[ScanUndetected, ...]
+    collisions: tuple[ScanCollision, ...]
+    unmatched_policy_sinks: tuple[ScanUnmatchedSink, ...]
+    paths: tuple[Any, ...] = ()  # shape reserved for future use, currently always empty

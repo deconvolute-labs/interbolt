@@ -653,7 +653,7 @@ class TestFailClosedRules:
 
 
 # ---------------------------------------------------------------------------
-# Validation (§5.3 caps and charset rules)
+# Validation (caps and charset rules)
 # ---------------------------------------------------------------------------
 
 

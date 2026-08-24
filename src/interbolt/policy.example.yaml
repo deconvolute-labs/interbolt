@@ -9,57 +9,6 @@ defaults:
   # Pins the enforcement mode from the policy. Outranks configure(mode=).
   # fail_mode: enforce   # enforce | monitor | dry_run
 
-# Trust for the names you pass to taint(value, source=...).
-# A name not listed here resolves untrusted.
-sources:
-  - name: web_search
-    trust: untrusted
-  - name: internal_kb
-    trust: trusted
-  - name: user_input
-    trust: trusted
+sources: []
 
-# Group agent ids so rules can test membership. An agent not listed
-# resolves to agent.groups == [].
-# agents:
-#   billing-agent:
-#     groups: [payer, internal]
-
-# One entry per tool, keyed "namespace.tool".
-#   capabilities: what the tool does (reads_private, reaches_external, or []).
-#   rules: gates calls, first match wins. No rules means defaults.sink_action.
-sinks:
-  default.read_inbox:
-    capabilities: [reads_private]
-
-  default.send_email:
-    capabilities: [reaches_external]
-    rules:
-      # Fires when all three trifecta legs are present anywhere in the run,
-      # which holds after a handoff that laundered the label off the message.
-      - name: block_rule_of_two
-        when: size(run.trifecta) >= 3
-        action: block
-      - name: block_untrusted_exfil
-        when: taint.exists(t, t.trust == "untrusted") && args.to.endsWith("@external.com")
-        action: block
-      - name: default
-        action: require_approval
-
-  default.fs_write:
-    capabilities: []
-    rules:
-      - name: approve_untrusted_to_disk
-        when: taint.exists(t, t.trust == "untrusted")
-        action: require_approval
-      - name: default
-        action: allow
-
-  default.run_shell:
-    capabilities: []
-    rules:
-      - name: block_any_untrusted
-        when: max_trust == "untrusted"
-        action: block
-      - name: default
-        action: allow
+sinks: {}

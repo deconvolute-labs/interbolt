@@ -34,6 +34,7 @@ dependencies = [
 
 [project.optional-dependencies]
 otel = ["opentelemetry-api>=1.20"]
+wizard = ["ruamel.yaml"]
 
 [project.urls]
 Homepage = "https://deconvolutelabs.com"
@@ -51,6 +52,7 @@ dev = [
   "types-pyyaml",
   "git-cliff>=2.13.1",
   "opentelemetry-sdk",
+  "ruamel.yaml",
 ]
 
 [project.scripts]
@@ -73,6 +75,9 @@ artifacts = [
 line-length = 88
 target-version = "py312"
 src = ["src", "tests"]
+# Scan fixture trees are stand-ins for an arbitrary third-party repository
+# being scanned, not this project's own code, so they are not linted as such.
+extend-exclude = ["tests/scan_fixtures"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "S", "UP", "ANN", "BLE", "D"] # pycodestyle, pyflakes, isort, bugbear, pydocstyle
@@ -98,6 +103,10 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true  # Force you to write types for every function
 ignore_missing_imports = true # Prevents errors if a 3rd party lib has no types
+# Scan fixture trees are stand-ins for an arbitrary third-party repository
+# being scanned, not this project's own code, so they are not type-checked
+# as such; several deliberately share a module name across fixture trees.
+exclude = ["tests/scan_fixtures/"]
 
 [[tool.mypy.overrides]]
 module = "tests.*"
@@ -109,6 +118,15 @@ disallow_untyped_defs = false
 # `Any` unconditionally, so type checking here never depends on whether the package
 # (or which version of it) happens to be installed in the environment running mypy.
 module = ["opentelemetry", "opentelemetry.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+# ruamel.yaml is an optional, soft-imported dependency (cli/wizard.py).
+# `follow_imports = "skip"` makes every symbol from it resolve to `Any`
+# unconditionally, so type checking here never depends on whether the
+# package happens to be installed in the environment running mypy.
+module = ["ruamel", "ruamel.*"]
 ignore_missing_imports = true
 follow_imports = "skip"
 

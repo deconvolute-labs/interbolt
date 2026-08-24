@@ -7,6 +7,7 @@ import argparse
 from interbolt import __version__
 from interbolt.cli.commands_policy import _explain, _init, _validate
 from interbolt.cli.commands_run import _inspect
+from interbolt.cli.commands_scan import _scan
 from interbolt.cli.exit_codes import EXIT_INTERNAL
 from interbolt.cli.render import build_console
 
@@ -20,6 +21,19 @@ def _add_init_args(parser: argparse.ArgumentParser) -> None:
         nargs="?",
         default="policy.yaml",
         help="Target path (default: policy.yaml in the current directory)",
+    )
+    parser.add_argument(
+        "--from-scan",
+        default=None,
+        metavar="PATH",
+        help="Read a scan artifact and walk its undeclared sources and tools",
+    )
+    parser.add_argument(
+        "--non-interactive",
+        action="store_true",
+        help="With --from-scan, write trust: untrusted for every undeclared "
+        "source and empty capabilities with a TODO comment for every "
+        "undeclared tool instead of prompting",
     )
 
 
@@ -59,6 +73,46 @@ def _add_inspect_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--run-id", default=None, help="Only render this run_id")
 
 
+def _add_scan_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "path",
+        nargs="?",
+        default=None,
+        metavar="PATH",
+        help="Scan root (default: src/ if it exists, else the current directory)",
+    )
+    parser.add_argument(
+        "--out",
+        default=".interbolt/scan.json",
+        help="Artifact path, or '-' for stdout (default: .interbolt/scan.json)",
+    )
+    parser.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="GLOB",
+        help="Exclude paths matching GLOB. Repeatable, additive to the defaults",
+    )
+    parser.add_argument(
+        "--depth",
+        type=int,
+        default=1,
+        help="Evidence call-hop depth (default: 1)",
+    )
+    parser.add_argument(
+        "--policy",
+        default=None,
+        metavar="PATH",
+        help="Classify tools and compute coverage against a policy file",
+    )
+    parser.add_argument(
+        "--fail-on",
+        choices=("none", "undeclared"),
+        default="none",
+        help="Exit 1 when the condition holds. 'undeclared' requires --policy",
+    )
+
+
 # Part two: the shared parent every leaf subparser inherits.
 
 
@@ -77,7 +131,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="interbolt")
     parser.add_argument("--version", action="version", version=__version__)
     subparsers = parser.add_subparsers(
-        dest="command", required=True, metavar="{policy,run}"
+        dest="command", required=True, metavar="{policy,run,scan}"
     )
     parent = _global_parser()
 
@@ -116,6 +170,14 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_inspect_args(p)
     p.set_defaults(handler=_inspect)
+
+    p = subparsers.add_parser(
+        "scan",
+        parents=[parent],
+        help="Inventory the tools a Python repository's agent can call.",
+    )
+    _add_scan_args(p)
+    p.set_defaults(handler=_scan)
 
     return parser
 

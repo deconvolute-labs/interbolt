@@ -11,6 +11,7 @@ repos:
     hooks:
       - id: mypy
         args: [--config-file=pyproject.toml]
+        exclude: ^tests/scan_fixtures/
         additional_dependencies:
           [
             pydantic,

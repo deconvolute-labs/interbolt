@@ -62,6 +62,30 @@
   either the `check()` or `@guard` path that previously fell through to
   `defaults.sink_action` with no signal at all.
 
+### 🚀 Features
+
+- **`interbolt scan`.** Statically inventories the tools in a Python
+  repository — decorator, tool-list, and policy-name detection — without
+  importing or executing scanned code. Writes a versioned JSON artifact
+  (`.interbolt/scan.json`, `SCAN_SCHEMA_VERSION`) carrying per-tool evidence,
+  coverage against a policy, and a first-class list of undetected/unreadable
+  surface.
+- **`interbolt policy init --from-scan PATH`.** Wizard mode walks a scan
+  artifact's undeclared sources and tools and writes capability declarations,
+  plus derived provenance rules, into the policy. `--non-interactive` writes
+  conservative defaults instead of prompting.
+- **A bare `<tool>:` key in a policy's `sinks:` mapping is now valid**,
+  coercing to an empty `SinkDeclaration`, matching the form the wizard writes
+  for an undeclared sink.
+
+### 🔒 Security
+
+- **The packaged policy starter (`policy.example.yaml`) no longer ships live
+  example declarations.** It previously declared two example sources as
+  `trust: trusted`; a user who left them in place and called
+  `taint(source="user_input")` silently trusted their most untrusted input.
+  The starter now ships empty `sources: []` and `sinks: {}`.
+
 ## [0.3.0] - 2026-08-05
 
 ### ⚠️ Breaking Changes
