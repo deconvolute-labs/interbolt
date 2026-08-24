@@ -1,13 +1,12 @@
-## [Unreleased]
+## [0.4.0] - 2026-08-24
 
 ### ⚠️ Breaking Changes
 
 - **The CLI is regrouped by object: `interbolt policy init|validate|explain`
-  and `interbolt run inspect`.** The old flat names (`interbolt
-  init|validate|inspect|explain`) are removed, with no compatibility alias.
+  and `interbolt run inspect`.**
   Exit codes are now a fixed 0/1/2/3 contract (clean, failed check, usage
   error, internal error); several outcomes that previously returned `1` now
-  return `2` or `3` — see the [command line reference](https://docs.deconvolutelabs.com/docs/reference/cli).
+  return `2` or `3`, see the [command line reference](https://docs.deconvolutelabs.com/docs/reference/cli).
   `init`'s default write path changes from `policy.example.yaml` to
   `policy.yaml`, matching `validate`/`explain`'s default read path. All four
   commands gain `--format text|json`, `--quiet`, and `--no-color`.
@@ -25,37 +24,24 @@
 
 - **`SinkRule`, `PolicyDocument`, and `SourceDeclaration` now reject unknown
   keys at load**, matching the existing treatment on `Defaults` and an
-  `agents:` entry. A misspelled `when:` previously produced an unconditional
-  match with no load-time warning, since a typo'd key was silently dropped
-  rather than rejected.
+  `agents:` entry.
 
 - **`check()` now treats any exception raised during rule evaluation as an
-  evaluation error, not only `CELEvalError`/`CELUnsupportedError`.** An
-  unexpected exception previously escaped uncaught, raising past both
-  `enforce` and `monitor` mode instead of the documented block-or-log
-  behavior, with no `Event` emitted. `unwrap` is now bounded by
-  `RECURSION_DEPTH`, matching every other container traversal, closing an
-  unbounded-recursion path reachable from a self-referential or deeply
-  nested argument.
+  evaluation error.** `unwrap` is now bounded by `RECURSION_DEPTH`, matching
+  every other container traversal, closing an unbounded-recursion path reachable
+  from a self-referential or deeply nested argument.
 
 - **The run-capability registry now logs at `WARNING` when it evicts a run
-  past `RUN_CAPABILITY_MAX_TRACKED_RUNS`, and exposes
-  `run.capability_evicted` in the CEL context.** A policy can now fail
-  closed on a run whose `run.trifecta` may be under-counted, instead of the
-  degraded state passing silently.
+  past `RUN_CAPABILITY_MAX_TRACKED_RUNS`, and exposes `run.capability_evicted`
+  in the CEL context.** A policy can now fail closed on a run whose `run.trifecta`
+  may be under-counted, instead of the degraded state passing silently.
 
 - **`check()` now qualifies a bare `tool` name the same way `@guard` already
-  does.** Previously only the decorator path resolved `tool` through
-  `_qualify_tool_name`; a caller of `check(tool="send_email", ...)` got the
-  raw string passed straight through to the sink lookup, a plain
-  exact-string match against the policy's dotted sink keys. The mismatch
-  silently skipped the sink's rules (falling through to
-  `defaults.sink_action`) and dropped its capability legs from both the
-  call's `trifecta` and the run's accumulated `run_trifecta`. One behavior
-  change: a `tool` with more than one dot, previously passed through
-  unchanged, now raises `InterboltConfigError`, matching `@guard`'s existing
-  rejection of an ambiguous dotted name — this matters for an MCP router or
-  tool registry that passes an external tool name straight through.
+  does.** One behavior change: a `tool` with more than one dot, previously
+  passed through unchanged, now raises `InterboltConfigError`, matching
+  `@guard`'s existing rejection of an ambiguous dotted name.This matters for
+  an MCP router or tool registry that passes an external tool name straight
+  through.
 
 - **`check()` now logs a `WARNING` when a call's qualified `tool` matches no
   declared sink, while at least one sink is declared.** Catches a typo on
@@ -65,10 +51,9 @@
 ### 🚀 Features
 
 - **`interbolt scan`.** Statically inventories the tools in a Python
-  repository — decorator, tool-list, and policy-name detection — without
-  importing or executing scanned code. Writes a versioned JSON artifact
-  (`.interbolt/scan.json`, `SCAN_SCHEMA_VERSION`) carrying per-tool evidence,
-  coverage against a policy, and a first-class list of undetected/unreadable
+  repository without importing or executing scanned code. Writes a versioned
+  JSON artifact (`.interbolt/scan.json`, `SCAN_SCHEMA_VERSION`) carrying per-tool
+  evidence, coverage against a policy, and a first-class list of undetected/unreadable
   surface.
 - **`interbolt policy init --from-scan PATH`.** Wizard mode walks a scan
   artifact's undeclared sources and tools and writes capability declarations,
@@ -81,10 +66,7 @@
 ### 🔒 Security
 
 - **The packaged policy starter (`policy.example.yaml`) no longer ships live
-  example declarations.** It previously declared two example sources as
-  `trust: trusted`; a user who left them in place and called
-  `taint(source="user_input")` silently trusted their most untrusted input.
-  The starter now ships empty `sources: []` and `sinks: {}`.
+  example declarations.** It now ships empty `sources: []` and `sinks: {}` instead.
 
 ## [0.3.0] - 2026-08-05
 
