@@ -235,20 +235,6 @@ def _decorator_shape(decorator: ast.expr) -> tuple[ast.expr, ast.Call | None]:
     return decorator, None
 
 
-def _string_keyword(call: ast.Call | None, keyword: str) -> str | None:
-    """The string value of `keyword=...` in `call`, or `None`."""
-    if call is None:
-        return None
-    for kw in call.keywords:
-        if (
-            kw.arg == keyword
-            and isinstance(kw.value, ast.Constant)
-            and isinstance(kw.value.value, str)
-        ):
-            return kw.value.value
-    return None
-
-
 def _first_positional_string(call: ast.Call | None) -> str | None:
     """The first positional argument's string value in `call`, or `None`."""
     if call is None or not call.args:
@@ -299,27 +285,27 @@ def _resolve_decorator(
         positional = _first_positional_string(call)
         if positional is not None:
             return "langchain", display, False, positional, "positional"
-        name = _string_keyword(call, "name")
+        name = security.string_keyword(call, "name")
         if name is not None:
             return "langchain", display, False, name, "name"
         return "langchain", display, False, func_name, None
     if segment == "tool" and is_attribute:
-        name = _string_keyword(call, "name")
+        name = security.string_keyword(call, "name")
         if name is not None:
             return "fastmcp", display, False, name, "name"
         return "fastmcp", display, False, func_name, None
     if segment == "function_tool" and not is_attribute:
-        name = _string_keyword(call, "name_override")
+        name = security.string_keyword(call, "name_override")
         if name is not None:
             return "openai agents sdk", display, False, name, "name_override"
         return "openai agents sdk", display, False, func_name, None
     if segment == "beta_tool" and not is_attribute:
-        name = _string_keyword(call, "name")
+        name = security.string_keyword(call, "name")
         if name is not None:
             return "anthropic sdk", display, False, name, "name"
         return "anthropic sdk", display, False, func_name, None
     if segment == "guard":
-        name = _string_keyword(call, "tool")
+        name = security.string_keyword(call, "tool")
         if name is not None:
             return "interbolt", display, True, name, "tool"
         return "interbolt", display, True, func_name, None

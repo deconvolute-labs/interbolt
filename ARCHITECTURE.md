@@ -54,7 +54,7 @@ errors.py, constants.py, utils/     leaves
         |
    taint/    policy/                independent of each other
         \      /
-       enforcement/                 the decision core
+   enforcement/  scan/              the decision core; read-only static analysis
             |
         reporting/
             |
@@ -63,8 +63,8 @@ errors.py, constants.py, utils/     leaves
       cli/, integrations/           thin edges
 ```
 
-`tests/unit/test_architecture_invariants.py` enforces this by parsing every
-import in `src/interbolt`. The rules it cannot check:
+`tests/architecture/test_layering.py` enforces this by parsing every import in
+`src/interbolt`. The rules it cannot check:
 
 - Leaves import only the standard library. `constants.py` and `utils/` may
   import `errors.py`. `errors.py` references `Decision` under `TYPE_CHECKING`
@@ -77,6 +77,9 @@ import in `src/interbolt`. The rules it cannot check:
   arguments with carriers already stripped.
 - `enforcement/` emits through the `Reporter` protocol in
   `models/protocols.py` and never imports `reporting/`.
+- `scan/` sits at the same rank as `enforcement/` but is not part of the
+  decision path: it never imports `taint/`, `reporting/`, or `runtime/`, and,
+  like `runtime/`, is imported only by `cli/` and the package `__init__`.
 - `runtime/` is the composition root. Nothing imports it except the package
   `__init__`.
 - `cli/` imports the public surface and never reaches into a package's
@@ -112,6 +115,17 @@ import in `src/interbolt`. The rules it cannot check:
 **`enforcement/`** is the decision core: `check.py` (the pipeline), `signals.py`
 (trust signals derived once per call), `enforce.py` (decision to control flow),
 `audit.py` (the laundering audit registry).
+
+**`scan/`** reads a repository's source with `ast` and reports the tools an
+agent can call, never importing or executing what it reads. `scanner.py`
+orchestrates; `walk.py` discovers and parses files; `detect.py`, `literal.py`,
+`matches.py`, `registry.py`, `mcp.py`, `ground.py`, and `source.py` are the
+detectors; `evidence.py` and `imports.py` resolve call and import targets;
+`coverage.py` joins discovered tools and sources against a policy;
+`artifact.py` holds the versioned output schema; `security.py` holds the
+defenses shared across detectors against the code being read; `repository.py`
+reads git identity without a subprocess; `signature.py` renders a tool's
+parameter signature.
 
 **`runtime/`** composes everything: `config.py` (`configure()`), `runtime.py`
 (the `Runtime` class), `current.py` (the process-current runtime), `guard.py`

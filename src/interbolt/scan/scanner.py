@@ -17,6 +17,7 @@ from interbolt.scan import (
     mcp,
     repository,
     security,
+    source,
     walk,
 )
 from interbolt.scan.artifact import (
@@ -43,7 +44,8 @@ def scan_repository(
     Reads source with the `ast` module only: never imports the scanned
     code, never executes it, and makes no network call. Tools are
     discovered by decorator, literal schema, and, when `policy` is given,
-    grounding against its declared sink names.
+    grounding against its declared sink names. Source names are discovered
+    separately, from literal `taint(source=...)` call sites.
 
     Args:
         path: The scan root, or `None` to resolve it as `src/` if it exists
@@ -52,8 +54,9 @@ def scan_repository(
         depth: The maximum call-hop depth for evidence collection.
         policy: When given, tools are joined against its declared
             capabilities and every agent's verdict is computed from that
-            join. When `None`, every tool is undeclared and the verdict is
-            `Verdict.NO_POLICY`.
+            join, and discovered sources are joined against its `sources:`
+            table. When `None`, every tool is undeclared, every source is
+            undeclared, and the verdict is `Verdict.NO_POLICY`.
 
     Returns:
         The complete, deterministic `ScanArtifact`.
@@ -95,6 +98,8 @@ def scan_repository(
     undetected.extend(detect_undetected)
     tools, evidence_undetected = evidence.collect_all_evidence(tools, trees, depth)
     undetected.extend(evidence_undetected)
+    sources, source_undetected = source.detect_taint_sources(trees)
+    undetected.extend(source_undetected)
     mcp_undetected, mcp_truncated = mcp.detect_mcp_servers(scan_root, exclude)
     undetected.extend(mcp_undetected)
     if mcp_truncated:
@@ -124,7 +129,7 @@ def scan_repository(
         if relative:
             scan_root_relative = relative
 
-    detectors = ["decorator", "schema_literal"]
+    detectors = ["decorator", "schema_literal", "source"]
     unmatched_policy_sinks: tuple[ScanUnmatchedSink, ...] = ()
     policy_ref = ScanPolicyRef(source="none", ref=None, fingerprint=None, scope=None)
     if policy is not None:
@@ -133,6 +138,7 @@ def scan_repository(
         grounded = ground.ground_policy_names(trees, policy, discovered=discovered)
         tools = sorted([*tools, *grounded], key=lambda t: t.qualified_name)
         tools = list(coverage.join_declared_capabilities(tools, policy))
+        sources = coverage.join_declared_sources(sources, policy)
         unmatched_policy_sinks = coverage.build_unmatched_sinks(
             policy, [t.qualified_name for t in tools]
         )
@@ -166,6 +172,7 @@ def scan_repository(
         repository=repo,
         scan_root=scan_root_relative,
         policy=policy_ref,
+        sources=tuple(sources),
         agents=(agent,),
         tools=tuple(tools),
         undetected=tuple(undetected),

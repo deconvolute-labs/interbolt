@@ -22,6 +22,19 @@ def _add_init_args(parser: argparse.ArgumentParser) -> None:
         default="policy.yaml",
         help="Target path (default: policy.yaml in the current directory)",
     )
+    parser.add_argument(
+        "--from-scan",
+        default=None,
+        metavar="PATH",
+        help="Read a scan artifact and walk its undeclared sources and tools",
+    )
+    parser.add_argument(
+        "--non-interactive",
+        action="store_true",
+        help="With --from-scan, write trust: untrusted for every undeclared "
+        "source and empty capabilities with a TODO comment for every "
+        "undeclared tool instead of prompting",
+    )
 
 
 def _add_validate_args(parser: argparse.ArgumentParser) -> None:

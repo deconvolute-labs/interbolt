@@ -33,6 +33,7 @@ def _empty_artifact() -> ScanArtifact:
         ),
         scan_root=".",
         policy=ScanPolicyRef(source="none", ref=None, fingerprint=None, scope=None),
+        sources=(),
         agents=(
             ScanAgent(
                 key="repo",
@@ -186,6 +187,49 @@ class TestEndToEnd:
         captured = capsys.readouterr()
         assert "1 tool found" in captured.out
         assert "default.send" in captured.out
+
+    def test_real_fixture_tree_scanned_with_policy_computes_coverage(
+        self, tmp_path: Path
+    ) -> None:
+        # `decorator_only` discovers `default.query_customers` (crm.py) and
+        # `email.send_email` (email.py). Declaring both fully exercises the
+        # --policy path end to end: grounding, the declared join, and the
+        # verdict rollup, none of which the mocked-`scan_repository` tests
+        # above touch.
+        fixtures_dir = Path(__file__).parent.parent / "scan_fixtures"
+        src = fixtures_dir / "decorator_only" / "src"
+        policy_path = tmp_path / "policy.yaml"
+        policy_path.write_text(
+            'version: "2.0"\n'
+            "defaults:\n"
+            "  sink_action: require_approval\n"
+            "sources: []\n"
+            "sinks:\n"
+            "  default.query_customers:\n"
+            "    capabilities: []\n"
+            "  email.send_email:\n"
+            "    capabilities: [reaches_external]\n"
+        )
+        out = tmp_path / "scan.json"
+        result = main(
+            ["scan", str(src), "--policy", str(policy_path), "--out", str(out)]
+        )
+        assert result == EXIT_OK
+        payload = json.loads(out.read_text())
+        assert payload["agents"][0]["verdict"] == "clear"
+        assert payload["agents"][0]["undeclared_tool_count"] == 0
+        declared_by_name = {
+            tool["qualified_name"]: tool["declared"] for tool in payload["tools"]
+        }
+        assert declared_by_name == {
+            "default.query_customers": True,
+            "email.send_email": True,
+        }
+        capabilities_by_name = {
+            tool["qualified_name"]: tool["capabilities"] for tool in payload["tools"]
+        }
+        assert capabilities_by_name["email.send_email"] == ["reaches_external"]
+        assert payload["policy"]["source"] == "file"
 
 
 class TestMarkupEscaping:

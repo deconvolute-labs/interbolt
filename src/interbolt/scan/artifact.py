@@ -142,6 +142,37 @@ class ScanUndetected(BaseModel):
     detail: str
 
 
+class ScanSourceSite(BaseModel):
+    """Where a literal `taint(source=...)` call site was found.
+
+    Attributes:
+        path: POSIX-relative path from `scan_root`.
+        line: 1-indexed line of the call.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    path: str
+    line: int
+
+
+class ScanSource(BaseModel):
+    """One source name discovered from a literal `taint(source=...)` call site.
+
+    Attributes:
+        name: The source name, exactly as passed to `source=`.
+        sites: Every call site using this name, sorted by `(path, line)`.
+        declared: Whether the policy's `sources:` table names it. `False`
+            when no policy was given.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str
+    sites: tuple[ScanSourceSite, ...]
+    declared: bool
+
+
 class ScanCollision(BaseModel):
     """Two or more definitions resolving to the same qualified name.
 
@@ -346,6 +377,9 @@ class ScanArtifact(BaseModel):
         repository: Repository identity, read from `.git` directly.
         scan_root: POSIX-relative path from the repository root.
         policy: Which policy, if any, coverage was computed against.
+        sources: Source names discovered from literal `taint(source=...)`
+            call sites, sorted by `name`. Empty on a codebase not using
+            Interbolt.
         agents: Sorted by `key`. Exactly one entry currently.
         tools: Sorted by `qualified_name`.
         undetected: Sorted by `(path, line, kind)`.
@@ -362,6 +396,7 @@ class ScanArtifact(BaseModel):
     repository: ScanRepository
     scan_root: str
     policy: ScanPolicyRef
+    sources: tuple[ScanSource, ...]
     agents: tuple[ScanAgent, ...]
     tools: tuple[ScanTool, ...]
     undetected: tuple[ScanUndetected, ...]

@@ -321,14 +321,23 @@ def _resolve_list_elements(
 
 
 def _element_display_name(item: ast.expr) -> str:
-    """A short, readable label for one list element, for a partial-list detail."""
+    """A short, readable label for one list element, for a partial-list detail.
+
+    A schema dict's `name` value is a string literal rather than a Python
+    identifier, so unlike `ast.Name`/`ast.Attribute` it can carry a rejected
+    character; a name `security.is_forbidden_text` would reject is never
+    embedded here; the element's own `rejected_name` entry carries the
+    location instead.
+    """
     if isinstance(item, ast.Name):
         return item.id
     if isinstance(item, ast.Attribute):
         return item.attr
     if isinstance(item, ast.Dict):
         name = _schema_dict_name(item)
-        return name if name is not None else _expression_kind(item)
+        if name is None:
+            return _expression_kind(item)
+        return "(rejected name)" if security.is_forbidden_text(name) else name
     return _expression_kind(item)
 
 

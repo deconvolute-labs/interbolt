@@ -39,6 +39,29 @@ def is_forbidden_text(value: str) -> bool:
     return any(unicodedata.category(ch) in _FORBIDDEN_CATEGORIES for ch in value)
 
 
+def string_keyword(call: ast.Call | None, keyword: str) -> str | None:
+    """The string value of `keyword=...` in `call`, or `None`.
+
+    Args:
+        call: The call to inspect, or `None` when the caller has no call to
+            check (a bare decorator with no parentheses, for instance).
+        keyword: The keyword argument's name.
+
+    Returns:
+        The keyword's value when it is a string literal, else `None`.
+    """
+    if call is None:
+        return None
+    for kw in call.keywords:
+        if (
+            kw.arg == keyword
+            and isinstance(kw.value, ast.Constant)
+            and isinstance(kw.value.value, str)
+        ):
+            return kw.value.value
+    return None
+
+
 def resolve_within_root(path: Path, root: Path) -> str | None:
     """Resolve `path` to a POSIX-relative form under `root`, or reject it.
 
