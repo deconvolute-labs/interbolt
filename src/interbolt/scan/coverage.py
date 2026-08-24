@@ -7,7 +7,26 @@ from collections.abc import Collection
 from interbolt.constants import TRIFECTA_LEGS
 from interbolt.models.core import Capability
 from interbolt.policy import Policy
-from interbolt.scan.artifact import ScanTool, ScanUnmatchedSink, Verdict
+from interbolt.scan.artifact import ScanSource, ScanTool, ScanUnmatchedSink, Verdict
+
+
+def join_declared_sources(
+    sources: Collection[ScanSource], policy: Policy
+) -> tuple[ScanSource, ...]:
+    """Set `declared` on every discovered source from a policy's `sources:` table.
+
+    Args:
+        sources: Every source discovered from a literal `taint(source=...)`
+            call site.
+        policy: The policy to join against.
+
+    Returns:
+        `sources`, in the same order, with `declared` populated.
+    """
+    return tuple(
+        source.model_copy(update={"declared": source.name in policy.sources_table})
+        for source in sources
+    )
 
 
 def join_declared_capabilities(

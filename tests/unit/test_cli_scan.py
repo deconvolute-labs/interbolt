@@ -33,6 +33,7 @@ def _empty_artifact() -> ScanArtifact:
         ),
         scan_root=".",
         policy=ScanPolicyRef(source="none", ref=None, fingerprint=None, scope=None),
+        sources=(),
         agents=(
             ScanAgent(
                 key="repo",
