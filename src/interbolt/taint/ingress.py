@@ -5,7 +5,7 @@ from __future__ import annotations
 import functools
 import inspect
 from collections.abc import Callable, Iterable
-from typing import Any
+from typing import Any, overload
 
 from interbolt.constants import DEFAULT_AGENT_ID, RECURSION_DEPTH
 from interbolt.models.core import Label
@@ -35,6 +35,27 @@ def _observe_ingress(value: Any, *, source: str, run_id: str, depth: int) -> Non
             observer(text, source, run_id)
 
 
+@overload
+def taint(
+    value: str,
+    *,
+    source: str,
+    derived_from: Iterable[Any] | None = None,
+) -> Tainted: ...
+@overload
+def taint(
+    value: bytes,
+    *,
+    source: str,
+    derived_from: Iterable[Any] | None = None,
+) -> TaintedBytes: ...
+@overload
+def taint(
+    value: Any,  # noqa: ANN401 - covers containers and other scalars
+    *,
+    source: str,
+    derived_from: Iterable[Any] | None = None,
+) -> Any: ...  # noqa: ANN401 - shape varies: recursed container or LabeledValue
 def taint(
     value: Any,  # noqa: ANN401 - accepts any ingress shape
     *,

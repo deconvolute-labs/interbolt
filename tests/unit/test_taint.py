@@ -579,10 +579,17 @@ class TestCopyDeepcopyPickle:
         assert not isinstance(restored, LabeledValue)
 
     def test_deepcopy_of_container_of_tainted_values_keeps_every_label(self) -> None:
-        original = {"a": taint("x", source="s1"), "b": [taint("y", source="s2")]}
+        original: dict[str, Tainted | list[Tainted]] = {
+            "a": taint("x", source="s1"),
+            "b": [taint("y", source="s2")],
+        }
         copied = copy.deepcopy(original)
-        assert copied["a"].label.source == "s1"
-        assert copied["b"][0].label.source == "s2"
+        copied_a = copied["a"]
+        assert isinstance(copied_a, Tainted)
+        assert copied_a.label.source == "s1"
+        copied_b = copied["b"]
+        assert isinstance(copied_b, list)
+        assert copied_b[0].label.source == "s2"
 
 
 class TestTaintedWidenedPropagation:
