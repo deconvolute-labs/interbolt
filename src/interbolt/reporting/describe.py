@@ -6,6 +6,7 @@ from interbolt.constants import TRIFECTA_FROM_UNTRUSTED, TRIFECTA_LEGS
 from interbolt.models.core import (
     Action,
     Decision,
+    Diagnostic,
     Endorsement,
     Event,
     Finding,
@@ -129,6 +130,23 @@ def describe_finding(finding: Finding) -> str:
     return (
         f"[yellow]finding[/yellow]  source={finding.source}  "
         f"tool={finding.tool}  argument={finding.argument}"
+    )
+
+
+def describe_diagnostic(diagnostic: Diagnostic) -> str:
+    """Build a one-line, rich-markup-tagged human summary of a `Diagnostic`.
+
+    Args:
+        diagnostic: The diagnostic to describe.
+
+    Returns:
+        A rich-markup string summarizing the run-tainted-without-attribution
+        diagnostic.
+    """
+    sources = ", ".join(diagnostic.ingress_sources) or "-"
+    return (
+        f"[yellow]diagnostic[/yellow]  ingress_sources={{{sources}}}  "
+        f"calls_since_taint={diagnostic.calls_since_taint}"
     )
 
 

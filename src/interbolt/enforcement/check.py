@@ -41,6 +41,7 @@ from interbolt.taint import (
     capability_registry_evicted,
     collect_labels,
     record_capabilities,
+    record_diagnostic_call,
     unwrap,
 )
 from interbolt.utils import current_trace_context, get_logger
@@ -59,6 +60,7 @@ def check(
     reporter: Reporter,
     mode: Mode,
     audit_registry: AuditRegistry | None = None,
+    diagnostics_enabled: bool = True,
 ) -> Decision:
     """Evaluate policy for one tool call and return the decision.
 
@@ -77,6 +79,9 @@ def check(
         reporter: Where the resulting `Event` goes.
         mode: The enforcement mode.
         audit_registry: The audit registry, or `None` when auditing is off.
+        diagnostics_enabled: Whether to track this call for the
+            run-tainted-without-attribution diagnostic, checked at
+            `agent_context` exit.
 
     Returns:
         The `Decision`, for every outcome including allow.
@@ -102,6 +107,17 @@ def check(
     untrusted_sources = _compute_untrusted_sources(resolved_labels)
     resolved_run_id = run_id if run_id is not None else str(uuid.uuid4())
     run_ingress = _resolve_run_ingress(resolved_run_id, sources_table)
+    if diagnostics_enabled:
+        record_diagnostic_call(
+            resolved_run_id,
+            run_tainted=_run_tainted(run_ingress),
+            has_contributing_labels=bool(labels),
+            untrusted_sources=tuple(
+                entry.source
+                for entry in run_ingress
+                if entry.trust is TrustLevel.UNTRUSTED
+            ),
+        )
     accumulated_capabilities = record_capabilities(
         resolved_run_id, frozenset(capability.value for capability in call_capabilities)
     )

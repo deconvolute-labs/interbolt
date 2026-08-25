@@ -9,7 +9,7 @@ from contextvars import Token
 from dataclasses import dataclass
 from typing import Any
 
-from interbolt.enforcement import AuditRegistry
+from interbolt.enforcement import AuditRegistry, emit_run_diagnostic
 from interbolt.enforcement import check as _enforcement_check
 from interbolt.enforcement import enforce_decision as _enforcement_enforce_decision
 from interbolt.enforcement import (
@@ -61,6 +61,7 @@ class Runtime:
         approval_resolver: ApprovalResolver,
         mode: Mode,
         audit_registry: AuditRegistry | None,
+        diagnostics_enabled: bool,
     ) -> None:
         """Construct a runtime from its policy, reporter, and enforcement settings.
 
@@ -70,6 +71,8 @@ class Runtime:
             approval_resolver: Resolves `require_approval` decisions.
             mode: The enforcement mode in effect.
             audit_registry: The laundering-audit registry, or `None` if disabled.
+            diagnostics_enabled: Whether the run-tainted-without-attribution
+                diagnostic is checked at `agent_context` exit.
         """
         self.policy = policy
         self._reporter = (
@@ -80,6 +83,7 @@ class Runtime:
         self.approval_resolver = approval_resolver
         self.mode = mode
         self._audit_registry = audit_registry
+        self._diagnostics_enabled = diagnostics_enabled
 
     @property
     def reporter(self) -> Reporter:
@@ -131,6 +135,7 @@ class Runtime:
     def _exit_agent_context(
         self,
         run_id: str,
+        agent_id: str,
         agent_token: Token[str | None],
         run_token: Token[str | None],
     ) -> None:
@@ -140,6 +145,12 @@ class Runtime:
         clear_run_capabilities(run_id)
         if self._audit_registry is not None:
             self._audit_registry.clear_run(run_id)
+        emit_run_diagnostic(
+            run_id=run_id,
+            agent_id=agent_id,
+            reporter=self._reporter,
+            policy_fingerprint=self.policy.fingerprint,
+        )
 
     @asynccontextmanager
     async def agent_context(self, agent_id: str) -> AsyncGenerator[RunContext]:
@@ -182,7 +193,7 @@ class Runtime:
         try:
             yield RunContext(run_id=run_id, agent_id=agent_id)
         finally:
-            self._exit_agent_context(run_id, agent_token, run_token)
+            self._exit_agent_context(run_id, agent_id, agent_token, run_token)
 
     @contextmanager
     def agent_context_sync(self, agent_id: str) -> Generator[RunContext]:
@@ -208,7 +219,7 @@ class Runtime:
         try:
             yield RunContext(run_id=run_id, agent_id=agent_id)
         finally:
-            self._exit_agent_context(run_id, agent_token, run_token)
+            self._exit_agent_context(run_id, agent_id, agent_token, run_token)
 
     def check(
         self,
@@ -254,6 +265,7 @@ class Runtime:
             reporter=self._reporter,
             mode=self.mode,
             audit_registry=self._audit_registry,
+            diagnostics_enabled=self._diagnostics_enabled,
         )
 
     async def enforce_decision(self, decision: Decision) -> None:

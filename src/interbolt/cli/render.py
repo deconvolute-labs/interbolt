@@ -12,6 +12,7 @@ from rich.tree import Tree
 from interbolt import (
     Action,
     Capability,
+    Diagnostic,
     Endorsement,
     Event,
     Finding,
@@ -19,6 +20,7 @@ from interbolt import (
     RuleOutcome,
     SinkExplanation,
     ToolMention,
+    describe_diagnostic,
     describe_endorsement,
     describe_event,
     describe_finding,
@@ -56,17 +58,17 @@ def emit_json(console: Console, payload: dict[str, object]) -> None:
     )
 
 
-def _run_id_of(record: Event | Finding | Endorsement) -> str:
+def _run_id_of(record: Event | Finding | Endorsement | Diagnostic) -> str:
     """The record's run id: an `Event` carries it on `decision`, the others directly."""
     return record.decision.run_id if isinstance(record, Event) else record.run_id
 
 
-def _agent_id_of(record: Event | Finding | Endorsement) -> str:
+def _agent_id_of(record: Event | Finding | Endorsement | Diagnostic) -> str:
     """The record's agent id: an `Event` carries it on `decision`, others directly."""
     return record.decision.agent_id if isinstance(record, Event) else record.agent_id
 
 
-def _build_tree(records: Sequence[Event | Finding | Endorsement]) -> Tree:
+def _build_tree(records: Sequence[Event | Finding | Endorsement | Diagnostic]) -> Tree:
     """Render records as a console tree grouped by run, then by agent.
 
     Args:
@@ -75,8 +77,8 @@ def _build_tree(records: Sequence[Event | Finding | Endorsement]) -> Tree:
     Returns:
         A `rich.tree.Tree` ready to print with a `rich.console.Console`.
     """
-    by_run: dict[str, dict[str, list[Event | Finding | Endorsement]]] = defaultdict(
-        lambda: defaultdict(list)
+    by_run: dict[str, dict[str, list[Event | Finding | Endorsement | Diagnostic]]] = (
+        defaultdict(lambda: defaultdict(list))
     )
     for record in records:
         by_run[_run_id_of(record)][_agent_id_of(record)].append(record)
@@ -87,9 +89,10 @@ def _build_tree(records: Sequence[Event | Finding | Endorsement]) -> Tree:
         n_events = sum(1 for r in run_records if isinstance(r, Event))
         n_findings = sum(1 for r in run_records if isinstance(r, Finding))
         n_endorsements = sum(1 for r in run_records if isinstance(r, Endorsement))
+        n_diagnostics = sum(1 for r in run_records if isinstance(r, Diagnostic))
         run_node = root.add(
             f"run {run_id} ({n_events} events, {n_findings} findings, "
-            f"{n_endorsements} endorsements)"
+            f"{n_endorsements} endorsements, {n_diagnostics} diagnostics)"
         )
         for agent_id, agent_records in by_agent.items():
             agent_node = run_node.add(f"agent {agent_id}")
@@ -98,8 +101,10 @@ def _build_tree(records: Sequence[Event | Finding | Endorsement]) -> Tree:
                     agent_node.add(describe_event(record))
                 elif isinstance(record, Finding):
                     agent_node.add(describe_finding(record))
-                else:
+                elif isinstance(record, Endorsement):
                     agent_node.add(describe_endorsement(record))
+                else:
+                    agent_node.add(describe_diagnostic(record))
     return root
 
 
