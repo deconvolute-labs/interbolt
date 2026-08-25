@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, overload
 
 from interbolt.constants import DEFAULT_AGENT_ID, EVENT_SCHEMA_VERSION, RECURSION_DEPTH
 from interbolt.models.core import Endorsement, Label
@@ -92,6 +92,12 @@ def _endorse_leaf(
     return value
 
 
+@overload
+def endorse(value: str, *, kind: str, note: str | None = None) -> Tainted: ...
+@overload
+def endorse(value: bytes, *, kind: str, note: str | None = None) -> TaintedBytes: ...
+@overload
+def endorse(value: Any, *, kind: str, note: str | None = None) -> Any: ...  # noqa: ANN401
 def endorse(value: Any, *, kind: str, note: str | None = None) -> Any:  # noqa: ANN401
     """Record that a value passed a named validation step.
 
