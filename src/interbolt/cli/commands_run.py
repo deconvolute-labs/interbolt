@@ -10,9 +10,11 @@ from pydantic import ValidationError
 from rich.console import Console
 
 from interbolt import (
+    RECORD_TYPE_DIAGNOSTIC,
     RECORD_TYPE_ENDORSEMENT,
     RECORD_TYPE_EVENT,
     RECORD_TYPE_FINDING,
+    Diagnostic,
     Endorsement,
     Event,
     Finding,
@@ -23,7 +25,7 @@ from interbolt.cli.render import _build_tree, _run_id_of, emit_json
 
 def _load_records(
     path: Path, console: Console, *, emit_warnings: bool = True
-) -> list[Event | Finding | Endorsement]:
+) -> list[Event | Finding | Endorsement | Diagnostic]:
     """Parse a JSONL file written by `JsonlReporter`.
 
     Args:
@@ -34,13 +36,13 @@ def _load_records(
             the JSON payload written to the same stream.
 
     Returns:
-        Every successfully parsed `Event`/`Finding`/`Endorsement`, in file
-        order. A line that fails to parse as JSON, carries an unrecognized
-        or missing `record_type`, or fails model validation is skipped, with
-        a warning printed to the console when `emit_warnings` is set, and
-        reading continues.
+        Every successfully parsed `Event`/`Finding`/`Endorsement`/`Diagnostic`,
+        in file order. A line that fails to parse as JSON, carries an
+        unrecognized or missing `record_type`, or fails model validation is
+        skipped, with a warning printed to the console when `emit_warnings`
+        is set, and reading continues.
     """
-    records: list[Event | Finding | Endorsement] = []
+    records: list[Event | Finding | Endorsement | Diagnostic] = []
     with path.open("r", encoding="utf-8") as fh:
         for line_number, raw_line in enumerate(fh, start=1):
             stripped = raw_line.strip()
@@ -55,6 +57,8 @@ def _load_records(
                     records.append(Finding.model_validate(raw))
                 elif record_type == RECORD_TYPE_ENDORSEMENT:
                     records.append(Endorsement.model_validate(raw))
+                elif record_type == RECORD_TYPE_DIAGNOSTIC:
+                    records.append(Diagnostic.model_validate(raw))
                 else:
                     raise ValueError(f"unrecognized record_type: {record_type!r}")
             except (json.JSONDecodeError, ValidationError, ValueError) as exc:
@@ -63,13 +67,17 @@ def _load_records(
     return records
 
 
-def _record_json(record: Event | Finding | Endorsement) -> dict[str, object]:
+def _record_json(
+    record: Event | Finding | Endorsement | Diagnostic,
+) -> dict[str, object]:
     if isinstance(record, Event):
         record_type = RECORD_TYPE_EVENT
     elif isinstance(record, Finding):
         record_type = RECORD_TYPE_FINDING
-    else:
+    elif isinstance(record, Endorsement):
         record_type = RECORD_TYPE_ENDORSEMENT
+    else:
+        record_type = RECORD_TYPE_DIAGNOSTIC
     return {"record_type": record_type, **record.model_dump(mode="json")}
 
 

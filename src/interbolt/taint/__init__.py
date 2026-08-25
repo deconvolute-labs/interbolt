@@ -14,14 +14,17 @@ from interbolt.taint.runstate import (
     capability_registry_evicted as capability_registry_evicted,
 )
 from interbolt.taint.runstate import clear_run_capabilities as clear_run_capabilities
+from interbolt.taint.runstate import clear_run_diagnostics as clear_run_diagnostics
 from interbolt.taint.runstate import clear_run_ingress as clear_run_ingress
 from interbolt.taint.runstate import (
     install_endorsement_emitter as install_endorsement_emitter,
 )
 from interbolt.taint.runstate import install_taint_observer as install_taint_observer
 from interbolt.taint.runstate import record_capabilities as record_capabilities
+from interbolt.taint.runstate import record_diagnostic_call as record_diagnostic_call
 from interbolt.taint.runstate import record_ingress as record_ingress
 from interbolt.taint.runstate import run_capabilities as run_capabilities
+from interbolt.taint.runstate import run_diagnostic_state as run_diagnostic_state
 from interbolt.taint.runstate import run_ingress as run_ingress
 from interbolt.taint.walk import collect_labels as collect_labels
 from interbolt.taint.walk import unwrap as unwrap

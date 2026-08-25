@@ -9,12 +9,13 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from interbolt.constants import (
+    RECORD_TYPE_DIAGNOSTIC,
     RECORD_TYPE_ENDORSEMENT,
     RECORD_TYPE_EVENT,
     RECORD_TYPE_FINDING,
 )
 from interbolt.errors import InterboltConfigError
-from interbolt.models.core import Decision, Endorsement, Event, Finding
+from interbolt.models.core import Decision, Diagnostic, Endorsement, Event, Finding
 from interbolt.models.protocols import Reporter
 from interbolt.utils import get_logger
 
@@ -24,7 +25,7 @@ _logger = get_logger("reporting")
 class NullReporter:
     """The default reporter: a no-op. Keeps the library fully local by default."""
 
-    def export(self, event: Event | Finding | Endorsement) -> None:
+    def export(self, event: Event | Finding | Endorsement | Diagnostic) -> None:
         """Discard the record."""
         return None
 
@@ -37,6 +38,7 @@ class InMemoryReporter:
         decisions: Every decision, unpacked from `events` for convenience.
         findings: Every `Finding` exported, in order.
         endorsements: Every `Endorsement` exported, in order.
+        diagnostics: Every `Diagnostic` exported, in order.
     """
 
     def __init__(self) -> None:
@@ -45,8 +47,9 @@ class InMemoryReporter:
         self.decisions: list[Decision] = []
         self.findings: list[Finding] = []
         self.endorsements: list[Endorsement] = []
+        self.diagnostics: list[Diagnostic] = []
 
-    def export(self, event: Event | Finding | Endorsement) -> None:
+    def export(self, event: Event | Finding | Endorsement | Diagnostic) -> None:
         """Capture the record."""
         if isinstance(event, Event):
             self.events.append(event)
@@ -55,6 +58,8 @@ class InMemoryReporter:
             self.findings.append(event)
         elif isinstance(event, Endorsement):
             self.endorsements.append(event)
+        elif isinstance(event, Diagnostic):
+            self.diagnostics.append(event)
         else:
             raise TypeError(f"Unexpected event type: {type(event)}")
 
@@ -64,12 +69,13 @@ class InMemoryReporter:
         self.decisions.clear()
         self.findings.clear()
         self.endorsements.clear()
+        self.diagnostics.clear()
 
 
 class LoggingReporter:
     """Emits every record via the library logger, at DEBUG."""
 
-    def export(self, event: Event | Finding | Endorsement) -> None:
+    def export(self, event: Event | Finding | Endorsement | Diagnostic) -> None:
         """Log the record."""
         _logger.debug("export: %r", event)
 
@@ -80,8 +86,8 @@ class JsonlReporter:
     Opens the destination file fresh on every `export()` call (append mode,
     flush, and `fsync`), so a record is durable on disk before `export()`
     returns. Each line carries a `"record_type"` key (`"event"`, `"finding"`,
-    or `"endorsement"`) alongside the record's own fields, so a reader can
-    recover the concrete type without guessing from field shape.
+    `"endorsement"`, or `"diagnostic"`) alongside the record's own fields, so
+    a reader can recover the concrete type without guessing from field shape.
 
     Logs one WARNING-level line after the first successful write, naming the
     destination path, so where the output landed is visible even without a
@@ -113,14 +119,16 @@ class JsonlReporter:
             ) from exc
         self._announced: bool = False
 
-    def export(self, event: Event | Finding | Endorsement) -> None:
+    def export(self, event: Event | Finding | Endorsement | Diagnostic) -> None:
         """Append one JSON line for this record."""
         if isinstance(event, Event):
             record_type = RECORD_TYPE_EVENT
         elif isinstance(event, Finding):
             record_type = RECORD_TYPE_FINDING
-        else:
+        elif isinstance(event, Endorsement):
             record_type = RECORD_TYPE_ENDORSEMENT
+        else:
+            record_type = RECORD_TYPE_DIAGNOSTIC
         payload = {"record_type": record_type, **event.model_dump(mode="json")}
         line = json.dumps(payload, separators=(",", ":"))
         with self.path.open("a", encoding="utf-8") as fh:
@@ -167,7 +175,7 @@ class CompositeReporter:
         with self._lock:
             self._reporters.append(reporter)
 
-    def export(self, event: Event | Finding | Endorsement) -> None:
+    def export(self, event: Event | Finding | Endorsement | Diagnostic) -> None:
         """Export the record to a snapshot of every wrapped reporter, in order."""
         with self._lock:
             snapshot = list(self._reporters)

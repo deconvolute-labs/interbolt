@@ -1,8 +1,8 @@
 """The taint package's process-global state.
 
-Holds the run-ingress registry, the run-capability registry, and the two
-extension hooks `runtime.configure()` installs: the `taint()`-time audit
-observer and the `endorse()`-time emitter.
+Holds the run-ingress registry, the run-capability registry, the
+run-diagnostic registry, and the two extension hooks `runtime.configure()`
+installs: the `taint()`-time audit observer and the `endorse()`-time emitter.
 """
 
 from __future__ import annotations
@@ -127,6 +127,72 @@ def clear_run_capabilities(run_id: str) -> None:
     with _capability_lock:
         _run_capabilities.pop(run_id, None)
         _evicted_run_capabilities.pop(run_id, None)
+
+
+class _RunDiagnosticState:
+    """One run's bookkeeping for the run-tainted-without-attribution diagnostic."""
+
+    __slots__ = (
+        "any_contributing_labels_seen",
+        "calls_since_taint",
+        "untrusted_sources",
+    )
+
+    def __init__(self) -> None:
+        self.any_contributing_labels_seen = False
+        self.calls_since_taint = 0
+        self.untrusted_sources: tuple[str, ...] = ()
+
+
+_run_diagnostics: dict[str, _RunDiagnosticState] = {}
+_diagnostics_lock = threading.Lock()
+
+
+def record_diagnostic_call(
+    run_id: str,
+    *,
+    run_tainted: bool,
+    has_contributing_labels: bool,
+    untrusted_sources: tuple[str, ...],
+) -> None:
+    """Update `run_id`'s diagnostic bookkeeping with one `check()` call's outcome.
+
+    Called from `enforcement.check()` on every call, when diagnostics are
+    enabled. Tracks whether any call in the run has ever produced non-empty
+    `contributing_labels`, and counts calls made while the run was already
+    tainted, plus the run's current untrusted source names, for
+    `enforcement.diagnostics.emit_run_diagnostic` to read at run end.
+    """
+    with _diagnostics_lock:
+        state = _run_diagnostics.setdefault(run_id, _RunDiagnosticState())
+        if has_contributing_labels:
+            state.any_contributing_labels_seen = True
+        if run_tainted:
+            state.calls_since_taint += 1
+            state.untrusted_sources = untrusted_sources
+
+
+def run_diagnostic_state(run_id: str) -> tuple[bool, int, tuple[str, ...]]:
+    """`run_id`'s diagnostic bookkeeping, as recorded by `record_diagnostic_call`.
+
+    Returns all-empty defaults if nothing was ever recorded for this run,
+    including when diagnostics are disabled.
+    """
+    with _diagnostics_lock:
+        state = _run_diagnostics.get(run_id)
+        if state is None:
+            return False, 0, ()
+        return (
+            state.any_contributing_labels_seen,
+            state.calls_since_taint,
+            state.untrusted_sources,
+        )
+
+
+def clear_run_diagnostics(run_id: str) -> None:
+    """Drop the recorded diagnostic bookkeeping for a finished run."""
+    with _diagnostics_lock:
+        _run_diagnostics.pop(run_id, None)
 
 
 _taint_observer: Callable[[str, str, str], None] | None = None

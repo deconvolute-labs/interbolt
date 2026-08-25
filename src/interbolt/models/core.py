@@ -257,3 +257,25 @@ class Endorsement(IdentifiedRecordBase):
     note: str | None
     lineage: tuple[str, ...]
     value_id: str
+
+
+class Diagnostic(IdentifiedRecordBase):
+    """A run-level diagnostic: value-level attribution never fired in a tainted run.
+
+    Emitted once, at `agent_context` exit, when the run reached
+    `run_tainted=True` and at least one guarded call happened after that
+    point, but none of those calls ever produced a non-empty
+    `contributing_labels`. Advisory only: nothing about it affects any
+    decision, and it does not identify where attribution was lost, only that
+    it was.
+
+    Attributes:
+        ingress_sources: The run's untrusted source names, the ones that made
+            it `run_tainted`.
+        calls_since_taint: How many guarded calls were made after the run
+            first went tainted, none of which carried any contributing
+            labels.
+    """
+
+    ingress_sources: tuple[str, ...]
+    calls_since_taint: int

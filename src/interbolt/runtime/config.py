@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import sys
 
-from interbolt.constants import ENV_AUDIT, ENV_MODE
+from interbolt.constants import ENV_AUDIT, ENV_DIAGNOSTICS, ENV_MODE
 from interbolt.enforcement import AuditRegistry
 from interbolt.errors import InterboltConfigError
 from interbolt.models.core import Decision, Mode
@@ -62,6 +62,7 @@ def configure(
     approval_resolver: ApprovalResolver = auto_deny,
     mode: Mode | str = Mode.ENFORCE,
     audit: bool = False,
+    diagnostics: bool = True,
 ) -> Runtime:
     """Build the runtime and install it as the one this process uses.
 
@@ -75,10 +76,10 @@ def configure(
     2. The policy file's `defaults.fail_mode`.
     3. The `mode` argument.
 
-    `INTERBOLT_AUDIT` overrides `audit` the same way. Each call logs one
-    summary line at INFO with the effective mode, the policy source, and the
-    source and sink counts, so the active configuration is visible without a
-    reporter attached.
+    `INTERBOLT_AUDIT` overrides `audit`, and `INTERBOLT_DIAGNOSTICS` overrides
+    `diagnostics`, the same way. Each call logs one summary line at INFO with
+    the effective mode, the policy source, and the source and sink counts, so
+    the active configuration is visible without a reporter attached.
 
     Args:
         policy: The policy to enforce. With `None`, a built-in policy that
@@ -91,6 +92,10 @@ def configure(
             three sources above.
         audit: Whether to look for untrusted content reaching a sink without a
             mark. Findings go to the reporter. Off by default.
+        diagnostics: Whether to warn, once per run, when the run reached
+            `run_tainted=True` but no call afterward ever carried a
+            contributing label. On by default; disable once a stripping
+            point has been found and fixed.
 
     Returns:
         The configured `Runtime`.
@@ -135,6 +140,10 @@ def configure(
     if env_audit is not None:
         audit = env_audit.strip().lower() in {"1", "true", "yes", "on"}
 
+    env_diagnostics = os.environ.get(ENV_DIAGNOSTICS)
+    if env_diagnostics is not None:
+        diagnostics = env_diagnostics.strip().lower() in {"1", "true", "yes", "on"}
+
     audit_registry = AuditRegistry() if audit else None
     runtime = Runtime(
         policy=policy,
@@ -142,6 +151,7 @@ def configure(
         approval_resolver=approval_resolver,
         mode=resolved_mode,
         audit_registry=audit_registry,
+        diagnostics_enabled=diagnostics,
     )
     _set_current(runtime)
 
@@ -163,13 +173,14 @@ def configure(
 
     _logger.info(
         "configure(): mode=%s policy_source=%s sources=%d sinks=%d audit=%s "
-        "caller=%s:%d",
+        "diagnostics=%s caller=%s:%d",
         resolved_mode.value,
         policy.source
         or "programmatic (no file; interbolt policy init to generate one)",
         len(policy.document.sources),
         len(policy.document.sinks),
         audit,
+        diagnostics,
         caller_file,
         caller_line,
     )

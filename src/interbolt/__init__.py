@@ -13,6 +13,7 @@ from typing import Any
 __version__ = "0.4.0"
 
 from interbolt.constants import (
+    RECORD_TYPE_DIAGNOSTIC,
     RECORD_TYPE_ENDORSEMENT,
     RECORD_TYPE_EVENT,
     RECORD_TYPE_FINDING,
@@ -29,6 +30,7 @@ from interbolt.models.core import (
     Action,
     Capability,
     Decision,
+    Diagnostic,
     Endorsement,
     Event,
     Finding,
@@ -59,6 +61,7 @@ from interbolt.reporting import (
     LoggingReporter,
     NullReporter,
     describe_decision,
+    describe_diagnostic,
     describe_endorsement,
     describe_event,
     describe_finding,
@@ -129,6 +132,7 @@ __all__ = [
     "Event",
     "Finding",
     "Endorsement",
+    "Diagnostic",
     "Action",
     "Mode",
     "Label",
@@ -156,9 +160,11 @@ __all__ = [
     "describe_event",
     "describe_finding",
     "describe_endorsement",
+    "describe_diagnostic",
     "RECORD_TYPE_EVENT",
     "RECORD_TYPE_FINDING",
     "RECORD_TYPE_ENDORSEMENT",
+    "RECORD_TYPE_DIAGNOSTIC",
     "InterboltError",
     "PolicyViolation",
     "PolicyEvaluationError",

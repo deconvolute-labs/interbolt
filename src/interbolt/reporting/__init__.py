@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from interbolt.reporting.describe import describe_decision as describe_decision
+from interbolt.reporting.describe import describe_diagnostic as describe_diagnostic
 from interbolt.reporting.describe import describe_endorsement as describe_endorsement
 from interbolt.reporting.describe import describe_event as describe_event
 from interbolt.reporting.describe import describe_finding as describe_finding

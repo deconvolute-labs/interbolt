@@ -98,7 +98,7 @@ errors.py, constants.py, utils/     leaves
 | `ingress.py` | `taint()`, `track_model_call` |
 | `endorse.py` | `endorse()` and its record emission |
 | `walk.py` | depth-bounded leaf traversal, used at ingress and the sink |
-| `runstate.py` | run-ingress registry, run-capability registry, and the two extension hooks |
+| `runstate.py` | run-ingress registry, run-capability registry, run-diagnostic registry, and the two extension hooks |
 | `wire*.py` | the `pack`/`unpack` serialization contract |
 
 **`policy/`** loads, compiles, evaluates, and statically analyzes policy.
@@ -114,7 +114,8 @@ errors.py, constants.py, utils/     leaves
 
 **`enforcement/`** is the decision core: `check.py` (the pipeline), `signals.py`
 (trust signals derived once per call), `enforce.py` (decision to control flow),
-`audit.py` (the laundering audit registry).
+`audit.py` (the laundering audit registry), `diagnostics.py` (the
+run-tainted-without-attribution diagnostic, checked at `agent_context` exit).
 
 **`scan/`** reads a repository's source with `ast` and reports the tools an
 agent can call, never importing or executing what it reads. `scanner.py`

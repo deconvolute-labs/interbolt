@@ -12,7 +12,7 @@ from collections.abc import Sequence
 
 from interbolt import __version__ as _version
 from interbolt.errors import InterboltConfigError
-from interbolt.models.core import Endorsement, Event, Finding, TrustLevel
+from interbolt.models.core import Diagnostic, Endorsement, Event, Finding, TrustLevel
 from interbolt.utils import get_logger
 
 try:
@@ -28,6 +28,7 @@ _logger = get_logger("reporting.otel")
 _EVENT_DECISION = "interbolt.decision"
 _EVENT_FINDING = "interbolt.finding"
 _EVENT_ENDORSEMENT = "interbolt.endorsement"
+_EVENT_DIAGNOSTIC = "interbolt.diagnostic"
 
 _AttributeValue = str | int | bool | Sequence[str]
 
@@ -110,13 +111,30 @@ def _endorsement_attributes(endorsement: Endorsement) -> dict[str, _AttributeVal
     return attrs
 
 
+def _diagnostic_attributes(diagnostic: Diagnostic) -> dict[str, _AttributeValue]:
+    """Flatten a `Diagnostic` (run-tainted-without-attribution) to OTel attributes."""
+    attrs: dict[str, _AttributeValue] = {
+        "interbolt.schema_version": diagnostic.schema_version,
+        "interbolt.agent_id": diagnostic.agent_id,
+        "interbolt.run_id": diagnostic.run_id,
+        "interbolt.diagnostic.ingress_sources": sorted(diagnostic.ingress_sources),
+        "interbolt.diagnostic.calls_since_taint": diagnostic.calls_since_taint,
+    }
+    if diagnostic.policy_fingerprint is not None:
+        attrs["interbolt.policy_fingerprint"] = diagnostic.policy_fingerprint
+    if diagnostic.session_id is not None:
+        attrs["interbolt.session_id"] = diagnostic.session_id
+    return attrs
+
+
 class OTelReporter:
-    """Maps `Event`/`Finding`/`Endorsement` records onto OpenTelemetry spans.
+    """Maps `Event`/`Finding`/`Endorsement`/`Diagnostic` records onto OTel spans.
 
     Two emission paths. When the current span is recording (the common case:
     the host application already wraps the tool call in its own span), the
     record is added as a span event (`interbolt.decision`,
-    `interbolt.finding`, or `interbolt.endorsement`) on that span. Otherwise,
+    `interbolt.finding`, `interbolt.endorsement`, or `interbolt.diagnostic`)
+    on that span. Otherwise,
     a zero-work span named the same way is created and immediately closed
     via a tracer named `"interbolt"`. With no `TracerProvider` configured,
     this fallback is a no-op by OTel design: nothing is exported.
@@ -130,7 +148,7 @@ class OTelReporter:
         """Initialize the reporter's OpenTelemetry tracer."""
         self._tracer = trace.get_tracer("interbolt", _version)
 
-    def export(self, event: Event | Finding | Endorsement) -> None:
+    def export(self, event: Event | Finding | Endorsement | Diagnostic) -> None:
         """Emit `event` as a span event or a zero-work fallback span.
 
         Args:
@@ -140,8 +158,10 @@ class OTelReporter:
             name, attributes = _EVENT_DECISION, _event_attributes(event)
         elif isinstance(event, Finding):
             name, attributes = _EVENT_FINDING, _finding_attributes(event)
-        else:
+        elif isinstance(event, Endorsement):
             name, attributes = _EVENT_ENDORSEMENT, _endorsement_attributes(event)
+        else:
+            name, attributes = _EVENT_DIAGNOSTIC, _diagnostic_attributes(event)
 
         span = trace.get_current_span()
         if span.is_recording():
